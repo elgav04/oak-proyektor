@@ -1,0 +1,25 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\OakProyektor.Core\OakProyektor.Core.csproj" />
+    <ProjectReference Include="..\OakProyektor.Data\OakProyektor.Data.csproj" />
+    <ProjectReference Include="..\OakProyektor.Ipc\OakProyektor.Ipc.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Photino.NET" Version="4.0.16" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.15" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.15" />
+    <PackageReference Include="Serilog" Version="4.4.0" />
+    <PackageReference Include="Serilog.Extensions.Logging" Version="10.0.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="OakProyektor.Tests" />
+  </ItemGroup>
+  <!-- Estáticos del frontend junto al ejecutable (wwwroot). Requiere `npm run build` previo en frontend/. -->
+  <ItemGroup>
+    <Content Include="..\..\..\frontend\dist\**\*" Link="wwwroot\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,18 @@
+﻿# .NET
+bin/
+obj/
+*.user
+.vs/
+TestResults/
+
+# Node
+node_modules/
+frontend/dist/
+*.tsbuildinfo
+
+# Datos locales (BD, cachés, logs)
+data/
+
+# Varios
+.DS_Store
+Thumbs.db

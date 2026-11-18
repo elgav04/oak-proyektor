@@ -1,0 +1,9 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\OakProyektor.Core\OakProyektor.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- ILogger en el despachador (mensajes desconocidos se registran y se ignoran). -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.15" />
+  </ItemGroup>
+</Project>
