@@ -166,7 +166,7 @@ Leyenda de **cómo se verificó**:
 | I10 ruta de datos no escribible | Corregido | Tests + App real (copia «instalada» en carpeta sin escritura) | d45c109 |
 | I11 sin instancia única | Corregido | Tests + App real (ejecutable real, con la primera minimizada o detrás de otra ventana) | d45c109; segunda instancia mientras la primera se cierra: 01b1a87 |
 | I12 sin respuestas de error | Corregido | Tests | 227366a; carril lleno avisa: 94a0297 |
-| I13 `ItemsJson` sin integridad referencial | Corregido (tabla `PlaylistItems`). **Pospuesto** el aviso «Falta: …» en la interfaz | Tests | 8a5ef9a. Motivo del aplazamiento: aún no existe la función de abrir un servicio donde mostrarlo. |
+| I13 \ItemsJson\ sin integridad referencial | Corregido (tabla \PlaylistItems\; los pasajes se rediseñaron en la migración 4). **Pospuesto** el aviso «Falta: …» y «Biblia no instalada» en la interfaz | Tests | 8a5ef9a; pasajes: 6d5fe1f. Motivo del aplazamiento: aún no existe la función de abrir un servicio donde mostrarlo. |
 | I14 la pantalla puede apagarse | Corregido (`ScreenWakeLock`). **Falta prueba manual** (`powercfg /requests`) | Sin test automático (depende de Win32); el registro no recoge otra prueba | cd56327 |
 | M1 handler de cierre sin try/catch | Corregido | Sin test automático; el registro no recoge otra prueba | cd56327 |
 | M2 `Task.WaitAll` en el apagado | Corregido (`DisposeAsync`) | Sin test automático; el registro no recoge otra prueba | d45c109 |
@@ -198,5 +198,5 @@ Leyenda de **cómo se verificó**:
 | Menores: segunda instancia durante el apagado | Corregido | Tests + ejecutable real | 01b1a87 |
 | Menores: test de contrato solo comparaba nombres | Corregido (`ProtocolFormatTests`, huella por versión) | Tests + mutaciones | ca4a291 |
 | Menores: contradicciones en `CLAUDE.md` | Corregido | Revisión | (este commit) |
-| Menor: pasajes de `PlaylistItems` dependen del `Id` de libro | **Pospuesto** | — | Hay que decidirlo antes de escribir el importador de Biblias: reimportar una Biblia (borrar e importar) marcaría como faltantes todos los pasajes de todos los servicios. |
+| Menor: pasajes de PlaylistItems dependen del Id de libro | **Corregido** (migración 4: referencia canónica, PassageResolver, guardia BEFORE UPDATE; regla del importador en CLAUDE.md) | Tests (44) + ejecutable real (migraciones 1–4, user_version = 4). Sin importador aún: la regla queda documentada y fijada con un importador de referencia en los tests | 6d5fe1f |
 | Menor: `OutputController` sin tests | **Pospuesto** | — | Depende de Photino y de Win32; no hay arnés. Se compensa sacando la lógica a clases puras (`OutputPauseState`, `OutputSafetyPolicy`, `DisplayResolver`) y con las pruebas manuales documentadas. |
