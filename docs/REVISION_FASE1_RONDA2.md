@@ -102,4 +102,8 @@
 | Menor: panel tapado hasta ~1 s al desconectar | Corregido (pausa inmediata si la salida ya cruza el monitor del panel); falta probar con el cable real | 8f70942 |
 | Menor: salida en pausa restaurada desde la barra de tareas | Corregido (el sondeo vuelve a minimizarla); falta probar a mano | 8f70942 |
 | Menor: atajo de respaldo mostraba «recuperación manual» | Corregido (protocolo v3: `output.recover` con `reason`) | 8f70942 |
-| I-B, I-C y el resto de menores | Pendiente | — |
+| I-B | Corregido: DisplayResolver (solo 
+ull = automático), error output.displayNotFound, la ventana en pausa se conserva. Falta probar con monitores reales | 348d3b2 |
+| Menor: monitor nuevo con otro ID | Corregido: aviso «Apareció un monitor distinto al de la salida» con botón por monitor; nunca se abre sola; ya no dice «Proyector desconectado» si el monitor volvió. Falta probar con monitores reales | 348d3b2 |
+| I-C | Corregido (esetKey = seq); solo verificado con typecheck y la página de prueba no se ha repetido a mano | 348d3b2 |
+| Resto de menores | Pendiente | — |
