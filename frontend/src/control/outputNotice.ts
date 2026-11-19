@@ -30,9 +30,13 @@ export function describeOutput(displays: readonly DisplayInfo[], window: OutputW
   if (displays.length === 0) return { notice: { kind: "paused", reason }, canResumeInPlace: true };
 
   const targetConnected = window.displayId === null || displays.some((d) => d.id === window.displayId);
-  if (reason !== "displayLost") return { notice: { kind: "paused", reason }, canResumeInPlace: targetConnected };
+  // «Reanudar» restaura a pantalla completa en el monitor de la salida: si ahora aloja el panel taparía al operador (C# no lo reanuda), así que no se ofrece.
+  // Una salida en ventana normal (`isWindowed`) sí se puede reanudar donde esté.
+  const targetHostsPanel = !window.isWindowed && displays.some((d) => d.id === window.displayId && d.hostsPanel);
+  const canResume = targetConnected && !targetHostsPanel;
+  if (reason !== "displayLost") return { notice: { kind: "paused", reason }, canResumeInPlace: canResume };
 
-  if (targetConnected) return { notice: { kind: "displayBack" }, canResumeInPlace: true };
+  if (targetConnected) return { notice: { kind: "displayBack" }, canResumeInPlace: canResume };
 
   // El proyector no está. «Otro monitor que se podría usar» = no aloja el panel (ahí la salida taparía al operador).
   const alternatives = displays.filter((d) => !d.hostsPanel && d.id !== window.displayId);

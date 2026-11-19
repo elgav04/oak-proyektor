@@ -140,6 +140,13 @@ internal static partial class NativeMethods
         SetWindowPos(hwnd, HWND_TOPMOST, area.X, area.Y, area.Width, area.Height, SWP_SHOWWINDOW | SWP_NOACTIVATE);
     }
 
+    /// <summary>Reajusta una ventana YA visible (no minimizada) exactamente a <paramref name="area"/> y la deja topmost (cambió la resolución del monitor).</summary>
+    public static void MoveTopmostTo(nint hwnd, ScreenRect area)
+    {
+        using var _ = UsePhysicalCoordinates();
+        SetWindowPos(hwnd, HWND_TOPMOST, area.X, area.Y, area.Width, area.Height, SWP_NOACTIVATE);
+    }
+
     public static void SetTopmost(nint hwnd, bool topmost) =>
         SetWindowPos(hwnd, topmost ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 }

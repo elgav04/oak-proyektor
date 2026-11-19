@@ -77,6 +77,14 @@ test("salida en ventana normal (sin monitor asignado) se reanuda en el sitio", (
   assert.equal(d.canResumeInPlace, true);
 });
 
+test("pausa porque el panel se arrastró al monitor de la salida: «Reanudar» no se ofrece (taparía al operador); en ventana normal sí", () => {
+  const panelOnProjector = [display(PANEL.id, { isPrimary: true }), { ...PROJECTOR, hostsPanel: true }];
+  const d = describeOutput(panelOnProjector, win({ pauseReason: "panelCrossed" }));
+  assert.deepEqual(d.notice, { kind: "paused", reason: "panelCrossed" });
+  assert.equal(d.canResumeInPlace, false);
+  assert.equal(describeOutput(panelOnProjector, win({ pauseReason: "manual", isWindowed: true })).canResumeInPlace, true);
+});
+
 test("sin lista de monitores todavía no se afirma nada sobre el monitor", () => {
   const d = describeOutput([], win());
   assert.deepEqual(d.notice, { kind: "paused", reason: "displayLost" });

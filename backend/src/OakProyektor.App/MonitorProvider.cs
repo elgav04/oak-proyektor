@@ -4,7 +4,8 @@ using Photino.NET;
 
 namespace OakProyektor.App;
 
-internal sealed record MonitorArea(ScreenRect Area, double Scale);
+/// <param name="DevicePath">Ruta de dispositivo del monitor físico (identidad estable), o null si no se pudo leer.</param>
+internal sealed record MonitorArea(ScreenRect Area, double Scale, string? DevicePath = null);
 
 /// <summary>Monitores y posición del panel en un instante. Coordenadas en píxeles físicos.</summary>
 internal sealed record MonitorSnapshot(IReadOnlyList<MonitorArea> Monitors, int PanelCenterX, int PanelCenterY);
@@ -41,9 +42,19 @@ internal sealed class PhotinoMonitorProvider(PhotinoWindow main) : IMonitorProvi
 {
     private readonly PanelCenterTracker _panel = new();
 
+    // Última ruta conocida por rectángulo: si una lectura de Win32 falla un instante, el ID no debe saltar a «por rectángulo» y parecer otro monitor.
+    private readonly Dictionary<ScreenRect, string> _lastDevices = [];
+
     public MonitorSnapshot Read()
     {
-        var monitors = main.Monitors.Select(m => new MonitorArea(ToRect(m.MonitorArea), m.Scale)).ToList();
+        var devices = MonitorDevices.Read();
+        if (devices.Count > 0)
+        {
+            _lastDevices.Clear();
+            foreach (var (rect, path) in devices) _lastDevices[rect] = path;
+        }
+        // Si Win32 no devolvió NADA (fallo transitorio) se reutiliza la última lectura buena; si devolvió algo, manda esa lectura.
+        var monitors = main.Monitors.Select(m => { var rect = ToRect(m.MonitorArea); return new MonitorArea(rect, m.Scale, _lastDevices.GetValueOrDefault(rect)); }).ToList();
         var location = main.Location;
         var size = main.Size;
         var handle = main.WindowHandle;

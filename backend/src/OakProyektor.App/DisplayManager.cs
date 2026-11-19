@@ -58,8 +58,9 @@ internal sealed class DisplayManager : IDisplayManager
         MonitorSnapshot? snapshot = null;
         _ui.Invoke(() => snapshot = _provider.Read());   // solo válido en el hilo de UI
         var panelCenter = new System.Drawing.Point(snapshot!.PanelCenterX, snapshot.PanelCenterY);
+        var ids = DisplayId.Assign([.. snapshot.Monitors.Select(m => new DisplayCandidate(m.Area, m.DevicePath))]);
         var result = snapshot.Monitors
-            .Select(m => new DisplayInfo(DisplayId.From(m.Area.X, m.Area.Y, m.Area.Width, m.Area.Height), m.Area.X, m.Area.Y, m.Area.Width, m.Area.Height, m.Scale,
+            .Select((m, i) => new DisplayInfo(ids[i], m.Area.X, m.Area.Y, m.Area.Width, m.Area.Height, m.Scale,
                 IsPrimary: m.Area is { X: 0, Y: 0 },
                 HostsPanel: panelCenter.X >= m.Area.X && panelCenter.X < m.Area.Right && panelCenter.Y >= m.Area.Y && panelCenter.Y < m.Area.Bottom))
             .ToList();

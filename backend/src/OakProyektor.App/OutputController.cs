@@ -72,8 +72,10 @@ internal sealed class OutputController : IOutputController
     private string? _displayId;          // monitor asignado a la salida (en modo ventana, donde se colocó)
     private bool _windowed;
     private readonly OutputPauseState _pause = new();   // solo bajo _gate
+    private ScreenRect? _appliedArea;    // rectángulo del monitor al que se ajustó la ventana a pantalla completa (solo bajo _gate); null en ventana normal
     private string? _hotkey;
     private int _lostTicks;              // solo bajo _lifecycle
+    private readonly RefitDebouncer _refit = new();   // solo bajo _lifecycle
 
     public OutputController(
         PhotinoWindow main, WindowRegistry windows, IUiDispatcher ui, IDisplayManager displays, InboundQueue inbound,
@@ -154,6 +156,13 @@ internal sealed class OutputController : IOutputController
 
         if (existing is not null)
         {
+            // «Reanudar salida» pide el MISMO monitor que ya tiene la salida: es una reanudación, NUNCA una reapertura. Si el monitor es el del panel
+            // (o ya no sirve) la ventana sigue en pausa y se explica por qué; cerrarla y abrir otra la dejaba como ventana normal (hallazgo de las pruebas con el proyector).
+            if (paused && displayId is not null && displayId == currentId)
+            {
+                TryResumeLocked(order);
+                return;
+            }
             if (currentWindowed == windowed && currentId == target?.Id)
             {
                 if (paused) TryResumeLocked(order); else Publish();
@@ -199,6 +208,7 @@ internal sealed class OutputController : IOutputController
             lock (_gate)
             {
                 _window = w; _hwnd = 0; _windowed = windowed; _displayId = target?.Id;
+                _appliedArea = !windowed && target is not null ? ScreenRect.Of(target) : null;
                 bornPaused = _pause.BeginWindow(order);
             }
             if (bornPaused) _logger.LogWarning("Se pidió una pausa después de esta orden de abrir: la salida nacerá en pausa");
@@ -259,7 +269,7 @@ internal sealed class OutputController : IOutputController
             if (w is not null)
             {
                 var orphan = w;
-                lock (_gate) { if (ReferenceEquals(_window, orphan)) { _window = null; _hwnd = 0; _displayId = null; _windowed = false; _pause.WindowClosed(); } }
+                lock (_gate) { if (ReferenceEquals(_window, orphan)) { _window = null; _hwnd = 0; _displayId = null; _windowed = false; _appliedArea = null; _pause.WindowClosed(); } }
                 _windows.SetOutput(null);
                 try { orphan.Close(); } catch { /* no llegó a crearse la ventana nativa */ }
             }
@@ -331,7 +341,7 @@ internal sealed class OutputController : IOutputController
         lock (_gate)
         {
             changed = ReferenceEquals(_window, w);
-            if (changed) { _window = null; _hwnd = 0; _displayId = null; _windowed = false; _pause.WindowClosed(); }   // conserva el número de la última pausa del operador
+            if (changed) { _window = null; _hwnd = 0; _displayId = null; _windowed = false; _appliedArea = null; _pause.WindowClosed(); }   // conserva el número de la última pausa del operador
         }
         if (!changed) return;
         _windows.SetOutput(null);
@@ -392,8 +402,8 @@ internal sealed class OutputController : IOutputController
 
     private void EvaluateLocked(IReadOnlyList<DisplayInfo> displays)
     {
-        PhotinoWindow? w; nint hwnd; string? targetId; bool windowed, paused; OutputPauseReason? reason;
-        lock (_gate) { w = _window; hwnd = _hwnd; targetId = _displayId; windowed = _windowed; paused = _pause.IsPaused; reason = _pause.Reason; }
+        PhotinoWindow? w; nint hwnd; string? targetId; bool windowed, paused; OutputPauseReason? reason; ScreenRect? applied;
+        lock (_gate) { w = _window; hwnd = _hwnd; targetId = _displayId; windowed = _windowed; paused = _pause.IsPaused; reason = _pause.Reason; applied = _appliedArea; }
 
         if (w is not null && !windowed && targetId is not null && hwnd != 0)
         {
@@ -401,7 +411,11 @@ internal sealed class OutputController : IOutputController
             if (paused || rect is not null)
             {
                 var decision = OutputSafetyPolicy.Evaluate(new OutputSafetyInput(
-                    rect ?? default, !paused && NativeMethods.IsTopmost(hwnd), displays, targetId, paused, reason, _settings.Current.AutoRestoreOutput));
+                    rect ?? default, !paused && NativeMethods.IsTopmost(hwnd), displays, targetId, paused, reason, _settings.Current.AutoRestoreOutput, applied));
+
+                // Antirrebote del reajuste: un cambio de resolución pasa por rectángulos intermedios; solo se reajusta con el MISMO rectángulo nuevo en 2 sondeos seguidos.
+                var refitReady = _refit.Observe(decision.Kind == SafetyActionKind.Refit ? decision.Area : null);
+                if (decision.Kind == SafetyActionKind.Refit && !refitReady) decision = OutputSafetyDecision.None;
 
                 // Antirrebote solo para «monitor desaparecido» a secas: si la ventana YA cruza el monitor del panel (Immediate) tapa al operador y no se espera.
                 if (decision is { Kind: SafetyActionKind.Pause, Reason: OutputPauseReason.DisplayLost, Immediate: false })
@@ -419,6 +433,9 @@ internal sealed class OutputController : IOutputController
                         if (reason is { } evaluated && displays.FirstOrDefault(d => d.Id == targetId) is { } display)
                             ResumeAutoLocked(hwnd, ScreenRect.Of(display), evaluated);
                         break;
+                    case SafetyActionKind.Refit:
+                        RefitLocked(hwnd, decision.Area ?? default);
+                        break;
                     case SafetyActionKind.SetTopmost:
                         _logger.LogInformation("Topmost de la salida: {Topmost}", decision.Topmost);
                         _ui.Invoke(() => NativeMethods.SetTopmost(hwnd, decision.Topmost));
@@ -432,6 +449,22 @@ internal sealed class OutputController : IOutputController
         if (w is not null && hwnd != 0) EnforcePausedLocked(hwnd);
 
         Publish();   // algo visible puede haber cambiado sin acción (p. ej. el monitor dejó de estar conectado); el publicador no repite lo que no cambió
+    }
+
+    /// <summary>
+    /// El mismo monitor cambió de resolución/posición: la ventana (a pantalla completa) se reajusta a su rectángulo nuevo, sin pausa ni avisos al operador.
+    /// Si una pausa llegó mientras tanto, no se toca la ventana (está minimizada).
+    /// </summary>
+    private void RefitLocked(nint hwnd, ScreenRect area)
+    {
+        lock (_gate) { if (_pause.IsPaused) return; }
+        _logger.LogInformation("El monitor de la salida cambió de resolución o posición: se reajusta a {X},{Y} {Width}x{Height}", area.X, area.Y, area.Width, area.Height);
+        try
+        {
+            _ui.Invoke(() => NativeMethods.MoveTopmostTo(hwnd, area));
+            lock (_gate) _appliedArea = area;   // solo si funcionó: si falla se reintenta en el próximo sondeo
+        }
+        catch (Exception ex) { _logger.LogError(ex, "Falló el reajuste de la salida"); }
     }
 
     /// <summary>Pausa automática (monitor perdido / cruce con el panel). No rebaja una pausa más fuerte: si ya estaba en pausa por Manual o Emergency, no hace nada.</summary>
@@ -465,6 +498,7 @@ internal sealed class OutputController : IOutputController
     /// <summary>Restaura la ventana (en su sitio y topmost si se da <paramref name="area"/>). Si una pausa llegó mientras tanto, vuelve a minimizarla.</summary>
     private void RestoreWindow(nint hwnd, ScreenRect? area)
     {
+        if (area is { } applied) lock (_gate) _appliedArea = applied;   // el monitor puede haber cambiado de resolución mientras estaba en pausa
         try
         {
             _ui.Invoke(() =>
@@ -522,9 +556,12 @@ internal sealed class OutputController : IOutputController
             var display = targetId is null ? null : _displays.Current.FirstOrDefault(d => d.Id == targetId);
             if (display is null || display.HostsPanel)
             {
-                _logger.LogWarning("No se puede reanudar la salida: su monitor no está disponible o aloja el panel");
+                _logger.LogWarning("No se puede reanudar la salida: su monitor {Display} no está disponible o aloja el panel", targetId);
                 Publish();
-                throw new IpcException("output.cannotResume", "No se puede reanudar la salida: su monitor no está conectado o aloja el panel.");
+                // La ventana se queda en pausa tal cual (no se cierra ni se reabre como ventana normal) y se dice por qué.
+                throw new IpcException("output.cannotResume", display is null
+                    ? "No se puede reanudar la salida: el monitor donde proyectaba no está conectado. Sigue en pausa."
+                    : "No se puede reanudar la salida: el panel de control está en el monitor de la salida y proyectar a pantalla completa lo taparía. Sigue en pausa: mueve el panel a otro monitor, o elige otro monitor y pulsa «Abrir en el monitor elegido».");
             }
             area = ScreenRect.Of(display);
         }
