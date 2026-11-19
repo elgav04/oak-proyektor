@@ -48,8 +48,8 @@ public class DisplayManagerTests
         var dm = Create(p, out _);
         dm.Refresh();
 
-        Assert.Equal(ProjectorId, dm.Resolve(ProjectorId)!.Id);
-        Assert.Equal(PanelId, dm.Resolve(PanelId)!.Id);
+        Assert.Equal(ProjectorId, dm.Resolve(ProjectorId).Display!.Id);
+        Assert.Equal(PanelId, dm.Resolve(PanelId).Display!.Id);
     }
 
     [Fact]
@@ -67,13 +67,17 @@ public class DisplayManagerTests
     }
 
     [Fact]
-    public void Resolve_prefers_the_requested_id_else_the_first_monitor_without_the_panel()
+    public void Resolve_uses_the_requested_id_and_only_null_means_automatic()
     {
         var dm = Create(new FakeProvider(), out _);
         dm.Refresh();
-        Assert.Equal(PanelId, dm.Resolve(PanelId)!.Id);
-        Assert.Equal(ProjectorId, dm.Resolve(null)!.Id);
-        Assert.Equal(ProjectorId, dm.Resolve("9,9,9x9")!.Id);      // ID desconocido: cae al automático
+        Assert.Equal(PanelId, dm.Resolve(PanelId).Display!.Id);
+        Assert.Equal(ProjectorId, dm.Resolve(null).Display!.Id);
+
+        // I-B: un ID desconocido YA NO cae al automático (antes abría la salida a pantalla completa en un monitor que nadie eligió).
+        var unknown = dm.Resolve("9,9,9x9");
+        Assert.Equal(DisplayResolutionKind.NotFound, unknown.Kind);
+        Assert.Null(unknown.Display);
     }
 
     [Fact]
@@ -83,7 +87,7 @@ public class DisplayManagerTests
         p.Monitors.RemoveAt(1);
         var dm = Create(p, out _);
         dm.Refresh();
-        Assert.Null(dm.Resolve(null));
+        Assert.Null(dm.Resolve(null).Display);
     }
 
     [Fact]

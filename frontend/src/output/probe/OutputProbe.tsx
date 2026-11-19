@@ -37,7 +37,8 @@ export function OutputProbe() {
       <p>Revisión actual: {revision}. Esperado: tras «ROMPE» el recuadro conserva lo último pintado (no negro).</p>
       <div style={{ width: "100%", aspectRatio: "16 / 9", border: "2px solid #444", position: "relative", overflow: "hidden" }}>
         <div style={{ position: "absolute", inset: 0 }}>
-          <OutputScreen state={state} />
+          {/* Igual que la salida real: el boundary se reinicia con la secuencia (aquí, el contador) y NO con `state.revision`. */}
+          <OutputScreen state={state} seq={state === null ? null : revision} />
         </div>
       </div>
     </main>

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ipc } from "@/ipc/instance";
 import { MASTER_MODES, type DisplayInfo, type MasterMode, type OutputPauseReason } from "@/ipc/protocol";
+import { describeOutput, type OutputNotice } from "./outputNotice";
 import { connectControlStore, dismissFailure, reconnectControl, useControlStore } from "./store";
 
 const MASTER_LABELS: Record<MasterMode, string> = {
@@ -18,6 +19,21 @@ const PAUSE_MESSAGES: Record<OutputPauseReason, string> = {
   manual: "Salida en pausa (recuperación manual)",
   emergency: "Salida en pausa (atajo de emergencia)",
 };
+
+function noticeTitle(notice: OutputNotice): string {
+  switch (notice.kind) {
+    case "paused":
+      return PAUSE_MESSAGES[notice.reason];
+    case "displayLost":
+      return PAUSE_MESSAGES.displayLost;
+    case "newDisplay":
+      return "Apareció un monitor distinto al de la salida";
+    case "displayBack":
+      return "El proyector volvió a conectarse, pero la salida sigue en pausa";
+    case "none":
+      return "";
+  }
+}
 
 /** El número es solo una etiqueta para el operador (posición en la lista); NUNCA se envía: un monitor se identifica por su `id`. */
 function displayLabel(d: DisplayInfo, position: number): string {
@@ -43,8 +59,10 @@ export function App() {
 
   const isOpen = output?.window.isOpen ?? false;
   const isPaused = output?.window.isPaused ?? false;
-  const pauseReason = output?.window.pauseReason ?? null;
   const outputDisplayId = output?.window.displayId ?? null;
+  const autoRestore = output?.window.autoRestore ?? true;
+  // Qué aviso mostrar y si «Reanudar salida» puede funcionar (el monitor asignado sigue conectado). Solo presentación de lo que manda C#.
+  const { notice, canResumeInPlace } = describeOutput(displays, output?.window ?? null);
   const master = output?.state.master;
 
   return (
@@ -87,12 +105,51 @@ export function App() {
         </div>
       )}
 
-      {isPaused && (
-        <div role="alert" className="flex items-center justify-between gap-4 rounded-lg border-2 border-red-700 bg-red-600 p-5 text-white">
-          <p className="text-xl font-bold">{pauseReason ? PAUSE_MESSAGES[pauseReason] : "Salida en pausa"}</p>
-          <Button size="lg" variant="outline" className="h-12 shrink-0 text-black" onClick={() => { ipc.send("output.open", { displayId: outputDisplayId }); }}>
-            Reanudar salida
-          </Button>
+      {isPaused && notice.kind !== "none" && (
+        <div role="alert" className="flex flex-col gap-3 rounded-lg border-2 border-red-700 bg-red-600 p-5 text-white">
+          <p className="text-xl font-bold">{noticeTitle(notice)}</p>
+
+          {notice.kind === "displayLost" && (
+            <p>{autoRestore ? "Conéctalo de nuevo: la salida se restaurará sola." : "Conéctalo de nuevo y pulsa «Reanudar salida»."}</p>
+          )}
+
+          {notice.kind === "newDisplay" && (
+            <>
+              <p>
+                La salida está en pausa porque el monitor donde proyectaba ya no está conectado. NO se abre sola en otro monitor: si quieres
+                proyectar en uno de estos, elígelo.
+                {autoRestore ? " Si vuelve el mismo monitor, la salida se restaurará sola." : ""}
+              </p>
+              <div className="flex flex-wrap gap-3">
+                {notice.alternatives.map((d) => (
+                  <Button
+                    key={d.id}
+                    size="lg"
+                    variant="outline"
+                    className="h-12 text-black"
+                    disabled={!connected}
+                    onClick={() => { ipc.send("output.open", { displayId: d.id }); }}
+                  >
+                    Abrir la salida en {displayLabel(d, displays.indexOf(d))}
+                  </Button>
+                ))}
+              </div>
+            </>
+          )}
+
+          {notice.kind === "displayBack" && <p>Pulsa «Reanudar salida» para volver a proyectar en él.</p>}
+
+          {canResumeInPlace && (
+            <Button
+              size="lg"
+              variant="outline"
+              className="h-12 w-fit text-black"
+              disabled={!connected}
+              onClick={() => { ipc.send("output.open", { displayId: outputDisplayId }); }}
+            >
+              Reanudar salida
+            </Button>
+          )}
         </div>
       )}
 
@@ -122,9 +179,21 @@ export function App() {
           </p>
         )}
         <div className="flex flex-wrap gap-3">
-          <Button size="lg" disabled={!connected} onClick={() => { ipc.send("output.open", { displayId: selected }); }}>
-            {isPaused ? "Reanudar salida" : isOpen ? "Mover / reabrir salida" : "Abrir salida"}
-          </Button>
+          {isPaused ? (
+            <>
+              {/* «Reanudar» vuelve al monitor que ya tenía la salida (nunca a otro); abrir en otro monitor es una acción distinta y explícita. */}
+              <Button size="lg" disabled={!connected || !canResumeInPlace} onClick={() => { ipc.send("output.open", { displayId: outputDisplayId }); }}>
+                Reanudar salida
+              </Button>
+              <Button size="lg" variant="outline" disabled={!connected} onClick={() => { ipc.send("output.open", { displayId: selected }); }}>
+                Abrir en el monitor elegido
+              </Button>
+            </>
+          ) : (
+            <Button size="lg" disabled={!connected} onClick={() => { ipc.send("output.open", { displayId: selected }); }}>
+              {isOpen ? "Mover / reabrir salida" : "Abrir salida"}
+            </Button>
+          )}
           <Button size="lg" variant="outline" disabled={!connected || !isOpen} onClick={() => { ipc.send("output.close", {}); }}>
             Cerrar salida
           </Button>

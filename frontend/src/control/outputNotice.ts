@@ -1,0 +1,42 @@
+import type { DisplayInfo, OutputPauseReason, OutputWindowStatus } from "@/ipc/protocol";
+
+/**
+ * Qué aviso muestra el panel cuando la salida está en pausa. Función pura sobre las dos réplicas (lista de monitores y estado de la salida):
+ * solo decide cómo PRESENTAR lo que manda C#; no guarda ni decide estado de negocio. Nunca propone abrir la salida por sí sola en otro monitor:
+ * lo único que ofrece son botones para que el operador elija.
+ */
+export type OutputNotice =
+  | { kind: "none" }
+  /** Pausa «manual», «emergency» o «panelCrossed» (o `displayLost` cuando aún no hay lista de monitores para juzgarlo). */
+  | { kind: "paused"; reason: OutputPauseReason }
+  /** El monitor de la salida no está conectado y no hay otro que se pueda usar (no aloja el panel): «Proyector desconectado». */
+  | { kind: "displayLost" }
+  /** El monitor de la salida no está conectado, pero hay OTRO monitor que se podría usar: «Apareció un monitor distinto al de la salida». */
+  | { kind: "newDisplay"; alternatives: DisplayInfo[] }
+  /** Pausa por `displayLost`, pero el monitor de la salida ya está conectado de nuevo: espera al operador (p. ej. «restaurar automáticamente» desactivado). */
+  | { kind: "displayBack" };
+
+export interface OutputDescription {
+  notice: OutputNotice;
+  /** El monitor asignado a la salida está conectado (o no hay monitor asignado: ventana normal). Solo entonces «Reanudar salida» puede funcionar. */
+  canResumeInPlace: boolean;
+}
+
+export function describeOutput(displays: readonly DisplayInfo[], window: OutputWindowStatus | null): OutputDescription {
+  if (!window?.isOpen || !window.isPaused) return { notice: { kind: "none" }, canResumeInPlace: window?.isOpen ?? false };
+
+  const reason = window.pauseReason ?? "manual";
+  // Sin lista de monitores (aún no llegó) no se puede juzgar: se muestra el aviso genérico y no se afirma nada del monitor.
+  if (displays.length === 0) return { notice: { kind: "paused", reason }, canResumeInPlace: true };
+
+  const targetConnected = window.displayId === null || displays.some((d) => d.id === window.displayId);
+  if (reason !== "displayLost") return { notice: { kind: "paused", reason }, canResumeInPlace: targetConnected };
+
+  if (targetConnected) return { notice: { kind: "displayBack" }, canResumeInPlace: true };
+
+  // El proyector no está. «Otro monitor que se podría usar» = no aloja el panel (ahí la salida taparía al operador).
+  const alternatives = displays.filter((d) => !d.hostsPanel && d.id !== window.displayId);
+  return alternatives.length > 0
+    ? { notice: { kind: "newDisplay", alternatives }, canResumeInPlace: false }
+    : { notice: { kind: "displayLost" }, canResumeInPlace: false };
+}

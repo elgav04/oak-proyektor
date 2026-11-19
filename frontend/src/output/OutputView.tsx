@@ -43,5 +43,5 @@ export function OutputView() {
     };
   }, []);
 
-  return <OutputScreen state={applied?.state ?? null} />;
+  return <OutputScreen state={applied?.state ?? null} seq={applied?.seq ?? null} />;
 }

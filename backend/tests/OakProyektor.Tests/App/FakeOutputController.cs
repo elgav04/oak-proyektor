@@ -26,7 +26,7 @@ internal sealed class FakeDisplayManager(params DisplayInfo[] displays) : IDispl
     public event Action<IReadOnlyList<DisplayInfo>>? Polled { add { } remove { } }
     public IReadOnlyList<DisplayInfo> Refresh() => displays;
     public DisplayListPayload Snapshot() => new(1, displays);
-    public DisplayInfo? Resolve(string? requestedId) => displays.FirstOrDefault(d => d.Id == requestedId) ?? displays.FirstOrDefault(d => !d.HostsPanel);
+    public DisplayResolution Resolve(string? requestedId) => DisplayResolver.Resolve(displays, requestedId);
 }
 
 

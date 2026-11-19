@@ -14,8 +14,11 @@ internal interface IDisplayManager
     IReadOnlyList<DisplayInfo> Refresh();
     /// <summary>La lista actual con su secuencia (para el reply de <c>display.list</c>); publica antes si hay un cambio pendiente.</summary>
     DisplayListPayload Snapshot();
-    /// <summary>Monitor elegido: el del ID indicado si existe; si no, el primero que no aloja el panel. Null si no hay candidato.</summary>
-    DisplayInfo? Resolve(string? requestedId);
+    /// <summary>
+    /// Monitor elegido (<see cref="DisplayResolver"/>): solo <c>null</c> significa «automático» (el primero que no aloja el panel); un ID explícito
+    /// que no está conectado da <see cref="DisplayResolutionKind.NotFound"/>, NUNCA otro monitor.
+    /// </summary>
+    DisplayResolution Resolve(string? requestedId);
 }
 
 /// <summary>
@@ -70,12 +73,7 @@ internal sealed class DisplayManager : IDisplayManager
 
     public DisplayListPayload Snapshot() => _publisher.Read(() => _current, (seq, list) => new DisplayListPayload(seq, list));
 
-    public DisplayInfo? Resolve(string? requestedId)
-    {
-        var list = _current;
-        if (requestedId is not null && list.FirstOrDefault(d => d.Id == requestedId) is { } found) return found;
-        return list.FirstOrDefault(d => !d.HostsPanel);
-    }
+    public DisplayResolution Resolve(string? requestedId) => DisplayResolver.Resolve(_current, requestedId);
 
     /// <summary>Arranca el sondeo. Llamar solo después de que la ventana principal esté creada.</summary>
     public Task StartPolling(CancellationToken ct) => Task.Run(async () =>

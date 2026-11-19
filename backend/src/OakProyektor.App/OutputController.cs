@@ -134,7 +134,18 @@ internal sealed class OutputController : IOutputController
     private void OpenLocked(string? displayId, long order)
     {
         _displays.Refresh();   // la UI puede tener una lista vieja
-        var target = _displays.Resolve(displayId);
+        var resolution = _displays.Resolve(displayId);
+
+        // I-B: un ID explícito que no está conectado NO se sustituye por otro monitor. Se falla ANTES de tocar nada: la ventana que ya exista
+        // (por ejemplo la que está en pausa porque el proyector se desconectó) se conserva tal cual, no se cierra para abrir otra encima del panel.
+        if (resolution.Kind == DisplayResolutionKind.NotFound)
+        {
+            _logger.LogWarning("Se pidió abrir la salida en el monitor {Display}, que no está conectado; no se hizo nada", displayId);
+            Publish();
+            throw new IpcException("output.displayNotFound",
+                "El monitor elegido para la salida no está conectado. La salida no se movió: conéctalo de nuevo o elige otro monitor.");
+        }
+        var target = resolution.Display;
         // Pantalla completa solo en un monitor que NO aloja el panel; en cualquier otro caso, ventana normal que no lo tape.
         var windowed = target is null || target.HostsPanel;
 
