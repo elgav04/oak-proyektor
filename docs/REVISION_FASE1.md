@@ -134,9 +134,9 @@
 | Hallazgo | Estado | Commit |
 |---|---|---|
 | C1 | No se confirma (verificado por el usuario) | — |
-| C2 | Corregido; falta probar con el cable real (ver pruebas manuales en el commit) | HASH |
-| I14 | Corregido (`ScreenWakeLock`, `SetThreadExecutionState` en el hilo de UI) | HASH |
-| M1 | Corregido | HASH |
-| M11 | Corregido (registro inmediato + 3 reintentos y `WM_CLOSE`; no se declara cerrada si sigue existiendo) | HASH |
-| I6 | Parcial: el índice mostrado en el estado se deriva del rectángulo | HASH |
+| C2 | Corregido; falta probar con el cable real (ver pruebas manuales en el commit) | cd56327 |
+| I14 | Corregido (`ScreenWakeLock`, `SetThreadExecutionState` en el hilo de UI) | cd56327 |
+| M1 | Corregido | cd56327 |
+| M11 | Corregido (registro inmediato + 3 reintentos y `WM_CLOSE`; no se declara cerrada si sigue existiendo) | cd56327 |
+| I6 | Parcial: el índice mostrado en el estado se deriva del rectángulo | cd56327 |
 | resto | Pendiente | — |
