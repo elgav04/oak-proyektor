@@ -30,7 +30,7 @@ const outputPayload = (seq, master = "black", win = {}) => ({ seq, state: { revi
 let connection = null;
 beforeEach(() => {
   sent.length = 0;
-  useControlStore.setState({ connected: false, displays: [], displaysSeq: null, output: null, database: null, failure: null });
+  useControlStore.setState({ connected: false, everConnected: false, displays: [], displaysSeq: null, output: null, database: null, failure: null });
 });
 afterEach(() => { connection?.dispose(); connection = null; });
 
@@ -189,4 +189,96 @@ test("el estado de la base de datos también descarta secuencias viejas o repeti
   assert.equal(useControlStore.getState().database.state, "failed");
   send(msg("event", "database.statusChanged", dbStatus(6, "ready")));
   assert.equal(useControlStore.getState().database.state, "ready");
+});
+
+// ───────── heartbeat: `connected` vuelve a false si el backend deja de responder ─────────
+
+const HEARTBEAT = { intervalMs: 20, staleAfterMs: 90 };   // tiempos cortos para el test; en producción son 4 s y 12 s
+const statusReply = (id) => msg("reply", "database.getStatus", ok({ seq: 1, state: "ready", message: null, backupPath: null }), id);
+
+/** Contesta a cada consulta de database.getStatus (incluido el heartbeat) mientras esté activo: un backend sano. */
+const healthyBackend = () => {
+  const answered = new Set();
+  const timer = setInterval(() => {
+    for (const q of queries("database.getStatus")) {
+      if (!answered.has(q.id)) { answered.add(q.id); send(statusReply(q.id)); }
+    }
+  }, 5);
+  return () => clearInterval(timer);
+};
+
+test("el panel arranca sin haber estado conectado", () => {
+  const s = useControlStore.getState();
+  assert.equal(s.connected, false);
+  assert.equal(s.everConnected, false);
+});
+
+test("si el backend deja de responder, connected vuelve a false (y everConnected lo distingue de «nunca conectó»)", async () => {
+  connection = connectControlStore({ retry: { baseMs: 5, maxMs: 10 }, requestTimeoutMs: 200, heartbeat: HEARTBEAT });
+  await tick(3);                                           // antes del primer latido (20 ms): así las respuestas iniciales van a la carga, no a un latido
+  answerInitialQueries();
+  await tick(10);
+  assert.equal(useControlStore.getState().connected, true);
+  assert.equal(useControlStore.getState().everConnected, true);
+
+  await tick(350);                                         // el backend se queda mudo: ni respuestas al heartbeat ni eventos
+  assert.equal(useControlStore.getState().connected, false);
+  assert.equal(useControlStore.getState().everConnected, true);
+});
+
+test("el tráfico inválido no cuenta como señal de vida durante el silencio", async () => {
+  connection = connectControlStore({ retry: { baseMs: 5, maxMs: 10 }, requestTimeoutMs: 200, heartbeat: HEARTBEAT });
+  await tick(3);                                           // antes del primer latido (20 ms): así las respuestas iniciales van a la carga, no a un latido
+  answerInitialQueries();
+  await tick(10);
+  for (let i = 0; i < 12; i++) {
+    send("basura");
+    send({ v: 1, id: "1", kind: "event", type: "output.stateChanged", payload: outputPayload(1) });   // protocolo viejo
+    await tick(30);
+  }
+  assert.equal(useControlStore.getState().connected, false);
+});
+
+test("al volver cualquier mensaje válido, vuelve a conectado y se pide el estado completo otra vez", async () => {
+  connection = connectControlStore({ retry: { baseMs: 5, maxMs: 10 }, requestTimeoutMs: 200, heartbeat: HEARTBEAT });
+  await tick(3);                                           // antes del primer latido (20 ms): así las respuestas iniciales van a la carga, no a un latido
+  answerInitialQueries();
+  await tick(10);
+  await tick(300);
+  assert.equal(useControlStore.getState().connected, false);
+  const loads = queries("display.list").length;
+
+  send(msg("event", "output.stateChanged", outputPayload(9, "live", { isOpen: true })));
+  assert.equal(useControlStore.getState().connected, true);
+  await tick(40);
+  assert.ok(queries("display.list").length > loads, "al reconectar debe resincronizar pidiendo el estado completo");
+});
+
+test("mientras el backend responde, el heartbeat lo mantiene conectado aunque no cambie nada", async () => {
+  connection = connectControlStore({ retry: { baseMs: 5, maxMs: 10 }, requestTimeoutMs: 200, heartbeat: HEARTBEAT });
+  const stop = healthyBackend();
+  await tick(3);                                           // antes del primer latido (20 ms): así las respuestas iniciales van a la carga, no a un latido
+  answerInitialQueries();
+  await tick(10);
+  await tick(500);                                        // muchas veces el tiempo de caducidad, sin ningún evento de negocio
+  stop();
+  assert.equal(useControlStore.getState().connected, true);
+  assert.ok(queries("database.getStatus").length >= 5, "el heartbeat debe estar preguntando");
+});
+
+test("el heartbeat no acumula consultas si el backend no responde (una sola en vuelo)", async () => {
+  connection = connectControlStore({ retry: { baseMs: 5000, maxMs: 5000 }, requestTimeoutMs: 1000, heartbeat: { intervalMs: 10, staleAfterMs: 400 } });
+  await tick(150);
+  // 15 ticks de 10 ms: sin la regla serían ~15 consultas; con ella, la de la carga inicial más UN heartbeat.
+  assert.ok(queries("database.getStatus").length <= 2, `consultas: ${String(queries("database.getStatus").length)}`);
+});
+
+test("dispose() detiene el heartbeat", async () => {
+  connection = connectControlStore({ retry: { baseMs: 5000 }, requestTimeoutMs: 1000, heartbeat: { intervalMs: 10, staleAfterMs: 30 } });
+  await tick(30);
+  connection.dispose();
+  connection = null;
+  const before = queries("database.getStatus").length;
+  await tick(120);
+  assert.equal(queries("database.getStatus").length, before);
 });

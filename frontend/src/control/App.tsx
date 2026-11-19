@@ -43,6 +43,7 @@ function displayLabel(d: DisplayInfo, position: number): string {
 
 export function App() {
   const connected = useControlStore((s) => s.connected);
+  const everConnected = useControlStore((s) => s.everConnected);
   const displays = useControlStore((s) => s.displays);
   const output = useControlStore((s) => s.output);
   const failure = useControlStore((s) => s.failure);
@@ -79,10 +80,20 @@ export function App() {
           <span
             className={`rounded-full px-3 py-1 text-sm font-semibold ${isPaused ? "bg-red-600 text-white" : isOpen ? "bg-green-600 text-white" : "bg-neutral-200 text-neutral-700"}`}
           >
-            {!connected ? "Conectando…" : isPaused ? "SALIDA EN PAUSA" : isOpen ? "SALIDA ABIERTA" : "Salida cerrada"}
+            {!connected ? (everConnected ? "SIN RESPUESTA" : "Conectando…") : isPaused ? "SALIDA EN PAUSA" : isOpen ? "SALIDA ABIERTA" : "Salida cerrada"}
           </span>
         </div>
       </header>
+
+      {!connected && everConnected && (
+        <div role="alert" className="rounded-lg border-2 border-red-700 bg-red-600 p-5 text-white">
+          <p className="text-xl font-bold">El panel dejó de recibir respuesta del programa</p>
+          <p>
+            Lo que ves puede estar desactualizado y los botones están desactivados. Reintentando; si no se recupera, pulsa «Reconectar». La ventana de salida no depende del
+            panel: su estado real es el que se ve en el proyector.
+          </p>
+        </div>
+      )}
 
       {database?.state === "failed" && (
         <div role="alert" className="flex flex-col gap-2 rounded-lg border-2 border-red-700 bg-red-600 p-5 text-white">
