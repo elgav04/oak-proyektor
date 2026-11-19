@@ -25,8 +25,8 @@ public sealed class DatabaseInitializerTests : IDisposable
         await using var c = await _db.OpenAsync();
         var tables = (await c.QueryAsync<string>("SELECT name FROM sqlite_master WHERE type = 'table'")).ToHashSet();
         foreach (var table in ExpectedTables) Assert.Contains(table, tables);
-        Assert.Equal(3L, await c.ExecuteScalarAsync<long>("PRAGMA user_version"));
-        Assert.Equal(3, OakProyektor.Data.DatabaseInitializer.LatestSchemaVersion);
+        Assert.Equal(4L, await c.ExecuteScalarAsync<long>("PRAGMA user_version"));
+        Assert.Equal(4, OakProyektor.Data.DatabaseInitializer.LatestSchemaVersion);
     }
 
     [Fact]
@@ -58,7 +58,7 @@ public sealed class DatabaseInitializerTests : IDisposable
         await _db.InitializeAsync();
 
         await using var c2 = await _db.OpenAsync();
-        Assert.Equal(3L, await c2.ExecuteScalarAsync<long>("PRAGMA user_version"));
+        Assert.Equal(4L, await c2.ExecuteScalarAsync<long>("PRAGMA user_version"));
         Assert.Equal(1L, await c2.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM Verses"));
         Assert.Equal(1L, await c2.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM VersesFts WHERE VersesFts MATCH 'sintetico'"));
     }
