@@ -1,4 +1,4 @@
-﻿using Photino.NET;
+using Photino.NET;
 
 namespace OakProyektor.App;
 
@@ -25,6 +25,12 @@ internal sealed class WindowRegistry(PhotinoWindow control)
     public void SetOutput(PhotinoWindow? window)
     {
         lock (_gate) { _output = window; _outputReady = false; }
+    }
+
+    /// <summary>La página de control va a recargarse: hasta que vuelva a hablar no se le envía nada (igual que al arrancar).</summary>
+    public void ResetControlReady()
+    {
+        lock (_gate) _controlReady = false;
     }
 
     public void MarkControlReady()

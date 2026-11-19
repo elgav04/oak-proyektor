@@ -20,6 +20,7 @@ public static class IpcTypes
     public const string OutputRecover = "output.recover";
     public const string SettingsSetAutoRestore = "settings.setAutoRestore";
     public const string SettingsSetDisplayLostPolicy = "settings.setDisplayLostPolicy";
+    public const string SettingsSetPanelAlertOnOutput = "settings.setPanelAlertOnOutput";
     public const string DisplayChanged = "display.changed";
     public const string OutputStateChanged = "output.stateChanged";
     public const string CommandFailed = "command.failed";
@@ -36,8 +37,10 @@ public static class IpcCatalog
     /// v3: <c>output.recover</c> lleva <c>{ reason: "manual" | "emergency" }</c> (el atajo de respaldo de la salida se distingue del botón del panel).
     /// v4: <c>OutputWindowStatus</c> lleva <c>preferredDisplayId</c> y <c>onDisplayLost</c>; nuevo comando <c>settings.setDisplayLostPolicy</c>;
     /// motivos de pausa nuevos <c>duplicateMode</c> y <c>unstable</c>.
+    /// v5: <c>OutputWindowStatus</c> lleva <c>panelUnresponsive</c>, <c>panelAlertOnOutput</c> y <c>hotkeys</c> (atajos globales de respaldo y si se pudieron registrar);
+    /// nuevo comando <c>settings.setPanelAlertOnOutput</c>.
     /// </summary>
-    public const int ProtocolVersion = 4;
+    public const int ProtocolVersion = 5;
 
     public static IReadOnlyList<MessageDescriptor> Messages { get; } =
     [
@@ -47,6 +50,7 @@ public static class IpcCatalog
         new(IpcTypes.OutputRecover, IpcKind.Command),
         new(IpcTypes.SettingsSetAutoRestore, IpcKind.Command),
         new(IpcTypes.SettingsSetDisplayLostPolicy, IpcKind.Command),
+        new(IpcTypes.SettingsSetPanelAlertOnOutput, IpcKind.Command),
         new(IpcTypes.DisplayList, IpcKind.Query),
         new(IpcTypes.DisplayList, IpcKind.Reply),
         new(IpcTypes.OutputGetState, IpcKind.Query),

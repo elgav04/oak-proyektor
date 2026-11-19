@@ -3,6 +3,7 @@ import { ipc } from "@/ipc/instance";
 import type { DatabaseStatusPayload, DisplayInfo, DisplayListPayload, OutputStateChangedPayload } from "@/ipc/protocol";
 import { createRetrier, type RetryOptions } from "@/ipc/retry";
 import { isNewer } from "@/ipc/sequence";
+import { createTicker } from "@/ipc/ticker";
 
 /** Un comando que el backend no pudo ejecutar (evento `command.failed`). */
 export interface CommandFailure {
@@ -125,7 +126,8 @@ export function connectControlStore(options?: { retry?: RetryOptions; requestTim
 
   // Heartbeat: sin él, el silencio es normal (el backend solo escribe cuando algo cambia) y `connected` no podría volver a false.
   // La consulta es barata y su respuesta cuenta como tráfico válido. Una sola en vuelo: si el backend no responde no se acumulan.
-  const heartbeat = setInterval(() => {
+  // El reloj lo marca un worker (createTicker): así el throttling de páginas ocultas no retrasa el latido, y un hilo principal atascado NO lo envía.
+  const stopHeartbeat = createTicker(intervalMs, () => {
     if (useControlStore.getState().connected && Date.now() - lastActivity > staleAfterMs) useControlStore.setState({ connected: false });
     if (heartbeatInFlight) return;
     heartbeatInFlight = true;
@@ -136,14 +138,14 @@ export function connectControlStore(options?: { retry?: RetryOptions; requestTim
       .finally(() => {
         heartbeatInFlight = false;
       });
-  }, intervalMs);
+  });
 
   const connection: ControlConnection = {
     reconnect: () => {
       retrier.kick();
     },
     dispose: () => {
-      clearInterval(heartbeat);
+      stopHeartbeat();
       retrier.stop();
       offs.forEach((off) => {
         off();

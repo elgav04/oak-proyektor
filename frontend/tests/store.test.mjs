@@ -14,7 +14,7 @@ globalThis.window = {
 const { useControlStore, connectControlStore, reconnectControl, dismissFailure } = await loadTs("/src/control/store.ts");
 after(closeServer);
 
-const msg = (kind, type, payload, id = "x") => ({ v: 4, id, kind, type, payload });
+const msg = (kind, type, payload, id = "x") => ({ v: 5, id, kind, type, payload });
 const send = (o) => deliver(typeof o === "string" ? o : JSON.stringify(o));
 const ok = (result) => ({ ok: true, result, error: null });
 const tick = (ms = 20) => new Promise((r) => setTimeout(r, ms));

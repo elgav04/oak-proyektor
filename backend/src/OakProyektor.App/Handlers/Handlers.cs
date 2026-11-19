@@ -100,6 +100,19 @@ internal sealed class SettingsSetDisplayLostPolicyHandler(ISettingsStore setting
     }
 }
 
+internal sealed class SettingsSetPanelAlertOnOutputHandler(ISettingsStore settings, IOutputController output) : IIpcHandler
+{
+    public string Kind => IpcKind.Command;
+    public string Type => IpcTypes.SettingsSetPanelAlertOnOutput;
+    public async Task<object?> HandleAsync(IpcEnvelope request, CancellationToken cancellationToken)
+    {
+        var enabled = request.GetPayload<SetPanelAlertOnOutputPayload>().Enabled;
+        await settings.UpdateAsync(s => s with { ShowPanelAlertOnOutput = enabled }, cancellationToken).ConfigureAwait(false);
+        output.SettingsChanged();
+        return null;
+    }
+}
+
 internal sealed class DatabaseGetStatusHandler(DatabaseStatusReporter reporter) : IIpcHandler
 {
     public string Kind => IpcKind.Query;

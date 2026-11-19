@@ -22,7 +22,7 @@ internal sealed record ApplicationPaths(string DataDirectory, string LogsDirecto
 
     /// <summary>
     /// Perfil de WebView2 (<c>EBWebView</c>). Por defecto Photino lo deja en <c>%LOCALAPPDATA%\Photino</c>, compartido con cualquier otra
-    /// aplicación Photino; aquí queda dentro de nuestra carpeta. Las DOS ventanas deben usar esta misma carpeta (comparten el entorno de WebView2).
+    /// aplicación Photino; aquí queda dentro de nuestra carpeta. Es el perfil del PANEL; la salida usa la carpeta hermana con sufijo -output (otro entorno de WebView2: ver WebViewProfile).
     /// </summary>
     public string WebViewDataDirectory => Path.Combine(CacheDirectory, "WebView2");
 

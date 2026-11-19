@@ -40,6 +40,8 @@ public partial class ProtocolFormatTests
         new(typeof(OutputRecoverPayload), "OutputRecoverPayload", Direction.ToBackend),
         new(typeof(SetAutoRestorePayload), "SetAutoRestorePayload", Direction.ToBackend),
         new(typeof(SetDisplayLostPolicyPayload), "SetDisplayLostPolicyPayload", Direction.ToBackend),
+        new(typeof(SetPanelAlertOnOutputPayload), "SetPanelAlertOnOutputPayload", Direction.ToBackend),
+        new(typeof(HotkeyStatus), "HotkeyStatus", Direction.FromBackend),
         new(typeof(DisplayInfo), "DisplayInfo", Direction.FromBackend),
         new(typeof(OutputState), "OutputState", Direction.FromBackend),
         new(typeof(DisplayListPayload), "DisplayListPayload", Direction.FromBackend),
@@ -74,6 +76,7 @@ public partial class ProtocolFormatTests
     {
         [3] = "efee82b9a3b116fe10d0d29f9bc49cc8e4b5c70be8636fbe26a5986846b94d0b",
         [4] = "2acd299b86c38d491db90fe708f4ab670a8a583ba376229ceda88a8440ae8318",
+        [5] = "23f336405eb149dc5492da3c76522deab42c4c39bc1db04863c4096c6201998e",
     };
 
     // ───────────────────────────── lectura de C# ─────────────────────────────

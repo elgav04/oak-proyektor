@@ -31,6 +31,14 @@ internal interface IOutputController
     /// <summary>La configuración cambió: republica el estado.</summary>
     void SettingsChanged();
     void SetEmergencyHotkey(string? description);
+    /// <summary>Estado de los atajos globales de respaldo (Negro, Limpiar texto, Logo, recargar el panel): el panel avisa de los que no se pudieron registrar.</summary>
+    void SetBackupHotkeys(IReadOnlyList<HotkeyStatus> hotkeys);
+    /// <summary>
+    /// Atajo global de un control maestro: INTERRUPTOR (<see cref="MasterShortcut"/>): si ya está activo ese modo vuelve a Live. Actúa sin pasar por el panel.
+    /// </summary>
+    void ToggleMaster(MasterMode requested);
+    /// <summary>El JavaScript del panel dejó de dar señales (o volvió). La salida sigue proyectando; esto solo se informa (y, si el operador lo configuró, se muestra en la salida).</summary>
+    void SetPanelUnresponsive(bool unresponsive);
     /// <summary>Cierra la ventana de salida al apagar la app. Se llama desde el hilo de UI.</summary>
     void CloseForShutdown();
 }
@@ -74,6 +82,8 @@ internal sealed class OutputController : IOutputController
     private readonly OutputPauseState _pause = new();   // solo bajo _gate
     private ScreenRect? _appliedArea;    // rectángulo del monitor al que se ajustó la ventana a pantalla completa (solo bajo _gate); null en ventana normal
     private string? _hotkey;
+    private IReadOnlyList<HotkeyStatus> _backupHotkeys = [];
+    private bool _panelUnresponsive;
     // Antirrebote y tope de oscilaciones de la política (función pura con estado mínimo). Solo bajo _lifecycle.
     private readonly OutputSafetyEngine _engine = new();
     private readonly List<PausedRestoreGuard> _restoreGuards = [];   // referencias fuertes: el delegado nativo no puede recolectarse mientras exista la ventana
@@ -99,7 +109,8 @@ internal sealed class OutputController : IOutputController
             var paused = _window is not null && _pause.IsPaused;
             return new OutputSnapshot(_state,
                 new OutputWindowStatus(_window is not null, _window is null ? null : _displayId, _windowed, paused, paused ? _pause.Reason : null, _settings.Current.AutoRestoreOutput, _hotkey,
-                    _settings.Current.PreferredDisplayId, _settings.Current.OnDisplayLost));
+                    _settings.Current.PreferredDisplayId, _settings.Current.OnDisplayLost,
+                    _panelUnresponsive, _settings.Current.ShowPanelAlertOnOutput, _backupHotkeys));
         }
     }
 
@@ -119,6 +130,24 @@ internal sealed class OutputController : IOutputController
     public void SetEmergencyHotkey(string? description)
     {
         lock (_gate) _hotkey = description;
+        Publish();
+    }
+
+    public void SetBackupHotkeys(IReadOnlyList<HotkeyStatus> hotkeys)
+    {
+        lock (_gate) _backupHotkeys = hotkeys;
+        Publish();
+    }
+
+    public void ToggleMaster(MasterMode requested)
+    {
+        lock (_gate) _state = _state.WithMaster(MasterShortcut.Next(_state.Master, requested));
+        Publish();
+    }
+
+    public void SetPanelUnresponsive(bool unresponsive)
+    {
+        lock (_gate) _panelUnresponsive = unresponsive;
         Publish();
     }
 
@@ -225,7 +254,7 @@ internal sealed class OutputController : IOutputController
              .SetContextMenuEnabled(false)
              .SetUseOsDefaultLocation(false)
              .SetUseOsDefaultSize(false);
-            _profile.ApplyTo(w);   // la MISMA carpeta de perfil que el panel: comparten el entorno de WebView2 (ver ApplicationHost, hallazgo I8)
+            _profile.ApplyToOutput(w);   // perfil PROPIO de la salida (otro entorno de WebView2 que el del panel): ver ApplicationHost, hallazgo I8
             if (!windowed && target is not null)
             {
                 w.SetChromeless(true).SetResizable(false).SetTopMost(true)

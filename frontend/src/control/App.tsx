@@ -13,6 +13,13 @@ const MASTER_LABELS: Record<MasterMode, string> = {
   freeze: "Freeze",
 };
 
+const HOTKEY_LABELS: Record<string, string> = {
+  black: "Negro",
+  clearText: "Limpiar texto",
+  logo: "Logo",
+  reloadPanel: "Recargar el panel",
+};
+
 const PAUSE_MESSAGES: Record<OutputPauseReason, string> = {
   displayLost: "Proyector desconectado: salida en pausa",
   panelCrossed: "La salida invadió el monitor del panel: salida en pausa",
@@ -70,6 +77,7 @@ export function App() {
   const autoRestore = output?.window.autoRestore ?? true;
   const displayLostPolicy = output?.window.onDisplayLost ?? "warnAndWait";
   const preferredDisplayId = output?.window.preferredDisplayId ?? null;
+  const hotkeys = output?.window.hotkeys ?? [];
   // Qué aviso mostrar y si «Reanudar salida» puede funcionar (el monitor asignado sigue conectado). Solo presentación de lo que manda C#.
   const { notice, canResumeInPlace } = describeOutput(displays, output?.window ?? null);
   const master = output?.state.master;
@@ -275,6 +283,15 @@ export function App() {
             El monitor preferido es el último que elegiste al abrir la salida; la salida siempre intenta volver a él.
           </p>
         </fieldset>
+        <label className="flex cursor-pointer items-center gap-3 text-sm">
+          <input
+            type="checkbox"
+            checked={output?.window.panelAlertOnOutput ?? false}
+            disabled={!connected}
+            onChange={(e) => { ipc.send("settings.setPanelAlertOnOutput", { enabled: e.target.checked }); }}
+          />
+          <span>Mostrar «PANEL SIN RESPUESTA» en la propia salida si el panel se atasca (por defecto NO se muestra nada en la proyección)</span>
+        </label>
         <p className="text-sm text-neutral-600">
           {output?.window.emergencyHotkey
             ? `Atajo de emergencia (minimiza la salida desde cualquier ventana): ${output.window.emergencyHotkey}`
@@ -282,8 +299,24 @@ export function App() {
         </p>
       </section>
 
+      {connected && hotkeys.some((h) => !h.registered) && (
+        <div role="alert" className="rounded-lg border-2 border-amber-600 bg-amber-100 p-4 text-amber-950">
+          <p className="font-bold">Algunos atajos globales de respaldo no están disponibles</p>
+          <p className="text-sm">
+            Otra aplicación usa estas combinaciones, así que no funcionarán desde fuera del panel:{" "}
+            {hotkeys.filter((h) => !h.registered).map((h) => (HOTKEY_LABELS[h.action] ?? h.action) + " (" + h.keys + ")").join(", ")}.
+          </p>
+        </div>
+      )}
+
       <section aria-labelledby="master-title" className="flex flex-col gap-3">
         <h2 id="master-title" className="text-lg font-semibold">Controles maestros</h2>
+        {hotkeys.some((h) => h.registered) && (
+          <p className="text-sm text-neutral-600">
+            Atajos globales de respaldo (funcionan aunque el panel se atasque; los de modo son interruptores, pulsar otra vez vuelve a Live):{" "}
+            {hotkeys.filter((h) => h.registered).map((h) => h.keys + " = " + (HOTKEY_LABELS[h.action] ?? h.action)).join("; ")}.
+          </p>
+        )}
         <div className="grid grid-cols-5 gap-3">
           {MASTER_MODES.map((mode) => (
             <Button

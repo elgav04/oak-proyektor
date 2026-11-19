@@ -46,9 +46,20 @@ public sealed record DisplayListPayload(long Seq, IReadOnlyList<DisplayInfo> Dis
 /// <param name="EmergencyHotkey">Atajo de emergencia global registrado (p. ej. "Ctrl+Alt+Shift+M"); null si no se pudo registrar.</param>
 /// <param name="PreferredDisplayId">Monitor preferido del operador (al que la salida siempre intenta volver); null si no eligió ninguno.</param>
 /// <param name="OnDisplayLost">Ajuste: qué hacer si el monitor de la salida desaparece (<c>warnAndWait</c> | <c>moveToBest</c>).</param>
+/// <param name="PanelUnresponsive">El JavaScript del panel lleva ~10 s sin dar señales (atascado); la salida sigue proyectando. Informativo.</param>
+/// <param name="PanelAlertOnOutput">Ajuste: la salida muestra un aviso discreto cuando <c>PanelUnresponsive</c> (por defecto false).</param>
+/// <param name="Hotkeys">Atajos globales de respaldo (Negro, Limpiar texto, Logo, recargar el panel) y si se registraron.</param>
 public sealed record OutputWindowStatus(
     bool IsOpen, string? DisplayId, bool IsWindowed, bool IsPaused, OutputPauseReason? PauseReason, bool AutoRestore, string? EmergencyHotkey,
-    string? PreferredDisplayId, DisplayLostPolicy OnDisplayLost);
+    string? PreferredDisplayId, DisplayLostPolicy OnDisplayLost,
+    bool PanelUnresponsive, bool PanelAlertOnOutput, IReadOnlyList<HotkeyStatus> Hotkeys);
+
+/// <summary>Un atajo global de respaldo (independiente del panel): su acción, la combinación y si Windows permitió registrarla (otra aplicación puede haberla tomado).</summary>
+/// <param name="Action"><c>black</c> | <c>clearText</c> | <c>logo</c> | <c>reloadPanel</c>.</param>
+public sealed record HotkeyStatus(string Action, string Keys, bool Registered);
+
+/// <summary><c>settings.setPanelAlertOnOutput</c>: mostrar «PANEL SIN RESPUESTA» en la propia salida (por defecto NO: la proyección no muestra nada).</summary>
+public sealed record SetPanelAlertOnOutputPayload(bool Enabled);
 
 /// <summary><c>settings.setDisplayLostPolicy</c>: «Si el monitor de la salida desaparece».</summary>
 public sealed record SetDisplayLostPolicyPayload(DisplayLostPolicy Policy);

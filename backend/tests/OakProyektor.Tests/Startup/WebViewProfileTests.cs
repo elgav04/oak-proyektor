@@ -27,6 +27,10 @@ public sealed class WebViewProfileTests : IDisposable
         var profile = WebViewProfile.Choose(PathsWithData(data), Path.Combine(_root, "temp"));
 
         Assert.Equal(Path.Combine(data, "cache", "WebView2"), profile.Directory);
+        // La salida tiene su PROPIO perfil (otro entorno de WebView2): con uno compartido, un panel recuperado acaba en el renderizador de la salida y la congela.
+        Assert.Equal(Path.Combine(data, "cache", "WebView2-output"), profile.OutputDirectory);
+        Assert.NotEqual(profile.Directory, profile.OutputDirectory);
+        Assert.True(Directory.Exists(profile.OutputDirectory));
         Assert.Null(profile.Note);
         Assert.True(Directory.Exists(profile.Directory));
         Assert.False(Directory.Exists(Path.Combine(_root, "temp")));

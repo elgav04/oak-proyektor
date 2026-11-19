@@ -16,7 +16,7 @@ public class InboundProcessorTests
     }
 
     private static string Cmd(string type, string payload = "{}", string id = "x") =>
-        $$"""{"v":4,"id":"{{id}}","kind":"command","type":"{{type}}","payload":{{payload}}}""";
+        $$"""{"v":5,"id":"{{id}}","kind":"command","type":"{{type}}","payload":{{payload}}}""";
 
     private static (InboundQueue Intake, Outbox Outbox, InboundProcessor Processor) Create(params IIpcHandler[] handlers) =>
         CreateWithCapacity(InboundProcessor.DefaultLaneCapacity, handlers);
@@ -161,7 +161,7 @@ public class InboundProcessorTests
         Assert.Equal(Targets.Output, target1);
 
         // Una query descartada recibe un reply con error (no un command.failed), correlacionado por su id: el cliente la rechaza al instante.
-        intake.Enqueue(WindowKind.Control, """{"v":4,"id":"q9","kind":"query","type":"display.list","payload":{}}""");
+        intake.Enqueue(WindowKind.Control, """{"v":5,"id":"q9","kind":"query","type":"display.list","payload":{}}""");
         var (target2, reply) = await NextOutboundAsync(outbox);
         Assert.Equal(Targets.Control, target2);
         Assert.Equal(("reply", IpcTypes.DisplayList, "q9"), (reply.Kind, reply.Type, reply.Id));

@@ -8,7 +8,7 @@
  * prioridad en el backend (el orden entre carriles no está garantizado; dentro de cada uno sí).
  * v3: `output.recover` lleva `{ reason: "manual" | "emergency" }` (el atajo de respaldo de la salida se distingue del botón del panel).
  */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 export type MessageKind = "command" | "event" | "query" | "reply";
 
@@ -19,6 +19,7 @@ export const MESSAGE_CATALOG = [
   { type: "output.recover", kind: "command" },
   { type: "settings.setAutoRestore", kind: "command" },
   { type: "settings.setDisplayLostPolicy", kind: "command" },
+  { type: "settings.setPanelAlertOnOutput", kind: "command" },
   { type: "display.list", kind: "query" },
   { type: "display.list", kind: "reply" },
   { type: "output.getState", kind: "query" },
@@ -93,6 +94,17 @@ export interface SetDisplayLostPolicyPayload {
   policy: DisplayLostPolicy;
 }
 
+export interface SetPanelAlertOnOutputPayload {
+  enabled: boolean;
+}
+
+/** Un atajo global de respaldo (independiente del panel) y si Windows permitió registrarlo. */
+export interface HotkeyStatus {
+  action: string;
+  keys: string;
+  registered: boolean;
+}
+
 export interface OutputWindowStatus {
   isOpen: boolean;
   displayId: string | null;
@@ -104,6 +116,11 @@ export interface OutputWindowStatus {
   /** Monitor preferido del operador, al que la salida siempre intenta volver. */
   preferredDisplayId: string | null;
   onDisplayLost: DisplayLostPolicy;
+  /** El JavaScript del panel lleva ~10 s sin dar señales. La salida sigue proyectando. */
+  panelUnresponsive: boolean;
+  /** Ajuste del operador: la salida muestra un aviso cuando panelUnresponsive (por defecto NO). */
+  panelAlertOnOutput: boolean;
+  hotkeys: HotkeyStatus[];
 }
 
 export interface OutputStateChangedPayload {
@@ -149,6 +166,7 @@ export interface CommandPayloads {
   "output.recover": OutputRecoverPayload;
   "settings.setAutoRestore": SetAutoRestorePayload;
   "settings.setDisplayLostPolicy": SetDisplayLostPolicyPayload;
+  "settings.setPanelAlertOnOutput": SetPanelAlertOnOutputPayload;
 }
 
 /** Payload de cada evento (C# → UI). */

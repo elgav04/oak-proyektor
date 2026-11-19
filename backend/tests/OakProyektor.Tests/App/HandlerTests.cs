@@ -12,7 +12,7 @@ namespace OakProyektor.Tests.App;
 public class HandlerTests
 {
     private static string Msg(string kind, string type, string payload = "{}") =>
-        $$"""{"v":4,"id":"q1","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
+        $$"""{"v":5,"id":"q1","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
 
     private static (IpcDispatcher Dispatcher, FakeOutputController Output) Create(params DisplayInfo[] displays)
     {
@@ -27,6 +27,7 @@ public class HandlerTests
             new OutputRecoverHandler(output),
             new SettingsSetAutoRestoreHandler(new InMemorySettings(), output),
             new SettingsSetDisplayLostPolicyHandler(new InMemorySettings(), output),
+            new SettingsSetPanelAlertOnOutputHandler(new InMemorySettings(), output),
             new DatabaseGetStatusHandler(new DatabaseStatusReporter(new FakeReadiness(), new Outbox(NullLogger<Outbox>.Instance))),
         ];
         return (new IpcDispatcher(handlers, NullLogger<IpcDispatcher>.Instance), output);
@@ -44,6 +45,7 @@ public class HandlerTests
                 IpcTypes.OutputSetMaster => """{"master":"live"}""",
                 IpcTypes.SettingsSetAutoRestore => """{"enabled":false}""",
                 IpcTypes.SettingsSetDisplayLostPolicy => """{"policy":"moveToBest"}""",
+                IpcTypes.SettingsSetPanelAlertOnOutput => """{"enabled":true}""",
                 _ => "{}",
             };
             var response = await d.DispatchAsync(Msg(m.Kind, m.Type, payload), CancellationToken.None);
@@ -55,7 +57,7 @@ public class HandlerTests
         }
         Assert.True(unhandled.Count == 0, "Mensajes del catálogo sin handler: " + string.Join(", ", unhandled));
         // Los comandos llegaron a su handler (si faltara uno, el despachador solo lo registraría y no quedaría la llamada).
-        Assert.Equal(["open:auto", "close", "master:Live", "pause:Manual", "settingsChanged", "settingsChanged"], output.Calls);
+        Assert.Equal(["open:auto", "close", "master:Live", "pause:Manual", "settingsChanged", "settingsChanged", "settingsChanged"], output.Calls);
     }
 
     [Fact]
@@ -69,6 +71,20 @@ public class HandlerTests
         await d.DispatchAsync(Msg("command", "settings.setDisplayLostPolicy", """{"policy":"moveToBest"}"""), CancellationToken.None);
 
         Assert.Equal(DisplayLostPolicy.MoveToBest, settings.Current.OnDisplayLost);
+        Assert.Equal(["settingsChanged"], output.Calls);
+    }
+
+    [Fact]
+    public async Task The_panel_alert_on_output_is_off_by_default_and_the_setting_is_persisted()
+    {
+        var settings = new InMemorySettings();
+        var output = new FakeOutputController();
+        var d = new IpcDispatcher([new SettingsSetPanelAlertOnOutputHandler(settings, output)], NullLogger<IpcDispatcher>.Instance);
+        Assert.False(settings.Current.ShowPanelAlertOnOutput);            // por defecto, la proyección no muestra nada
+
+        await d.DispatchAsync(Msg("command", "settings.setPanelAlertOnOutput", """{"enabled":true}"""), CancellationToken.None);
+
+        Assert.True(settings.Current.ShowPanelAlertOnOutput);
         Assert.Equal(["settingsChanged"], output.Calls);
     }
 
