@@ -141,6 +141,6 @@
 | M1 | Corregido | cd56327 |
 | M11 | Corregido (registro inmediato + 3 reintentos y `WM_CLOSE`; no se declara cerrada si sigue existiendo) | cd56327 |
 | I6 | Parcial: el índice mostrado en el estado se deriva del rectángulo | cd56327 |
-| I8 | Verificado a mano el 2026-11-18; sin cambios de entorno; repetir al actualizar Photino/WebView2 | HASH |
-| M13 | Corregido: `OutputErrorBoundary` conserva el último estado pintado; probado en la ventana real y con `/output-probe.html` | HASH |
+| I8 | Verificado a mano el 2026-11-18; sin cambios de entorno; repetir al actualizar Photino/WebView2 | 0f59c06 |
+| M13 | Corregido: `OutputErrorBoundary` conserva el último estado pintado; probado en la ventana real y con `/output-probe.html` | 0f59c06 |
 | resto | Pendiente | — |
