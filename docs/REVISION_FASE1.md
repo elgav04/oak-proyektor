@@ -157,10 +157,10 @@
 | I12 | Corregido (replies ok/error, `command.failed`) | 227366a |
 | M4 | Corregido (`Outbox` compacta snapshots) | 227366a |
 | M12 | Corregido (`InboundProcessor`) | 227366a |
-| I1 | Corregido (`MigrationRunner`) | HASH |
-| I2 | Corregido (`recursive_triggers` + `REPLACE` prohibido) | HASH |
-| I9 | Corregido (`IDatabaseReadiness`, `database.statusChanged`) | HASH |
-| I13 | Corregido (migración 3, `PlaylistItems`; falta el aviso en la UI al abrir un servicio) | HASH |
-| M5 | Corregido (migración 2) | HASH |
-| M6 | Corregido (`MigrationHashTests`) | HASH |
+| I1 | Corregido (`MigrationRunner`) | 8a5ef9a |
+| I2 | Corregido (`recursive_triggers` + `REPLACE` prohibido) | 8a5ef9a |
+| I9 | Corregido (`IDatabaseReadiness`, `database.statusChanged`) | 8a5ef9a |
+| I13 | Corregido (migración 3, `PlaylistItems`; falta el aviso en la UI al abrir un servicio) | 8a5ef9a |
+| M5 | Corregido (migración 2) | 8a5ef9a |
+| M6 | Corregido (`MigrationHashTests`) | 8a5ef9a |
 | resto | Pendiente | — |
