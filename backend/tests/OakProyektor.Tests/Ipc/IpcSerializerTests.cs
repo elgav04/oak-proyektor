@@ -120,3 +120,33 @@ public class IpcSerializerTests
 
 
 
+
+public class IpcSerializerOptionsTests
+{
+    [Fact]
+    public void The_shared_options_are_read_only_from_the_start_so_no_code_can_alter_them()
+    {
+        Assert.True(IpcSerializer.Options.IsReadOnly);
+        Assert.Throws<InvalidOperationException>(() => IpcSerializer.Options.PropertyNamingPolicy = null);
+        Assert.Throws<InvalidOperationException>(() => IpcSerializer.Options.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter()));
+        Assert.Throws<InvalidOperationException>(() => IpcSerializer.Options.NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString);
+    }
+
+    [Fact]
+    public void A_freshly_created_instance_is_already_read_only_before_anything_has_used_it()
+    {
+        // La instancia compartida se vuelve de solo lectura sola al primer uso, así que otro test pudo haberla "protegido" ya.
+        // Aquí se crea una nueva por reflexión: tiene que ser de solo lectura DESDE EL PRINCIPIO.
+        var create = typeof(IpcSerializer).GetMethod("CreateOptions", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        var fresh = (System.Text.Json.JsonSerializerOptions)create.Invoke(null, null)!;
+
+        Assert.True(fresh.IsReadOnly);
+    }
+
+    [Fact]
+    public void Being_read_only_does_not_change_the_wire_format()
+    {
+        var json = System.Text.Json.JsonSerializer.Serialize(new OutputSetMasterPayload(MasterMode.ClearText), IpcSerializer.Options);
+        Assert.Equal("{\"master\":\"clearText\"}", json);
+    }
+}

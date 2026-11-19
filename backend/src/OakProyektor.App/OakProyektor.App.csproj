@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <!-- Requerido por el generador de LibraryImport (P/Invoke). -->
@@ -10,7 +10,13 @@
     <ProjectReference Include="..\OakProyektor.Ipc\OakProyektor.Ipc.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Photino.NET" Version="4.0.16" />
+    <!--
+      Versiones EXACTAS (los corchetes): sin ellos NuGet resuelve "esa versión o superior". El spike y las pruebas manuales de CLAUDE.md
+      (hallazgos I7 e I8) valen solo para ESTAS versiones. Si las cambias: repite la prueba manual obligatoria de CLAUDE.md y actualiza
+      PhotinoPinTests. Photino.Native se fija aparte porque es lo que realmente crea las ventanas y el WebView2.
+    -->
+    <PackageReference Include="Photino.NET" Version="[4.0.16]" />
+    <PackageReference Include="Photino.Native" Version="[4.0.22]" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.15" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.15" />
     <PackageReference Include="Serilog" Version="4.4.0" />
@@ -20,6 +26,28 @@
   <ItemGroup>
     <InternalsVisibleTo Include="OakProyektor.Tests" />
   </ItemGroup>
+  <!--
+    Hallazgo M8: el build empaqueta frontend/dist como wwwroot. Si dist es MÁS VIEJO que las fuentes del frontend (o no existe), se estaría
+    empaquetando una interfaz desactualizada: en Release es un ERROR; en Debug, un aviso. Desactivar: -p:FrontendCheck=false.
+    Un target con Inputs/Outputs solo se ejecuta cuando alguna entrada es más nueva que alguna salida (o falta una salida).
+  -->
+  <PropertyGroup>
+    <FrontendDir>$(MSBuildThisFileDirectory)..\..\..\frontend\</FrontendDir>
+    <FrontendCheck Condition="'$(FrontendCheck)' == ''">true</FrontendCheck>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrontendSource Include="$(FrontendDir)src\**\*" Exclude="$(FrontendDir)src\output\probe\**" />
+    <FrontendSource Include="$(FrontendDir)index.html;$(FrontendDir)output.html;$(FrontendDir)package.json;$(FrontendDir)package-lock.json;$(FrontendDir)vite.config.ts;$(FrontendDir)tsconfig.json;$(FrontendDir)components.json" />
+  </ItemGroup>
+  <Target Name="CheckFrontendBuild" BeforeTargets="BeforeBuild"
+          Condition="'$(FrontendCheck)' == 'true' And Exists('$(FrontendDir)package.json')"
+          Inputs="@(FrontendSource)" Outputs="$(FrontendDir)dist\index.html;$(FrontendDir)dist\output.html">
+    <PropertyGroup>
+      <_FrontendMessage>frontend/dist falta o es más viejo que las fuentes del frontend: se empaquetaría una interfaz desactualizada. Ejecuta `npm run build` en frontend/ antes de compilar (o pasa -p:FrontendCheck=false).</_FrontendMessage>
+    </PropertyGroup>
+    <Error Condition="'$(Configuration)' == 'Release'" Code="OAK001" Text="$(_FrontendMessage)" />
+    <Warning Condition="'$(Configuration)' != 'Release'" Code="OAK001" Text="$(_FrontendMessage)" />
+  </Target>
   <!-- Estáticos del frontend junto al ejecutable (wwwroot). Requiere `npm run build` previo en frontend/. -->
   <ItemGroup>
     <Content Include="..\..\..\frontend\dist\**\*" Link="wwwroot\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />

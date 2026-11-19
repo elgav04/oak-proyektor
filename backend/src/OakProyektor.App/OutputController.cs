@@ -1,4 +1,4 @@
-﻿using System.Drawing;
+using System.Drawing;
 using Microsoft.Extensions.Logging;
 using OakProyektor.Core.Display;
 using OakProyektor.Core.Output;
@@ -51,6 +51,7 @@ internal sealed class OutputController : IOutputController
     private readonly ApplicationPaths _paths;
     private readonly ISettingsStore _settings;
     private readonly ScreenWakeLock _wakeLock;
+    private readonly WebViewProfile _profile;
     private readonly ILogger<OutputController> _logger;
     private readonly SequencedSnapshotPublisher<OutputSnapshot> _publisher;
 
@@ -68,10 +69,10 @@ internal sealed class OutputController : IOutputController
 
     public OutputController(
         PhotinoWindow main, WindowRegistry windows, IUiDispatcher ui, IDisplayManager displays, InboundQueue inbound,
-        IOutbox outbox, ApplicationPaths paths, ISettingsStore settings, ScreenWakeLock wakeLock, ILogger<OutputController> logger)
+        IOutbox outbox, ApplicationPaths paths, WebViewProfile profile, ISettingsStore settings, ScreenWakeLock wakeLock, ILogger<OutputController> logger)
     {
         _main = main; _windows = windows; _ui = ui; _displays = displays; _inbound = inbound;
-        _paths = paths; _settings = settings; _wakeLock = wakeLock; _logger = logger;
+        _paths = paths; _profile = profile; _settings = settings; _wakeLock = wakeLock; _logger = logger;
         _publisher = new SequencedSnapshotPublisher<OutputSnapshot>(
             outbox, IpcTypes.OutputStateChanged, Targets.All, (seq, s) => new OutputStateChangedPayload(seq, s.State, s.Window));
         _displays.Polled += OnPolled;
@@ -181,6 +182,7 @@ internal sealed class OutputController : IOutputController
              .SetContextMenuEnabled(false)
              .SetUseOsDefaultLocation(false)
              .SetUseOsDefaultSize(false);
+            _profile.ApplyTo(w);   // la MISMA carpeta de perfil que el panel: comparten el entorno de WebView2 (ver ApplicationHost, hallazgo I8)
             if (!windowed && target is not null)
             {
                 w.SetChromeless(true).SetResizable(false).SetTopMost(true)
@@ -199,7 +201,13 @@ internal sealed class OutputController : IOutputController
                 return false;   // false = permitir el cierre
             });
             w.Load(_paths.OutputPage);
-            w.WaitForClose();   // dentro de Invoke no bloquea: crea la ventana nativa y vuelve
+            // ADVERTENCIA (hallazgo I7): esta línea depende de un comportamiento NO documentado de Photino. WaitForClose() es lo que crea
+            // la ventana nativa; llamado dentro de main.Invoke (hilo de UI, bucle ya en marcha) crea la ventana y vuelve, pero llamado desde el
+            // handler WindowCreated de la ventana principal BLOQUEA hasta que esa ventana se cierra (verificado en el spike, Photino.NET 4.0.16).
+            // Una versión distinta de Photino podría bloquear aquí y congelar las DOS ventanas. Por eso Photino.NET y Photino.Native están
+            // fijados a versión exacta (OakProyektor.App.csproj; PhotinoPinTests falla si cambian) y tras actualizarlos es OBLIGATORIO repetir
+            // la prueba manual de CLAUDE.md (abrir la salida sin que el panel se congele, y el bucle infinito en el panel).
+            w.WaitForClose();
             nint hwnd = 0;
             try { hwnd = w.WindowHandle; }
             catch (Exception ex) { _logger.LogError(ex, "No se pudo obtener el handle de la salida: la política de seguridad no podrá actuar sobre ella"); }

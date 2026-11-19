@@ -8,32 +8,37 @@ using Serilog;
 namespace OakProyektor.App;
 
 /// <summary>Composición (DI), ventana principal y apagado ordenado.</summary>
-internal sealed class ApplicationHost : IDisposable
+internal sealed class ApplicationHost : IAsyncDisposable
 {
+    /// <summary>Título de la ventana de control. La segunda instancia lo usa para encontrar a la primera.</summary>
+    public const string ControlWindowTitle = "Oak-Proyektor — Control";
+
     private readonly CancellationTokenSource _shutdown = new();
     private readonly ServiceProvider _services;
     private readonly ILogger<ApplicationHost> _logger;
     private readonly ApplicationPaths _paths;
+    private readonly WebViewProfile _profile;
     private Task[] _background = [];
 
     /// <param name="configureServices">Gancho opcional (pruebas) para sustituir servicios, p. ej. <see cref="IMonitorProvider"/>.</param>
     public ApplicationHost(ApplicationPaths paths, Serilog.ILogger serilog, Action<IServiceCollection>? configureServices = null)
     {
         _paths = paths;
+        _profile = WebViewProfile.Choose(paths, Path.GetTempPath());
 
         // AISLAMIENTO ENTRE PANEL Y SALIDA (hallazgo I8) — verificado A MANO, no por tests automáticos:
         //   Fecha: 2026-11-18. Equipo: Windows 11 con proyector real.
         //   Versiones: Photino.NET 4.0.16 (Photino.Native 4.0.22), WebView2 Runtime 157.0.4341.60.
         //   Prueba: con la salida abierta y proyectando, se abrió DevTools en el panel (compilación Debug) y se ejecutó un
         //   bucle infinito en la consola. Resultado: la ventana de control se congeló, la proyección siguió funcionando.
-        //   Por eso el panel y la salida se dejan en el MISMO entorno de WebView2 (el predeterminado de Photino):
+        //   Por eso el panel y la salida se dejan en el MISMO entorno de WebView2 (la misma carpeta de perfil, _profile):
         //   NO se les asigna un entorno propio ni se cambia su relación (ver CLAUDE.md y docs/REVISION_FASE1.md, I8).
+        //   El perfil se movió de %LOCALAPPDATA%\Photino a <datos>\cache\WebView2 (hallazgo I10) en AMBAS ventanas. Comprobado el 2026-11-19:
+        //   la estructura de procesos de WebView2 con las dos ventanas abiertas es idéntica antes y después (1 navegador, 2 renderizadores,
+        //   GPU, crashpad, 2 utilidades). Si se tocara el perfil de una sola ventana, dejarían de compartir entorno: no lo hagas.
         //   REPETIR esta prueba tras actualizar Photino.NET, Photino.Native o el runtime de WebView2: el aislamiento
         //   depende de cómo WebView2 reparte los procesos de renderizado, y eso puede cambiar entre versiones.
-        MainWindow = new PhotinoWindow()
-            .SetTitle("Oak-Proyektor — Control")
-            .SetSize(1100, 720)
-            .Center()
+        MainWindow = _profile.ApplyTo(new PhotinoWindow().SetTitle(ControlWindowTitle).SetSize(1100, 720).Center())
 #if DEBUG
             .SetDevToolsEnabled(true);
 #else
@@ -43,6 +48,7 @@ internal sealed class ApplicationHost : IDisposable
         var services = new ServiceCollection();
         services.AddLogging(b => b.ClearProviders().AddSerilog(serilog, dispose: false));
         services.AddSingleton(paths);
+        services.AddSingleton(_profile);
         services.AddSingleton(MainWindow);
         services.AddSingleton(new WindowRegistry(MainWindow));
         services.AddSingleton<IUiDispatcher, PhotinoUiDispatcher>();
@@ -108,7 +114,9 @@ internal sealed class ApplicationHost : IDisposable
         MainWindow.RegisterWindowCreatedHandler((_, _) => Guard(OnMainCreated, "creación de la ventana principal"));
         MainWindow.RegisterWindowClosingHandler((_, _) => { Guard(OnMainClosing, "cierre de la ventana principal"); return false; });
 
-        _logger.LogInformation("Arrancando. Datos: {Data}; web: {Web}", _paths.DataDirectory, _paths.WebRoot);
+        _logger.LogInformation("Arrancando. Datos: {Data} (origen: {Origin}); WebView2: {Profile}; web: {Web}",
+            _paths.DataDirectory, _paths.Origin, _profile.Directory ?? "(predeterminado de Photino)", _paths.WebRoot);
+        if (_profile.Note is not null) _logger.LogWarning("{Note}", _profile.Note);
         MainWindow.WaitForClose();
         _logger.LogInformation("Ventana principal cerrada; apagando");
         return 0;
@@ -158,19 +166,15 @@ internal sealed class ApplicationHost : IDisposable
         catch (Exception ex) { _logger.LogError(ex, "Excepción en {What}", what); }
     }
 
-    public void Dispose()
+    /// <summary>
+    /// Apagado asíncrono (hallazgo M2): cancela el trabajo de fondo y espera, con un límite de 3 s, a que termine, sin bloquear ningún hilo.
+    /// </summary>
+    public async ValueTask DisposeAsync()
     {
         _shutdown.Cancel();
-        try { Task.WaitAll(_background, TimeSpan.FromSeconds(3)); } catch (Exception ex) { _logger.LogWarning(ex, "Tareas de fondo con error al apagar"); }
-        _services.Dispose();
+        try { await Task.WhenAll(_background).WaitAsync(TimeSpan.FromSeconds(3)).ConfigureAwait(false); }
+        catch (Exception ex) { _logger.LogWarning(ex, "Tareas de fondo con error o demasiado lentas al apagar"); }
+        await _services.DisposeAsync().ConfigureAwait(false);
         _shutdown.Dispose();
     }
 }
-
-
-
-
-
-
-
-

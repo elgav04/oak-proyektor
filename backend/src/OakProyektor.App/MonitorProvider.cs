@@ -1,4 +1,4 @@
-﻿using System.Drawing;
+using System.Drawing;
 using OakProyektor.Core.Output;
 using Photino.NET;
 
@@ -16,14 +16,49 @@ internal interface IMonitorProvider
     MonitorSnapshot Read();
 }
 
+/// <summary>
+/// Centro del panel para saber en qué monitor está (hallazgo M10). Con el panel minimizado Windows lo aparca en (-32000, -32000), fuera de
+/// todos los monitores: sin esto ninguno «alojaría el panel» y la salida podría abrirse a pantalla completa sobre el monitor del operador.
+/// Mientras esté minimizado (o fuera de pantalla) se devuelve la ÚLTIMA posición en que se vio.
+/// </summary>
+internal sealed class PanelCenterTracker
+{
+    /// <summary>Windows aparca las ventanas minimizadas en (-32000, -32000); cualquier valor por debajo de esto no es una posición real.</summary>
+    private const int OffScreenThreshold = -30000;
+
+    private (int X, int Y)? _lastKnown;
+
+    /// <returns>El centro real, o el último conocido si ahora está minimizado/fuera de pantalla; null si nunca se conoció.</returns>
+    public (int X, int Y)? Update(int x, int y, int width, int height, bool isMinimized)
+    {
+        var offScreen = isMinimized || x <= OffScreenThreshold || y <= OffScreenThreshold;
+        if (!offScreen) _lastKnown = (x + width / 2, y + height / 2);
+        return _lastKnown;
+    }
+}
+
 internal sealed class PhotinoMonitorProvider(PhotinoWindow main) : IMonitorProvider
 {
+    private readonly PanelCenterTracker _panel = new();
+
     public MonitorSnapshot Read()
     {
         var monitors = main.Monitors.Select(m => new MonitorArea(ToRect(m.MonitorArea), m.Scale)).ToList();
         var location = main.Location;
         var size = main.Size;
-        return new MonitorSnapshot(monitors, location.X + size.Width / 2, location.Y + size.Height / 2);
+        var handle = main.WindowHandle;
+        var minimized = handle != 0 && NativeMethods.IsIconic(handle);
+
+        // Si nunca se vio una posición real (arrancó minimizada), se asume el monitor principal: allí se crea la ventana (Center()).
+        var center = _panel.Update(location.X, location.Y, size.Width, size.Height, minimized)
+                     ?? PrimaryCenter(monitors);
+        return new MonitorSnapshot(monitors, center.X, center.Y);
+    }
+
+    private static (int X, int Y) PrimaryCenter(IReadOnlyList<MonitorArea> monitors)
+    {
+        var primary = monitors.FirstOrDefault(m => m.Area is { X: 0, Y: 0 }) ?? monitors.FirstOrDefault();
+        return primary is null ? (0, 0) : (primary.Area.X + primary.Area.Width / 2, primary.Area.Y + primary.Area.Height / 2);
     }
 
     private static ScreenRect ToRect(Rectangle r) => new(r.X, r.Y, r.Width, r.Height);

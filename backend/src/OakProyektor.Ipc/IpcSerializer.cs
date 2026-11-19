@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace OakProyektor.Ipc;
@@ -8,13 +8,21 @@ public static class IpcSerializer
     /// <summary>Tamaño máximo aceptado por mensaje entrante.</summary>
     public const int MaxMessageChars = 1_000_000;
 
-    public static JsonSerializerOptions Options { get; } = new(JsonSerializerDefaults.Web)
+    /// <summary>Opciones compartidas. Son de SOLO LECTURA desde el primer momento (hallazgo M3): ningún código puede alterarlas después.</summary>
+    public static JsonSerializerOptions Options { get; } = CreateOptions();
+
+    private static JsonSerializerOptions CreateOptions()
     {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false) },
-        NumberHandling = JsonNumberHandling.Strict,              // "1" no es un número válido
-        DefaultIgnoreCondition = JsonIgnoreCondition.Never,   // los null se envían explícitos (el TS los espera como "| null")
-    };
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false) },
+            NumberHandling = JsonNumberHandling.Strict,              // "1" no es un número válido
+            DefaultIgnoreCondition = JsonIgnoreCondition.Never,   // los null se envían explícitos (el TS los espera como "| null")
+        };
+        options.MakeReadOnly(populateMissingResolver: true);
+        return options;
+    }
 
     public static string Serialize(IpcEnvelope envelope) => JsonSerializer.Serialize(envelope, Options);
 

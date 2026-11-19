@@ -1,4 +1,4 @@
-﻿using System.Runtime.InteropServices;
+using System.Runtime.InteropServices;
 using OakProyektor.Core.Output;
 
 namespace OakProyektor.App;
@@ -62,6 +62,18 @@ internal static partial class NativeMethods
 
     [LibraryImport("user32.dll")]
     public static partial nint SetThreadDpiAwarenessContext(nint dpiContext);
+
+    [LibraryImport("user32.dll", EntryPoint = "FindWindowExW", StringMarshalling = StringMarshalling.Utf16)]
+    public static partial nint FindWindowEx(nint parent, nint childAfter, string? className, string? windowName);
+
+    [LibraryImport("user32.dll")]
+    public static partial uint GetWindowThreadProcessId(nint hWnd, out uint processId);
+
+    [LibraryImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool SetForegroundWindow(nint hWnd);
+
+    [LibraryImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool BringWindowToTop(nint hWnd);
 
     [LibraryImport("kernel32.dll")]
     public static partial uint GetCurrentThreadId();

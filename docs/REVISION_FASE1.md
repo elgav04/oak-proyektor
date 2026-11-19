@@ -70,7 +70,8 @@
 - **Problema:** el índice que muestra y envía la UI cambia si se reconecta un monitor. Consecuencias: abrir la salida en otro monitor, «salida aquí» marcado en el monitor equivocado, y el aviso «monitor desconectado» falso o ausente.
 - **Corrección:** identificar cada monitor por su rectángulo o por ID de dispositivo en `DisplayInfo` y en `OutputWindowStatus`.
 
-### I7. Dependencia de un comportamiento no documentado de Photino
+### I7. Dependencia de un comportamiento no documentado de Photino — **CORREGIDO**
+> Advertencia junto a `WaitForClose()` (`OutputController`), `Photino.NET` `[4.0.16]` y `Photino.Native` `[4.0.22]` fijados a versión EXACTA (antes `4.0.16` significaba «esa o superior»), `PhotinoPinTests` que falla si cambian, y la prueba manual obligatoria en `CLAUDE.md` (ampliada con la apertura de la salida y la estructura de procesos).
 - **Dónde:** `OutputController.cs:93`.
 - **Problema:** `w.WaitForClose()` "no bloquea" solo cuando se llama dentro de un `Invoke`. En el spike, dentro del handler `Created`, sí bloqueaba. Una actualización de Photino podría colgar el hilo de UI y congelar las dos ventanas.
 - **Corrección:** mantener la versión fijada, documentar la prueba manual obligatoria al actualizar Photino, y dejar un comentario de advertencia junto a la dependencia.
@@ -88,12 +89,14 @@
 - **Problema:** los futuros repositorios podrían consultar antes de que termine la migración. Si la inicialización falla, solo queda en el log y el operador no se entera.
 - **Corrección:** exponer la tarea de inicialización para que los repositorios la esperen, y avisar al panel si falla.
 
-### I10. Ruta de datos en producción no escribible
+### I10. Ruta de datos en producción no escribible — **CORREGIDO**
+> Producción: `%LOCALAPPDATA%\Oak-Proyektor` (BD, `backups/`, `logs/`, `settings.json`, `cache/`); desarrollo: `data/` del repo; `OAK_DATA_DIR` manda. Verificado con una copia «instalada» en una carpeta que rechaza la escritura: arranca, funciona y no cambia ni un archivo junto al ejecutable. Incluye el perfil de WebView2, que antes iba a `%LOCALAPPDATA%\Photino` (compartido con otras aplicaciones Photino), con respaldo para que una carpeta de datos imposible no deje el panel en negro.
 - **Dónde:** `ApplicationPaths.cs:15`.
 - **Problema:** fuera del repo, los datos van a `data/` junto al ejecutable. En `Program Files` no se puede escribir: no habría BD ni logs, y Serilog falla en silencio.
 - **Corrección:** usar `%LOCALAPPDATA%\Oak-Proyektor`.
 
-### I11. No hay instancia única
+### I11. No hay instancia única — **CORREGIDO**
+> `SingleInstanceGuard` (Mutex con nombre por carpeta de datos, sin propietario) antes de crear el log; la segunda instancia trae al frente la ventana de control de la primera y sale con código 0. Verificado con el ejecutable real: con la primera minimizada, y con la primera detrás de otra ventana.
 - **Dónde:** `Program.cs`.
 - **Problema:** un doble clic en el icono abre dos procesos: dos salidas sobre el proyector, y dos escritores sobre el mismo log y la misma BD.
 - **Corrección:** un `Mutex` con nombre, y traer al frente la instancia que ya está abierta.
@@ -120,19 +123,19 @@
 | # | Archivo:línea | Problema | Corrección |
 |---|---|---|---|
 | M1 | `OutputController.cs:91` | El handler de cierre de la salida no captura excepciones (contradice `CLAUDE.md:83`). **CORREGIDO.** | Envolverlo en try/catch. |
-| M2 | `ApplicationHost.cs:126` | `Task.WaitAll` contradice `CLAUDE.md:70`. Está acotado a 3 s. | Apagado asíncrono, o documentar la excepción. |
-| M3 | `IpcSerializer.cs:11` | Opciones estáticas públicas que se pueden modificar hasta su primer uso (contradice `CLAUDE.md:72`). | Llamar a `MakeReadOnly()`. |
+| M2 | `ApplicationHost.cs:126` | `Task.WaitAll` contradice `CLAUDE.md:70`. Está acotado a 3 s. **CORREGIDO** (`DisposeAsync` con `WaitAsync`; el único bloqueo que queda es el punto de entrada `Main`, documentado en `CLAUDE.md`). | Apagado asíncrono, o documentar la excepción. |
+| M3 | `IpcSerializer.cs:11` | Opciones estáticas públicas que se pueden modificar hasta su primer uso (contradice `CLAUDE.md:72`). **CORREGIDO** (`MakeReadOnly` al crearlas; test sobre una instancia recién creada). | Llamar a `MakeReadOnly()`. |
 | M4 | `MessageQueues.cs:14,33` | Con la cola llena, comandos y eventos se descartan solo con un log. **CORREGIDO** (`Outbox` compacta: solo el último snapshot por tipo y destino). | En la salida, conservar solo el último snapshot de cada tipo. |
 | M5 | `0001_Initial.sql:88,105` | `Verses_au` se dispara con cualquier `UPDATE`. `Songs_au` no cubre un cambio de `Id`. **CORREGIDO** (migración 2; la 0001 no se editó). | `AFTER UPDATE OF Text`, y prohibir cambiar `Id`. |
 | M6 | `Migrations/Migration.cs` | No se guarda un hash de las migraciones aplicadas: editar la 0001 tras publicarla pasa desapercibido. **CORREGIDO** (`MigrationHashTests`). | Un test que fije el hash de cada migración ya publicada. |
-| M7 | `CLAUDE.md:48` | Dice que `wwwroot` está «pendiente», pero ya existe (`OakProyektor.App.csproj:23`). | Actualizar el texto. |
-| M8 | `OakProyektor.App.csproj:23` | Sin `npm run build` se empaqueta un `dist` viejo. El test de contrato compara las fuentes, no el `dist`. | Un target de MSBuild que lo compruebe, o un handshake con hash de build. |
+| M7 | `CLAUDE.md:48` | Dice que `wwwroot` está «pendiente», pero ya existe (`OakProyektor.App.csproj:23`). **CORREGIDO.** | Actualizar el texto. |
+| M8 | `OakProyektor.App.csproj:23` | Sin `npm run build` se empaqueta un `dist` viejo. El test de contrato compara las fuentes, no el `dist`. **CORREGIDO** (target `CheckFrontendBuild`: error en Release, aviso OAK001 en Debug; verificado con dist al día, desactualizado, inexistente y con `FrontendCheck=false`). | Un target de MSBuild que lo compruebe, o un handshake con hash de build. |
 | M9 | `ApplicationHost.cs:71` y `OutputController.cs:92` | La navegación del WebView no está restringida: cualquier página que se cargue tendría `window.external`. | Bloquear la navegación fuera de las páginas propias. |
-| M10 | `DisplayManager.cs:37-42,53` | Con el panel minimizado (posición −32000), ningún monitor «aloja el panel» y la opción por defecto sería el monitor del panel. Afecta a futuros atajos globales. | Usar la última posición conocida del panel. |
+| M10 | `DisplayManager.cs:37-42,53` | Con el panel minimizado (posición −32000), ningún monitor «aloja el panel» y la opción por defecto sería el monitor del panel. Afecta a futuros atajos globales. **CORREGIDO** (`PanelCenterTracker`; verificado con la app real: con el panel minimizado la salida automática va al monitor 2). | Usar la última posición conocida del panel. |
 | M11 | `OutputController.cs:72-98,109-111` | Si la creación falla a mitad o `Close` falla, queda una ventana topmost huérfana que el panel no controla. **CORREGIDO.** | Registrar la ventana justo al crearla y reintentar el cierre. |
 | M12 | `IpcPump.cs:23` | `catch (OperationCanceledException) { throw; }` sin filtro: un OCE ajeno al apagado detendría la cola de entrada para siempre. Hoy no pasa porque el dispatcher no lo propaga. **CORREGIDO** (ahora en `InboundProcessor`, con `when (ct.IsCancellationRequested)` y test). | Añadir `when (ct.IsCancellationRequested)`. |
 | M13 | `frontend/src/output/OutputView.tsx` | La salida no tiene `ErrorBoundary`: un error de render la deja en negro hasta recargar. **CORREGIDO** (`OutputErrorBoundary`). | Un boundary que conserve el último estado pintado. |
-| M14 | `Program.cs:12-20` | La resolución de rutas y la creación del logger quedan fuera del `try`: si fallan, no queda registro. | Moverlas dentro del `try` con un respaldo. |
+| M14 | `Program.cs:12-20` | La resolución de rutas y la creación del logger quedan fuera del `try`: si fallan, no queda registro. **CORREGIDO** (rutas dentro de un `try`, logger con respaldo comprobando la escritura de verdad, y cuadro de diálogo si el arranque falla). | Moverlas dentro del `try` con un respaldo. |
 
 ## Qué probar primero, a mano
 1. **C1:** abrir la salida y minimizar el panel.
@@ -163,4 +166,13 @@
 | I13 | Corregido (migración 3, `PlaylistItems`; falta el aviso en la UI al abrir un servicio) | 8a5ef9a |
 | M5 | Corregido (migración 2) | 8a5ef9a |
 | M6 | Corregido (`MigrationHashTests`) | 8a5ef9a |
-| resto | Pendiente | — |
+| I7 | Corregido (pin exacto, advertencia, `PhotinoPinTests`, prueba manual ampliada) | HASH |
+| I10 | Corregido (`LocalAppData` en producción; perfil de WebView2 incluido, con respaldo) | HASH |
+| I11 | Corregido (`SingleInstanceGuard`) | HASH |
+| M2 | Corregido (`DisposeAsync`) | HASH |
+| M3 | Corregido (`IpcSerializer.Options` de solo lectura) | HASH |
+| M7 | Corregido | HASH |
+| M8 | Corregido (`CheckFrontendBuild`) | HASH |
+| M10 | Corregido (`PanelCenterTracker`) | HASH |
+| M14 | Corregido (`LoggerSetup`, `WritableDirectory`, `StartupFailure`) | HASH |
+| resto | Pendiente (entre otros, M9: restringir la navegación del WebView, a petición expresa) | — |
