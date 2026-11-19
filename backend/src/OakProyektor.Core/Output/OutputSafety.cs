@@ -30,7 +30,8 @@ public enum OutputPauseReason
 
 public enum SafetyActionKind { None, Pause, Resume, SetTopmost }
 
-public sealed record OutputSafetyDecision(SafetyActionKind Kind, OutputPauseReason? Reason = null, bool Topmost = false)
+/// <param name="Immediate">Para una pausa <c>DisplayLost</c>: true = no esperar el antirrebote (la salida ya cruza el monitor del panel).</param>
+public sealed record OutputSafetyDecision(SafetyActionKind Kind, OutputPauseReason? Reason = null, bool Topmost = false, bool Immediate = false)
 {
     public static OutputSafetyDecision None { get; } = new(SafetyActionKind.None);
 }
@@ -58,10 +59,13 @@ public static class OutputSafetyPolicy
 
         if (!input.IsPaused)
         {
-            if (target is null) return new(SafetyActionKind.Pause, OutputPauseReason.DisplayLost);
+            var crossesPanel = panel is not null && input.OutputRect.Intersects(ScreenRect.Of(panel));
+
+            // Monitor desaparecido: normalmente se espera el antirrebote (un parpadeo de enumeración no debe dejar la proyección en negro),
+            // pero si la ventana YA cruza el monitor del panel (Windows la movió allí) tapa al operador: pausa inmediata.
+            if (target is null) return new(SafetyActionKind.Pause, OutputPauseReason.DisplayLost, Immediate: crossesPanel);
             if (target.HostsPanel) return new(SafetyActionKind.Pause, OutputPauseReason.PanelCrossed);
-            if (panel is not null && input.OutputRect.Intersects(ScreenRect.Of(panel)))
-                return new(SafetyActionKind.Pause, OutputPauseReason.PanelCrossed);
+            if (crossesPanel) return new(SafetyActionKind.Pause, OutputPauseReason.PanelCrossed);
 
             var inside = input.OutputRect.IsInside(ScreenRect.Of(target));
             return inside == input.IsTopmost ? OutputSafetyDecision.None : new(SafetyActionKind.SetTopmost, Topmost: inside);

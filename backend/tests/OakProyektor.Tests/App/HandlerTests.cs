@@ -12,7 +12,7 @@ namespace OakProyektor.Tests.App;
 public class HandlerTests
 {
     private static string Msg(string kind, string type, string payload = "{}") =>
-        $$"""{"v":2,"id":"q1","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
+        $$"""{"v":3,"id":"q1","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
 
     private static (IpcDispatcher Dispatcher, FakeOutputController Output) Create(params DisplayInfo[] displays)
     {
@@ -75,6 +75,40 @@ public class HandlerTests
         var (d, output) = Create();
         await d.DispatchAsync(Msg("command", "output.recover"), CancellationToken.None);
         Assert.Equal(["pause:Manual"], output.Calls);
+    }
+
+    [Theory]
+    [InlineData("""{"reason":"emergency"}""", "pause:Emergency")]   // el atajo de respaldo de la página de salida
+    [InlineData("""{"reason":"manual"}""", "pause:Manual")]
+    [InlineData("""{"reason":null}""", "pause:Manual")]
+    [InlineData("""{"reason":"displayLost"}""", "pause:Manual")]    // un cliente no puede pedir una pausa «automática»
+    [InlineData("{}", "pause:Manual")]
+    public async Task Recover_maps_its_reason_to_manual_or_emergency_only(string payload, string expected)
+    {
+        var (d, output) = Create();
+        await d.DispatchAsync(Msg("command", "output.recover", payload), CancellationToken.None);
+        Assert.Equal([expected], output.Calls);
+    }
+
+    [Fact]
+    public async Task Open_and_recover_pass_the_arrival_number_through_to_the_controller()
+    {
+        var output = new FakeOutputController();
+        var open = IpcEnvelope.Create(IpcKind.Command, IpcTypes.OutputOpen, new OutputOpenPayload(null)) with { Order = 41 };
+        var recover = IpcEnvelope.Create(IpcKind.Command, IpcTypes.OutputRecover, new OutputRecoverPayload(OutputPauseReason.Manual)) with { Order = 42 };
+
+        await new OutputOpenHandler(output).HandleAsync(open, CancellationToken.None);
+        await new OutputRecoverHandler(output).HandleAsync(recover, CancellationToken.None);
+
+        Assert.Equal([41L, 42L], output.Orders);
+    }
+
+    [Fact]
+    public void The_arrival_number_never_travels_in_the_json()
+    {
+        var env = IpcEnvelope.Create(IpcKind.Command, IpcTypes.OutputOpen, new OutputOpenPayload(null)) with { Order = 99 };
+        Assert.DoesNotContain("99", IpcSerializer.Serialize(env));
+        Assert.DoesNotContain("order", IpcSerializer.Serialize(env), StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

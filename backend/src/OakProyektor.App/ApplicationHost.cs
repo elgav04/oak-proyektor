@@ -56,6 +56,7 @@ internal sealed class ApplicationHost : IAsyncDisposable
         services.AddSingleton<IOutbox, Outbox>();
         services.AddSingleton<IMonitorProvider, PhotinoMonitorProvider>();
         services.AddSingleton<ISettingsStore, SettingsStore>();
+        services.AddSingleton<OrderClock>();
         services.AddSingleton<ScreenWakeLock>();
         services.AddSingleton<EmergencyHotkey>();
         services.AddSingleton<DisplayManager>();

@@ -128,7 +128,7 @@ export function App() {
           <Button size="lg" variant="outline" disabled={!connected || !isOpen} onClick={() => { ipc.send("output.close", {}); }}>
             Cerrar salida
           </Button>
-          <Button size="lg" variant="destructive" disabled={!connected || !isOpen || isPaused} onClick={() => { ipc.send("output.recover", {}); }}>
+          <Button size="lg" variant="destructive" disabled={!connected || !isOpen || isPaused} onClick={() => { ipc.send("output.recover", { reason: "manual" }); }}>
             Recuperar control
           </Button>
         </div>

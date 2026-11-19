@@ -32,8 +32,9 @@ public static class IpcCatalog
     /// <summary>
     /// v2: snapshots con <c>seq</c> global creciente; monitores por ID (no por índice); replies con <c>{ ok, result, error }</c>;
     /// evento <c>command.failed</c>; <c>output.setMaster</c> y <c>output.recover</c> van por un carril de prioridad (ver <see cref="IpcPriority"/>).
+    /// v3: <c>output.recover</c> lleva <c>{ reason: "manual" | "emergency" }</c> (el atajo de respaldo de la salida se distingue del botón del panel).
     /// </summary>
-    public const int ProtocolVersion = 2;
+    public const int ProtocolVersion = 3;
 
     public static IReadOnlyList<MessageDescriptor> Messages { get; } =
     [

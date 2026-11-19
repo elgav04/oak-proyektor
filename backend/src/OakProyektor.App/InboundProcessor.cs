@@ -10,7 +10,7 @@ namespace OakProyektor.App;
 /// Dentro de cada carril el orden es FIFO; entre carriles no hay orden garantizado. El enrutador solo interpreta y reparte
 /// (microsegundos): nunca ejecuta handlers, así que no puede retrasar a nadie.
 /// </summary>
-internal sealed class InboundProcessor(InboundQueue intake, IpcDispatcher dispatcher, IOutbox outbox, ILogger<InboundProcessor> logger)
+internal sealed class InboundProcessor(InboundQueue intake, IpcDispatcher dispatcher, IOutbox outbox, OrderClock clock, ILogger<InboundProcessor> logger)
 {
     private const int LaneCapacity = 512;
 
@@ -41,6 +41,9 @@ internal sealed class InboundProcessor(InboundQueue intake, IpcDispatcher dispat
                         logger.LogWarning("Mensaje IPC de {Source} descartado: {Error}", source, error);
                         continue;
                     }
+                    // Se numera aquí, en el único hilo que lee la cola FIFO de entrada: el número refleja el orden de llegada real, aunque
+                    // luego los dos carriles se procesen en otro orden (así «Mover / reabrir» seguido de «Recuperar control» se puede resolver).
+                    envelope = envelope with { Order = clock.Next() };
                     var lane = IpcPriority.IsHigh(envelope) ? priority : normal;
                     if (!lane.TryWrite(new Work(source, envelope)))
                         logger.LogWarning("Carril IPC lleno; se descarta {Type} de {Source}", envelope.Type, source);

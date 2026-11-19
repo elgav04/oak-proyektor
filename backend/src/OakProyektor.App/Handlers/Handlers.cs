@@ -31,7 +31,7 @@ internal sealed class OutputOpenHandler(IOutputController output) : IIpcHandler
     public string Type => IpcTypes.OutputOpen;
     public Task<object?> HandleAsync(IpcEnvelope request, CancellationToken cancellationToken)
     {
-        output.Open(request.GetPayload<OutputOpenPayload>().DisplayId);
+        output.Open(request.GetPayload<OutputOpenPayload>().DisplayId, request.Order);
         return Task.FromResult<object?>(null);
     }
 }
@@ -64,7 +64,11 @@ internal sealed class OutputRecoverHandler(IOutputController output) : IIpcHandl
     public string Type => IpcTypes.OutputRecover;
     public Task<object?> HandleAsync(IpcEnvelope request, CancellationToken cancellationToken)
     {
-        output.EmergencyPause(OakProyektor.Core.Output.OutputPauseReason.Manual);
+        // Solo Manual o Emergency: cualquier otro valor (o ausente) es Manual. Un cliente no puede pedir una pausa «automática».
+        var reason = request.GetPayload<OutputRecoverPayload>().Reason == OakProyektor.Core.Output.OutputPauseReason.Emergency
+            ? OakProyektor.Core.Output.OutputPauseReason.Emergency
+            : OakProyektor.Core.Output.OutputPauseReason.Manual;
+        output.EmergencyPause(reason, request.Order);
         return Task.FromResult<object?>(null);
     }
 }

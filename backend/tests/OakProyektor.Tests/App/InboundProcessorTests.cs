@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging.Abstractions;
 using OakProyektor.App;
 using OakProyektor.Core.Output;
 using OakProyektor.Ipc;
@@ -16,14 +16,14 @@ public class InboundProcessorTests
     }
 
     private static string Cmd(string type, string payload = "{}", string id = "x") =>
-        $$"""{"v":2,"id":"{{id}}","kind":"command","type":"{{type}}","payload":{{payload}}}""";
+        $$"""{"v":3,"id":"{{id}}","kind":"command","type":"{{type}}","payload":{{payload}}}""";
 
     private static (InboundQueue Intake, Outbox Outbox, InboundProcessor Processor) Create(params IIpcHandler[] handlers)
     {
         var intake = new InboundQueue(NullLogger<InboundQueue>.Instance);
         var outbox = new Outbox(NullLogger<Outbox>.Instance);
         var dispatcher = new IpcDispatcher(handlers, NullLogger<IpcDispatcher>.Instance);
-        return (intake, outbox, new InboundProcessor(intake, dispatcher, outbox, NullLogger<InboundProcessor>.Instance));
+        return (intake, outbox, new InboundProcessor(intake, dispatcher, outbox, new OrderClock(), NullLogger<InboundProcessor>.Instance));
     }
 
     [Fact]
@@ -86,6 +86,41 @@ public class InboundProcessorTests
         releaseSlow.SetResult();
         cts.Cancel(); intake.Complete();
         await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Every_message_gets_an_arrival_number_so_a_recover_processed_first_is_still_known_to_come_after_the_open()
+    {
+        // Es la carrera de I-A: «Mover / reabrir» y enseguida «Recuperar control». El recover (carril de prioridad) se ATIENDE antes que el open,
+        // pero su número de llegada es MAYOR: con eso el controlador sabe que la pausa fue posterior y no la deshace.
+        var openStarted = new TaskCompletionSource<long>();
+        var releaseOpen = new TaskCompletionSource();
+        var recoverOrder = new TaskCompletionSource<long>();
+        var (intake, _, processor) = Create(
+            new Handler(IpcKind.Command, IpcTypes.OutputOpen, async (request, _) => { openStarted.SetResult(request.Order); await releaseOpen.Task; return null; }),
+            new Handler(IpcKind.Command, IpcTypes.OutputRecover, (request, _) => { recoverOrder.SetResult(request.Order); return Task.FromResult<object?>(null); }));
+        using var cts = new CancellationTokenSource();
+        var tasks = processor.Start(cts.Token);
+
+        intake.Enqueue(WindowKind.Control, Cmd("output.open"));
+        intake.Enqueue(WindowKind.Control, Cmd("output.recover"));
+
+        var open = await openStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var recover = await recoverOrder.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(open > 0, "el open debe llevar número de llegada");
+        Assert.True(recover > open, $"el recover ({recover}) llegó después del open ({open})");
+
+        releaseOpen.SetResult();
+        cts.Cancel(); intake.Complete();
+        await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public void The_arrival_clock_is_strictly_increasing_and_never_zero()
+    {
+        var clock = new OrderClock();
+        var a = clock.Next(); var b = clock.Next(); var c = clock.Next();
+        Assert.True(a > 0 && b > a && c > b);
     }
 
     [Fact]

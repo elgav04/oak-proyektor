@@ -25,6 +25,12 @@ public sealed record OutputOpenPayload(string? DisplayId);
 
 public sealed record OutputSetMasterPayload(MasterMode Master);
 
+/// <summary>
+/// <c>output.recover</c>: pausa pedida por el operador. <c>Reason</c> distingue «Recuperar control» del panel (<c>manual</c>) del atajo de
+/// emergencia del respaldo de la página de salida (<c>emergency</c>). Ausente, nulo o cualquier otro valor = <c>manual</c>.
+/// </summary>
+public sealed record OutputRecoverPayload(OutputPauseReason? Reason);
+
 /// <summary>Reanudar/restaurar automáticamente al reaparecer el monitor (<c>settings.setAutoRestore</c>).</summary>
 public sealed record SetAutoRestorePayload(bool Enabled);
 

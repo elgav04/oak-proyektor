@@ -33,7 +33,7 @@ export function OutputView() {
     const onKeyDown = (e: KeyboardEvent): void => {
       if (!isEmergencyKey(e)) return;
       e.preventDefault();
-      ipc.send("output.recover", {});
+      ipc.send("output.recover", { reason: "emergency" });
     };
     window.addEventListener("keydown", onKeyDown);
     return () => {

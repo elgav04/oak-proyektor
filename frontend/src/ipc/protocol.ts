@@ -6,8 +6,9 @@
  * v2: snapshots con `seq` global creciente (las réplicas descartan seq <= la última); monitores por `id` (no por índice);
  * replies `{ ok, result, error }`; evento `command.failed`; `output.setMaster` y `output.recover` van por un carril de
  * prioridad en el backend (el orden entre carriles no está garantizado; dentro de cada uno sí).
+ * v3: `output.recover` lleva `{ reason: "manual" | "emergency" }` (el atajo de respaldo de la salida se distingue del botón del panel).
  */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 export type MessageKind = "command" | "event" | "query" | "reply";
 
@@ -72,6 +73,13 @@ export interface DisplayListPayload {
   displays: DisplayInfo[];
 }
 
+/** Quién pide la pausa: el botón «Recuperar control» del panel (`"manual"`) o el atajo de emergencia de la página de salida (`"emergency"`). */
+export type RecoverReason = "manual" | "emergency";
+
+export interface OutputRecoverPayload {
+  reason: RecoverReason;
+}
+
 export interface SetAutoRestorePayload {
   enabled: boolean;
 }
@@ -126,7 +134,7 @@ export interface CommandPayloads {
   "output.open": OutputOpenPayload;
   "output.close": EmptyPayload;
   "output.setMaster": OutputSetMasterPayload;
-  "output.recover": EmptyPayload;
+  "output.recover": OutputRecoverPayload;
   "settings.setAutoRestore": SetAutoRestorePayload;
 }
 

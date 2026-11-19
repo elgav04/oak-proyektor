@@ -12,16 +12,22 @@ internal interface IOutputController
 {
     /// <summary>El snapshot actual con su secuencia. Publica antes cualquier cambio pendiente, para que reply y eventos no se contradigan.</summary>
     OutputStateChangedPayload Snapshot();
-    /// <summary>Abre/mueve/reanuda la salida. Lanza <see cref="IpcException"/> si no puede (el panel recibe <c>command.failed</c>).</summary>
-    void Open(string? displayId);
+    /// <summary>
+    /// Abre/mueve/reanuda la salida. Lanza <see cref="IpcException"/> si no puede (el panel recibe <c>command.failed</c>).
+    /// <paramref name="order"/> es el número de llegada de la orden (<see cref="OrderClock"/>; 0 = ahora): si el operador pidió una pausa
+    /// DESPUÉS de esta orden, la salida termina en pausa aunque esa pausa se haya procesado antes.
+    /// </summary>
+    void Open(string? displayId, long order = 0);
     /// <summary>Cierra la salida. Lanza <see cref="IpcException"/> si la ventana no se pudo cerrar.</summary>
     void Close();
     void SetMaster(MasterMode master);
     /// <summary>
     /// Minimiza la salida y le quita topmost, sin cerrarla ni perder su estado. Pensado para emergencias: NO espera a ninguna
-    /// operación en curso (p. ej. una apertura lenta) y actúa por Win32 directamente sobre la ventana.
+    /// operación en curso (p. ej. una apertura lenta) y actúa por Win32 directamente sobre la ventana, sin esperar al hilo de UI.
+    /// La pausa es ATÓMICA: una vez pedida no la deshace ninguna carrera (solo la levanta una orden posterior del operador).
+    /// <paramref name="reason"/> debe ser <c>Manual</c> o <c>Emergency</c>; <paramref name="order"/> = número de llegada (0 = ahora).
     /// </summary>
-    void EmergencyPause(OutputPauseReason reason);
+    void EmergencyPause(OutputPauseReason reason, long order = 0);
     /// <summary>La configuración cambió: republica el estado.</summary>
     void SettingsChanged();
     void SetEmergencyHotkey(string? description);
@@ -32,9 +38,11 @@ internal interface IOutputController
 /// <summary>
 /// Dueño del <see cref="OutputState"/>, del ciclo de vida de la ventana de salida y de su política de seguridad.
 /// Candados: <c>_lifecycle</c> serializa abrir/cerrar/pausar/reanudar (puede mantenerse mientras se espera al hilo de UI);
-/// <c>_gate</c> protege los campos y NUNCA se mantiene mientras se espera al hilo de UI, porque los handlers de Photino
+/// <c>_gate</c> protege los campos (incluido <c>_pause</c>) y NUNCA se mantiene mientras se espera al hilo de UI, porque los handlers de Photino
 /// (que corren en ese hilo) lo toman. El hilo de UI jamás toma <c>_lifecycle</c>. El candado del publicador de snapshots
 /// se toma ANTES que <c>_gate</c> y nunca espera al hilo de UI.
+/// La pausa vive en <see cref="OutputPauseState"/> (máquina de estados pura); aquí solo se llama a sus transiciones BAJO <c>_gate</c>,
+/// de modo que cada comparación-y-escritura es atómica, y se ejecutan los efectos (Win32) fuera del candado.
 /// </summary>
 internal sealed class OutputController : IOutputController
 {
@@ -52,6 +60,7 @@ internal sealed class OutputController : IOutputController
     private readonly ISettingsStore _settings;
     private readonly ScreenWakeLock _wakeLock;
     private readonly WebViewProfile _profile;
+    private readonly OrderClock _clock;
     private readonly ILogger<OutputController> _logger;
     private readonly SequencedSnapshotPublisher<OutputSnapshot> _publisher;
 
@@ -62,17 +71,16 @@ internal sealed class OutputController : IOutputController
     private nint _hwnd;
     private string? _displayId;          // monitor asignado a la salida (en modo ventana, donde se colocó)
     private bool _windowed;
-    private bool _paused;
-    private OutputPauseReason? _reason;
+    private readonly OutputPauseState _pause = new();   // solo bajo _gate
     private string? _hotkey;
     private int _lostTicks;              // solo bajo _lifecycle
 
     public OutputController(
         PhotinoWindow main, WindowRegistry windows, IUiDispatcher ui, IDisplayManager displays, InboundQueue inbound,
-        IOutbox outbox, ApplicationPaths paths, WebViewProfile profile, ISettingsStore settings, ScreenWakeLock wakeLock, ILogger<OutputController> logger)
+        IOutbox outbox, ApplicationPaths paths, WebViewProfile profile, ISettingsStore settings, ScreenWakeLock wakeLock, OrderClock clock, ILogger<OutputController> logger)
     {
         _main = main; _windows = windows; _ui = ui; _displays = displays; _inbound = inbound;
-        _paths = paths; _profile = profile; _settings = settings; _wakeLock = wakeLock; _logger = logger;
+        _paths = paths; _profile = profile; _settings = settings; _wakeLock = wakeLock; _clock = clock; _logger = logger;
         _publisher = new SequencedSnapshotPublisher<OutputSnapshot>(
             outbox, IpcTypes.OutputStateChanged, Targets.All, (seq, s) => new OutputStateChangedPayload(seq, s.State, s.Window));
         _displays.Polled += OnPolled;
@@ -83,8 +91,12 @@ internal sealed class OutputController : IOutputController
     private OutputSnapshot BuildSnapshot()
     {
         lock (_gate)
+        {
+            // La pausa solo se informa si hay ventana: una pausa pedida sin ventana queda registrada (por si hay una apertura en curso) pero no se muestra.
+            var paused = _window is not null && _pause.IsPaused;
             return new OutputSnapshot(_state,
-                new OutputWindowStatus(_window is not null, _window is null ? null : _displayId, _windowed, _paused, _reason, _settings.Current.AutoRestoreOutput, _hotkey));
+                new OutputWindowStatus(_window is not null, _window is null ? null : _displayId, _windowed, paused, paused ? _pause.Reason : null, _settings.Current.AutoRestoreOutput, _hotkey));
+        }
     }
 
     public OutputStateChangedPayload Snapshot() => _publisher.Read(BuildSnapshot, (seq, s) => new OutputStateChangedPayload(seq, s.State, s.Window));
@@ -108,9 +120,10 @@ internal sealed class OutputController : IOutputController
 
     // ─────────────────────────── abrir / cerrar ───────────────────────────
 
-    public void Open(string? displayId)
+    public void Open(string? displayId, long order = 0)
     {
-        lock (_lifecycle) OpenLocked(displayId);
+        if (order <= 0) order = _clock.Next();   // sin número (llamada interna): cuenta como «ahora», posterior a cualquier pausa ya pedida
+        lock (_lifecycle) OpenLocked(displayId, order);
     }
 
     public void Close()
@@ -118,7 +131,7 @@ internal sealed class OutputController : IOutputController
         lock (_lifecycle) CloseLocked();
     }
 
-    private void OpenLocked(string? displayId)
+    private void OpenLocked(string? displayId, long order)
     {
         _displays.Refresh();   // la UI puede tener una lista vieja
         var target = _displays.Resolve(displayId);
@@ -126,13 +139,13 @@ internal sealed class OutputController : IOutputController
         var windowed = target is null || target.HostsPanel;
 
         PhotinoWindow? existing; string? currentId; bool currentWindowed, paused;
-        lock (_gate) { existing = _window; currentId = _displayId; currentWindowed = _windowed; paused = _paused; }
+        lock (_gate) { existing = _window; currentId = _displayId; currentWindowed = _windowed; paused = _pause.IsPaused; }
 
         if (existing is not null)
         {
             if (currentWindowed == windowed && currentId == target?.Id)
             {
-                if (paused) TryResumeLocked(); else Publish();
+                if (paused) TryResumeLocked(order); else Publish();
                 return;
             }
             CloseLocked();   // lanza si no pudo cerrarla: no se abre otra encima
@@ -147,7 +160,7 @@ internal sealed class OutputController : IOutputController
 
         try
         {
-            _ui.Invoke(() => CreateWindow(windowed, target));
+            _ui.Invoke(() => CreateWindow(windowed, target, order));
         }
         catch (Exception ex)
         {
@@ -163,18 +176,21 @@ internal sealed class OutputController : IOutputController
     }
 
     /// <summary>Se ejecuta en el hilo de UI. La ventana se construye Y arranca ahí (verificado: en otro hilo hay interbloqueo).</summary>
-    private void CreateWindow(bool windowed, DisplayInfo? target)
+    private void CreateWindow(bool windowed, DisplayInfo? target, long order)
     {
         PhotinoWindow? w = null;
         try
         {
             w = new PhotinoWindow(_main);
             // Se registra en cuanto existe (M11): si algo falla a mitad, el estado sabe de ella y se puede limpiar.
+            // BeginWindow: la ventana nace corriendo, salvo que el operador haya pedido una pausa DESPUÉS de esta orden de abrir.
+            bool bornPaused;
             lock (_gate)
             {
                 _window = w; _hwnd = 0; _windowed = windowed; _displayId = target?.Id;
-                _paused = false; _reason = null;
+                bornPaused = _pause.BeginWindow(order);
             }
+            if (bornPaused) _logger.LogWarning("Se pidió una pausa después de esta orden de abrir: la salida nacerá en pausa");
             _windows.SetOutput(w);
 
             w.SetTitle("Oak-Proyektor — Salida")
@@ -211,14 +227,28 @@ internal sealed class OutputController : IOutputController
             nint hwnd = 0;
             try { hwnd = w.WindowHandle; }
             catch (Exception ex) { _logger.LogError(ex, "No se pudo obtener el handle de la salida: la política de seguridad no podrá actuar sobre ella"); }
-            lock (_gate) { if (ReferenceEquals(_window, w)) _hwnd = hwnd; }
+            // La ventana ya existe. Asignar el handle y leer la pausa va en el MISMO bloque bajo candado, y EmergencyPause pide la pausa y lee el
+            // handle en otro bloque igual: o la pausa ve el handle y minimiza ella misma, o aquí se ve la pausa y se minimiza. Nunca ninguna de las dos.
+            bool minimizeNow;
+            lock (_gate)
+            {
+                if (!ReferenceEquals(_window, w)) return;   // se cerró mientras tanto
+                _hwnd = hwnd;
+                minimizeNow = _pause.MarkWindowReady();
+            }
+            if (minimizeNow)
+            {
+                if (hwnd != 0) NativeMethods.MinimizeAndDropTopmost(hwnd);   // ya estamos en el hilo de UI: no hay nada que esperar
+                else _logger.LogError("Hay una pausa pendiente pero la salida no tiene handle: no se puede minimizar");
+                _logger.LogWarning("Salida en pausa desde su creación");
+            }
         }
         catch
         {
             if (w is not null)
             {
                 var orphan = w;
-                lock (_gate) { if (ReferenceEquals(_window, orphan)) { _window = null; _hwnd = 0; _displayId = null; _windowed = false; } }
+                lock (_gate) { if (ReferenceEquals(_window, orphan)) { _window = null; _hwnd = 0; _displayId = null; _windowed = false; _pause.WindowClosed(); } }
                 _windows.SetOutput(null);
                 try { orphan.Close(); } catch { /* no llegó a crearse la ventana nativa */ }
             }
@@ -290,7 +320,7 @@ internal sealed class OutputController : IOutputController
         lock (_gate)
         {
             changed = ReferenceEquals(_window, w);
-            if (changed) { _window = null; _hwnd = 0; _displayId = null; _windowed = false; _paused = false; _reason = null; }
+            if (changed) { _window = null; _hwnd = 0; _displayId = null; _windowed = false; _pause.WindowClosed(); }   // conserva el número de la última pausa del operador
         }
         if (!changed) return;
         _windows.SetOutput(null);
@@ -301,17 +331,43 @@ internal sealed class OutputController : IOutputController
 
     // ───────────────────── política de seguridad (pausa / reanudación) ─────────────────────
 
-    public void EmergencyPause(OutputPauseReason reason)
+    public void EmergencyPause(OutputPauseReason reason, long order = 0)
     {
-        PhotinoWindow? w; nint hwnd;
-        lock (_gate) { w = _window; hwnd = _hwnd; }
-        if (w is null || hwnd == 0) { _logger.LogInformation("Pausa de emergencia solicitada, pero no hay salida abierta"); return; }
+        if (order <= 0) order = _clock.Next();
+        nint hwnd; PauseRequestResult result;
+        // Pedir la pausa y leer el handle va en el MISMO bloque bajo candado (ver CreateWindow): o aquí se ve el handle y se minimiza, o
+        // CreateWindow ve la pausa pendiente al terminar. La pausa queda REGISTRADA aunque no haya ventana (una apertura ya encolada debe respetarla).
+        lock (_gate)
+        {
+            hwnd = _hwnd;
+            result = _pause.RequestPause(reason, order);
+        }
 
-        // Sin _lifecycle ni cola de UI: debe funcionar aunque haya una apertura lenta en curso.
-        try { NativeMethods.MinimizeAndDropTopmost(hwnd); }
+        switch (result.Phase)
+        {
+            case WindowPhase.None:
+                _logger.LogInformation("Pausa {Reason} solicitada sin salida abierta; queda registrada por si hay una apertura en curso", reason);
+                return;
+
+            case WindowPhase.Creating:
+                // La ventana aún se está creando: el estado y el aviso al panel cambian YA; CreateWindow la minimiza en cuanto exista.
+                _logger.LogWarning("Salida en pausa ({Reason}) mientras se crea la ventana: se minimizará en cuanto exista", reason);
+                Publish();
+                return;
+        }
+
+        if (hwnd == 0)
+        {
+            _logger.LogError("Pausa {Reason} solicitada pero la salida no tiene handle: NO se pudo minimizar", reason);
+            Publish();
+            return;
+        }
+
+        // Sin _lifecycle, sin cola de UI y SIN esperar al hilo de UI (ShowWindowAsync / SWP_ASYNCWINDOWPOS): debe funcionar aunque haya una apertura
+        // lenta en curso o el hilo de UI esté colgado. Se minimiza siempre, aunque ya estuviera en pausa: la ventana pudo restaurarse.
+        try { NativeMethods.MinimizeAndDropTopmostAsync(hwnd); }
         catch (Exception ex) { _logger.LogError(ex, "Falló la minimización de emergencia"); }
-        lock (_gate) { _paused = true; _reason = reason; }
-        _logger.LogWarning("Salida en pausa: {Reason}", reason);
+        if (result.Changed) _logger.LogWarning("Salida en pausa: {Reason}", reason);
         Publish();
     }
 
@@ -326,7 +382,7 @@ internal sealed class OutputController : IOutputController
     private void EvaluateLocked(IReadOnlyList<DisplayInfo> displays)
     {
         PhotinoWindow? w; nint hwnd; string? targetId; bool windowed, paused; OutputPauseReason? reason;
-        lock (_gate) { w = _window; hwnd = _hwnd; targetId = _displayId; windowed = _windowed; paused = _paused; reason = _reason; }
+        lock (_gate) { w = _window; hwnd = _hwnd; targetId = _displayId; windowed = _windowed; paused = _pause.IsPaused; reason = _pause.Reason; }
 
         if (w is not null && !windowed && targetId is not null && hwnd != 0)
         {
@@ -336,7 +392,8 @@ internal sealed class OutputController : IOutputController
                 var decision = OutputSafetyPolicy.Evaluate(new OutputSafetyInput(
                     rect ?? default, !paused && NativeMethods.IsTopmost(hwnd), displays, targetId, paused, reason, _settings.Current.AutoRestoreOutput));
 
-                if (decision is { Kind: SafetyActionKind.Pause, Reason: OutputPauseReason.DisplayLost })
+                // Antirrebote solo para «monitor desaparecido» a secas: si la ventana YA cruza el monitor del panel (Immediate) tapa al operador y no se espera.
+                if (decision is { Kind: SafetyActionKind.Pause, Reason: OutputPauseReason.DisplayLost, Immediate: false })
                 {
                     if (++_lostTicks < LostTicksBeforePause) decision = OutputSafetyDecision.None;
                 }
@@ -348,8 +405,8 @@ internal sealed class OutputController : IOutputController
                         PauseLocked(decision.Reason ?? OutputPauseReason.PanelCrossed);
                         break;
                     case SafetyActionKind.Resume:
-                        if (displays.FirstOrDefault(d => d.Id == targetId) is { } display)
-                            ResumeLocked(hwnd, ScreenRect.Of(display), topmost: true);
+                        if (reason is { } evaluated && displays.FirstOrDefault(d => d.Id == targetId) is { } display)
+                            ResumeAutoLocked(hwnd, ScreenRect.Of(display), evaluated);
                         break;
                     case SafetyActionKind.SetTopmost:
                         _logger.LogInformation("Topmost de la salida: {Topmost}", decision.Topmost);
@@ -359,51 +416,120 @@ internal sealed class OutputController : IOutputController
             }
         }
 
+        // Aunque no haya cambiado nada más: una salida en pausa no puede estar visible (se restauró desde la barra de tareas, Alt+Tab, o
+        // una restauración se cruzó con la pausa). También cubre la ventana en modo ventana normal.
+        if (w is not null && hwnd != 0) EnforcePausedLocked(hwnd);
+
         Publish();   // algo visible puede haber cambiado sin acción (p. ej. el monitor dejó de estar conectado); el publicador no repite lo que no cambió
     }
 
+    /// <summary>Pausa automática (monitor perdido / cruce con el panel). No rebaja una pausa más fuerte: si ya estaba en pausa por Manual o Emergency, no hace nada.</summary>
     private void PauseLocked(OutputPauseReason reason)
     {
-        nint hwnd;
-        lock (_gate) hwnd = _hwnd;
+        nint hwnd; bool changed;
+        lock (_gate) { hwnd = _hwnd; changed = _pause.RequestPause(reason).Changed; }
+        if (!changed) return;
+
         try { _ui.Invoke(() => NativeMethods.MinimizeAndDropTopmost(hwnd)); }
         catch (Exception ex) { _logger.LogError(ex, "Falló la minimización de la salida"); }
-        lock (_gate) { _paused = true; _reason = reason; }
         _logger.LogWarning("Salida en pausa: {Reason}", reason);
         Publish();
     }
 
-    private void ResumeLocked(nint hwnd, ScreenRect? area, bool topmost)
+    /// <summary>Reanudación automática: solo si la salida SIGUE en pausa por el mismo motivo que se evaluó (si llegó una emergencia entre medias, no se reanuda).</summary>
+    private void ResumeAutoLocked(nint hwnd, ScreenRect area, OutputPauseReason evaluated)
+    {
+        bool resumed;
+        lock (_gate) resumed = _pause.TryAutoResume(evaluated);
+        if (!resumed)
+        {
+            _logger.LogInformation("Reanudación automática cancelada: el estado de pausa cambió desde que se evaluó ({Reason})", evaluated);
+            return;
+        }
+        RestoreWindow(hwnd, area);
+        _logger.LogInformation("Salida reanudada");
+        Publish();
+    }
+
+    /// <summary>Restaura la ventana (en su sitio y topmost si se da <paramref name="area"/>). Si una pausa llegó mientras tanto, vuelve a minimizarla.</summary>
+    private void RestoreWindow(nint hwnd, ScreenRect? area)
     {
         try
         {
             _ui.Invoke(() =>
             {
-                if (area is { } a && topmost) NativeMethods.RestoreTopmostAt(hwnd, a);
+                if (area is { } a) NativeMethods.RestoreTopmostAt(hwnd, a);
                 else NativeMethods.ShowWindow(hwnd, NativeMethods.SW_RESTORE);
             });
         }
         catch (Exception ex) { _logger.LogError(ex, "Falló la restauración de la salida"); }
-        lock (_gate) { _paused = false; _reason = null; }
         _lostTicks = 0;
-        _logger.LogInformation("Salida reanudada");
-        Publish();
+
+        // La reanudación escribió «corriendo» ANTES de restaurar. Si el atajo de emergencia llegó justo entonces, su minimización pudo ejecutarse
+        // ANTES que esta restauración y quedar deshecha: se comprueba el estado DESPUÉS y, si hay pausa, se minimiza otra vez.
+        bool pausedAgain;
+        lock (_gate) pausedAgain = _pause.IsPaused;
+        if (pausedAgain)
+        {
+            _logger.LogWarning("Una pausa llegó mientras se restauraba la salida: se vuelve a minimizar");
+            try { NativeMethods.MinimizeAndDropTopmostAsync(hwnd); }
+            catch (Exception ex) { _logger.LogError(ex, "Falló la minimización tras la restauración"); }
+        }
     }
 
-    /// <summary>El operador pidió abrir/reanudar con la salida en pausa: se reanuda si su monitor está y no aloja el panel.</summary>
-    private void TryResumeLocked()
+    /// <summary>Si está en pausa pero la ventana no está minimizada, la minimiza. Sin esperar al hilo de UI.</summary>
+    private void EnforcePausedLocked(nint hwnd)
     {
-        nint hwnd; string? targetId; bool windowed;
-        lock (_gate) { hwnd = _hwnd; targetId = _displayId; windowed = _windowed; }
+        bool paused;
+        lock (_gate) paused = _pause.IsPaused;
+        if (!paused || !NativeMethods.IsWindow(hwnd) || NativeMethods.IsIconic(hwnd)) return;
 
-        if (windowed) { ResumeLocked(hwnd, null, topmost: false); return; }
-        var display = targetId is null ? null : _displays.Current.FirstOrDefault(d => d.Id == targetId);
-        if (display is null || display.HostsPanel)
+        _logger.LogWarning("La salida está en pausa pero se restauró (barra de tareas, Alt+Tab…): se vuelve a minimizar");
+        try { NativeMethods.MinimizeAndDropTopmostAsync(hwnd); }
+        catch (Exception ex) { _logger.LogError(ex, "Falló la minimización de una salida en pausa que se restauró"); }
+    }
+
+    /// <summary>
+    /// El operador pidió abrir/reanudar con la salida en pausa (<paramref name="order"/> = número de llegada de esa orden). Se reanuda si su
+    /// monitor está y no aloja el panel, Y si el operador no pidió una pausa DESPUÉS de esta orden (en ese caso sigue en pausa, sin error).
+    /// </summary>
+    private void TryResumeLocked(long order)
+    {
+        nint hwnd; string? targetId; bool windowed, superseded;
+        lock (_gate) { hwnd = _hwnd; targetId = _displayId; windowed = _windowed; superseded = _pause.IsSupersededBy(order); }
+
+        if (superseded)
         {
-            _logger.LogWarning("No se puede reanudar la salida: su monitor no está disponible o aloja el panel");
+            _logger.LogWarning("Se pidió una pausa después de esta orden de reanudar: la salida sigue en pausa");
             Publish();
-            throw new IpcException("output.cannotResume", "No se puede reanudar la salida: su monitor no está conectado o aloja el panel.");
+            return;
         }
-        ResumeLocked(hwnd, ScreenRect.Of(display), topmost: true);
+
+        ScreenRect? area = null;
+        if (!windowed)
+        {
+            var display = targetId is null ? null : _displays.Current.FirstOrDefault(d => d.Id == targetId);
+            if (display is null || display.HostsPanel)
+            {
+                _logger.LogWarning("No se puede reanudar la salida: su monitor no está disponible o aloja el panel");
+                Publish();
+                throw new IpcException("output.cannotResume", "No se puede reanudar la salida: su monitor no está conectado o aloja el panel.");
+            }
+            area = ScreenRect.Of(display);
+        }
+
+        // Comparar y escribir de forma atómica: entre la lectura de arriba y esta línea pudo llegar una pausa.
+        OperatorResumeResult result;
+        lock (_gate) result = _pause.TryOperatorResume(order);
+        if (result != OperatorResumeResult.Resumed)
+        {
+            if (result == OperatorResumeResult.Superseded) _logger.LogWarning("Una pausa llegó mientras se reanudaba: la salida sigue en pausa");
+            Publish();
+            return;
+        }
+
+        RestoreWindow(hwnd, area);
+        _logger.LogInformation("Salida reanudada por el operador");
+        Publish();
     }
 }

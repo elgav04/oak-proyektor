@@ -118,6 +118,7 @@ public partial class ProtocolContractTests
         Assert.Equal(JsonKeys(new DisplayListPayload(1, [display])), TsFields("DisplayListPayload"));
         Assert.Equal(JsonKeys(window), TsFields("OutputWindowStatus"));
         Assert.Equal(JsonKeys(new SetAutoRestorePayload(true)), TsFields("SetAutoRestorePayload"));
+        Assert.Equal(JsonKeys(new OutputRecoverPayload(OutputPauseReason.Emergency)), TsFields("OutputRecoverPayload"));
         Assert.Equal(JsonKeys(new DatabaseStatusPayload(1, OakProyektor.Core.Database.DatabaseState.Failed, "m", "b")), TsFields("DatabaseStatusPayload"));
         Assert.Equal(JsonKeys(new OutputStateChangedPayload(1, state, window)), TsFields("OutputStateChangedPayload"));
         Assert.Equal(JsonKeys(new IpcError("c", "m")), TsFields("IpcErrorPayload"));

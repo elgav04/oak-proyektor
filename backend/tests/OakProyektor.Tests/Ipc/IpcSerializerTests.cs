@@ -22,7 +22,7 @@ public class IpcSerializerTests
         var json = IpcSerializer.Serialize(original);
         var parsed = Parse(json);
 
-        Assert.Equal((2, "abc-123", "command", "output.setMaster"), (parsed.V, parsed.Id, parsed.Kind, parsed.Type));
+        Assert.Equal((IpcCatalog.ProtocolVersion, "abc-123", "command", "output.setMaster"), (parsed.V, parsed.Id, parsed.Kind, parsed.Type));
         Assert.Equal(MasterMode.ClearText, parsed.GetPayload<OutputSetMasterPayload>().Master);
         using var doc = JsonDocument.Parse(json);
         Assert.Equal(["v", "id", "kind", "type", "payload"], doc.RootElement.EnumerateObject().Select(p => p.Name));
@@ -44,10 +44,10 @@ public class IpcSerializerTests
     [Fact]
     public void Numeric_or_unknown_enum_values_are_rejected()
     {
-        var env = Parse("""{"v":2,"id":"1","kind":"command","type":"output.setMaster","payload":{"master":2}}""");
+        var env = Parse("""{"v":3,"id":"1","kind":"command","type":"output.setMaster","payload":{"master":2}}""");
         Assert.Throws<JsonException>(() => env.GetPayload<OutputSetMasterPayload>());
 
-        var env2 = Parse("""{"v":2,"id":"1","kind":"command","type":"output.setMaster","payload":{"master":"bogus"}}""");
+        var env2 = Parse("""{"v":3,"id":"1","kind":"command","type":"output.setMaster","payload":{"master":"bogus"}}""");
         Assert.Throws<JsonException>(() => env2.GetPayload<OutputSetMasterPayload>());
     }
 
@@ -74,7 +74,7 @@ public class IpcSerializerTests
     [Fact]
     public void Missing_payload_becomes_an_empty_object()
     {
-        var env = Parse("""{"v":2,"id":"1","kind":"command","type":"output.close"}""");
+        var env = Parse("""{"v":3,"id":"1","kind":"command","type":"output.close"}""");
         Assert.Equal(JsonValueKind.Object, env.Payload.ValueKind);
         Assert.Empty(env.Payload.EnumerateObject());
     }
@@ -82,7 +82,7 @@ public class IpcSerializerTests
     [Fact]
     public void Unknown_extra_fields_are_tolerated_for_forward_compatibility()
     {
-        var env = Parse("""{"v":2,"id":"1","kind":"command","type":"output.open","payload":{"displayId":"1920,0,1920x1080","future":true},"extra":5}""");
+        var env = Parse("""{"v":3,"id":"1","kind":"command","type":"output.open","payload":{"displayId":"1920,0,1920x1080","future":true},"extra":5}""");
         Assert.Equal("1920,0,1920x1080", env.GetPayload<OutputOpenPayload>().DisplayId);
     }
 
@@ -95,10 +95,11 @@ public class IpcSerializerTests
     [InlineData("[]")]
     [InlineData("42")]
     [InlineData("null")]
-    [InlineData("""{"v":2,"kind":"command","type":"x"}""")]                       // sin id
-    [InlineData("""{"v":2,"id":"1","type":"x"}""")]                               // sin kind
-    [InlineData("""{"v":2,"id":"1","kind":"command"}""")]                         // sin type
-    [InlineData("""{"v":3,"id":"1","kind":"command","type":"x","payload":{}}""")] // versión futura
+    [InlineData("""{"v":3,"kind":"command","type":"x"}""")]                       // sin id
+    [InlineData("""{"v":3,"id":"1","type":"x"}""")]                               // sin kind
+    [InlineData("""{"v":3,"id":"1","kind":"command"}""")]                         // sin type
+    [InlineData("""{"v":99,"id":"1","kind":"command","type":"x","payload":{}}""")] // versión futura
+    [InlineData("""{"v":2,"id":"1","kind":"command","type":"x","payload":{}}""")] // versión anterior (v2)
     [InlineData("""{"v":1,"id":"1","kind":"command","type":"x","payload":{}}""")] // versión anterior (v1)
     [InlineData("""{"id":"1","kind":"command","type":"x","payload":{}}""")]       // sin versión
     [InlineData("""{"v":"1","id":"1","kind":"command","type":"x"}""")]            // versión con tipo equivocado

@@ -8,7 +8,7 @@ internal static partial class NativeMethods
 {
     public const int SW_MINIMIZE = 6;
     public const int SW_RESTORE = 9;
-    public const uint SWP_NOSIZE = 0x0001, SWP_NOMOVE = 0x0002, SWP_NOACTIVATE = 0x0010, SWP_SHOWWINDOW = 0x0040;
+    public const uint SWP_NOSIZE = 0x0001, SWP_NOMOVE = 0x0002, SWP_NOACTIVATE = 0x0010, SWP_SHOWWINDOW = 0x0040, SWP_ASYNCWINDOWPOS = 0x4000;
     public static readonly nint HWND_TOPMOST = new(-1);
     public static readonly nint HWND_NOTOPMOST = new(-2);
     public const int GWL_EXSTYLE = -20;
@@ -35,6 +35,10 @@ internal static partial class NativeMethods
 
     [LibraryImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool ShowWindow(nint hWnd, int nCmdShow);
+
+    /// <summary>Como <see cref="ShowWindow"/>, pero PUBLICA la orden en la cola del hilo dueño de la ventana y vuelve sin esperar (no se bloquea si ese hilo está colgado).</summary>
+    [LibraryImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool ShowWindowAsync(nint hWnd, int nCmdShow);
 
     [LibraryImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool SetWindowPos(nint hWnd, nint hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
@@ -107,11 +111,25 @@ internal static partial class NativeMethods
 
     public static bool IsTopmost(nint hwnd) => (GetWindowLongPtr(hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
 
-    /// <summary>Quita topmost y minimiza. Seguro desde cualquier hilo (el sistema envía los mensajes al hilo dueño de la ventana).</summary>
+    /// <summary>
+    /// Quita topmost y minimiza, SÍNCRONO: espera a que el hilo dueño de la ventana (el de UI) atienda la orden. Úsalo desde el hilo de UI o
+    /// donde bloquearse sea aceptable; para emergencias usa <see cref="MinimizeAndDropTopmostAsync"/>.
+    /// </summary>
     public static void MinimizeAndDropTopmost(nint hwnd)
     {
         SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         ShowWindow(hwnd, SW_MINIMIZE);
+    }
+
+    /// <summary>
+    /// Igual, pero NO espera: ambas órdenes se publican en la cola del hilo de la ventana (<c>SWP_ASYNCWINDOWPOS</c> y
+    /// <c>ShowWindowAsync</c>) y se ejecutan en ese orden. Es lo que usa la pausa de emergencia: un hilo de UI bloqueado no bloquea al atajo
+    /// (la ventana se minimizará en cuanto el hilo de UI vuelva a bombear mensajes).
+    /// </summary>
+    public static void MinimizeAndDropTopmostAsync(nint hwnd)
+    {
+        SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
+        ShowWindowAsync(hwnd, SW_MINIMIZE);
     }
 
     /// <summary>Restaura la ventana, la coloca exactamente en <paramref name="area"/> y la vuelve a poner topmost.</summary>

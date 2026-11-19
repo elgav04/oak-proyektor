@@ -28,6 +28,27 @@ public class OutputSafetyPolicyTests
     }
 
     [Fact]
+    public void A_missing_projector_with_the_output_still_away_from_the_panel_waits_for_the_debounce()
+    {
+        Assert.False(Eval(displays: [Panel]).Immediate);   // un parpadeo de enumeración: el controlador espera 2 ciclos
+    }
+
+    [Fact]
+    public void A_missing_projector_while_the_output_already_covers_the_panel_pauses_immediately_without_debounce()
+    {
+        // Windows movió la ventana al monitor que queda (el del panel): tapa al operador y no se puede esperar ~1 s.
+        var d = Eval(output: new ScreenRect(0, 0, 1920, 1080), displays: [Panel]);
+        Assert.Equal((SafetyActionKind.Pause, OutputPauseReason.DisplayLost, true), (d.Kind, d.Reason, d.Immediate));
+    }
+
+    [Fact]
+    public void Even_a_partial_overlap_with_the_panel_counts_as_covering_it()
+    {
+        var d = Eval(output: new ScreenRect(1800, 0, 1920, 1080), displays: [Panel]);   // 120 px sobre el panel
+        Assert.True(d.Immediate);
+    }
+
+    [Fact]
     public void Windows_moving_the_output_onto_the_panel_monitor_pauses_even_if_the_projector_still_lists()
     {
         var d = Eval(output: new ScreenRect(0, 0, 1920, 1080));

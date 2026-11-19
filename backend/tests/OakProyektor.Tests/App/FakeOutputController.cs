@@ -9,11 +9,13 @@ internal sealed class FakeOutputController : IOutputController
 {
     public List<string> Calls { get; } = [];
     public OutputStateChangedPayload Snapshot() => new(1, OutputState.Initial, new OutputWindowStatus(false, null, false, false, null, true, null));
-    public void Open(string? displayId) => Calls.Add($"open:{displayId ?? "auto"}");
+    /// <summary>El número de llegada recibido en cada llamada a <c>Open</c> / <c>EmergencyPause</c>, en orden.</summary>
+    public List<long> Orders { get; } = [];
+    public void Open(string? displayId, long order = 0) { Calls.Add($"open:{displayId ?? "auto"}"); Orders.Add(order); }
     public void Close() => Calls.Add("close");
     public void SetMaster(MasterMode master) => Calls.Add($"master:{master}");
     public void CloseForShutdown() => Calls.Add("shutdown");
-    public void EmergencyPause(OutputPauseReason reason) => Calls.Add($"pause:{reason}");
+    public void EmergencyPause(OutputPauseReason reason, long order = 0) { Calls.Add($"pause:{reason}"); Orders.Add(order); }
     public void SettingsChanged() => Calls.Add("settingsChanged");
     public void SetEmergencyHotkey(string? description) => Calls.Add($"hotkey:{description ?? "none"}");
 }
