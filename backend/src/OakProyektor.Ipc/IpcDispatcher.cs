@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using OakProyektor.Ipc.Messages;
 
@@ -85,7 +85,11 @@ public sealed class IpcDispatcher
         }
     }
 
-    private static IpcEnvelope Failure(IpcEnvelope request, IpcError error) =>
+    /// <summary>
+    /// La respuesta de error correlacionada para <paramref name="request"/>: un reply <c>{ ok: false, error }</c> si era una query, o el evento
+    /// <c>command.failed</c> si era un comando. Pública para que quien descarte un mensaje (p. ej. un carril lleno) avise al solicitante en vez de callar.
+    /// </summary>
+    public static IpcEnvelope Failure(IpcEnvelope request, IpcError error) =>
         request.Kind == IpcKind.Query
             ? IpcEnvelope.Create(IpcKind.Reply, request.Type, new IpcReply(false, null, error), request.Id)
             : IpcEnvelope.Create(IpcKind.Event, IpcTypes.CommandFailed, new CommandFailedPayload(request.Id, request.Type, error));

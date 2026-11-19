@@ -18,12 +18,27 @@ public class InboundProcessorTests
     private static string Cmd(string type, string payload = "{}", string id = "x") =>
         $$"""{"v":3,"id":"{{id}}","kind":"command","type":"{{type}}","payload":{{payload}}}""";
 
-    private static (InboundQueue Intake, Outbox Outbox, InboundProcessor Processor) Create(params IIpcHandler[] handlers)
+    private static (InboundQueue Intake, Outbox Outbox, InboundProcessor Processor) Create(params IIpcHandler[] handlers) =>
+        CreateWithCapacity(InboundProcessor.DefaultLaneCapacity, handlers);
+
+    private static (InboundQueue Intake, Outbox Outbox, InboundProcessor Processor) CreateWithCapacity(int laneCapacity, params IIpcHandler[] handlers)
     {
         var intake = new InboundQueue(NullLogger<InboundQueue>.Instance);
         var outbox = new Outbox(NullLogger<Outbox>.Instance);
         var dispatcher = new IpcDispatcher(handlers, NullLogger<IpcDispatcher>.Instance);
-        return (intake, outbox, new InboundProcessor(intake, dispatcher, outbox, new OrderClock(), NullLogger<InboundProcessor>.Instance));
+        return (intake, outbox, new InboundProcessor(intake, dispatcher, outbox, new OrderClock(), NullLogger<InboundProcessor>.Instance, laneCapacity));
+    }
+
+    /// <summary>Lee el siguiente mensaje saliente (con tiempo límite) y lo devuelve ya interpretado.</summary>
+    private static async Task<(Targets Target, IpcEnvelope Envelope)> NextOutboundAsync(Outbox outbox)
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await foreach (var (target, json) in outbox.ReadAllAsync(cts.Token))
+        {
+            Assert.True(IpcSerializer.TryParse(json, out var envelope, out var error), error);
+            return (target, envelope!);
+        }
+        throw new InvalidOperationException("La cola de salida se cerró sin mensajes.");
     }
 
     [Fact]
@@ -86,6 +101,83 @@ public class InboundProcessorTests
         releaseSlow.SetResult();
         cts.Cancel(); intake.Complete();
         await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task A_command_dropped_by_a_full_lane_is_reported_to_the_panel_instead_of_vanishing()
+    {
+        var started = new TaskCompletionSource();
+        var release = new TaskCompletionSource();
+        var handled = new List<string>();
+        var (intake, outbox, processor) = CreateWithCapacity(laneCapacity: 2,
+            new Handler(IpcKind.Command, IpcTypes.OutputOpen, async (request, _) =>
+            {
+                lock (handled) handled.Add(request.Id);
+                started.TrySetResult();
+                await release.Task;                       // un handler atascado: el carril normal no avanza
+                return null;
+            }));
+        using var cts = new CancellationTokenSource();
+        var tasks = processor.Start(cts.Token);
+
+        intake.Enqueue(WindowKind.Control, Cmd("output.open", id: "c1"));
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));          // c1 ya está en el handler (fuera del canal)
+        intake.Enqueue(WindowKind.Control, Cmd("output.open", id: "c2"));   // caben 2 en el carril: c2 y c3
+        intake.Enqueue(WindowKind.Control, Cmd("output.open", id: "c3"));
+        intake.Enqueue(WindowKind.Control, Cmd("output.open", id: "c4"));   // ← no cabe
+
+        var (target, failure) = await NextOutboundAsync(outbox);
+
+        Assert.Equal(Targets.Control, target);                           // al panel que lo mandó
+        Assert.Equal(IpcTypes.CommandFailed, failure.Type);
+        var payload = failure.GetPayload<CommandFailedPayload>();
+        Assert.Equal(("c4", IpcTypes.OutputOpen, "overloaded"), (payload.CommandId, payload.CommandType, payload.Error.Code));
+        Assert.Contains("NO se ejecutó", payload.Error.Message);
+
+        // Lo que SÍ cabió se ejecuta cuando el carril avanza: solo se rechazó lo que no cabía, y solo c4.
+        release.SetResult();
+        await WaitUntilAsync(() => { lock (handled) return handled.Count == 3; });
+        lock (handled) Assert.Equal(["c1", "c2", "c3"], handled);
+        cts.Cancel(); intake.Complete();
+        await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task The_failure_goes_to_the_window_that_sent_the_dropped_message_and_a_dropped_query_gets_an_error_reply()
+    {
+        var started = new TaskCompletionSource();
+        var release = new TaskCompletionSource();
+        var (intake, outbox, processor) = CreateWithCapacity(laneCapacity: 1,
+            new Handler(IpcKind.Command, IpcTypes.OutputOpen, async (_, _) => { started.TrySetResult(); await release.Task; return null; }),
+            new Handler(IpcKind.Query, IpcTypes.DisplayList, (_, _) => Task.FromResult<object?>(new { })));
+        using var cts = new CancellationTokenSource();
+        var tasks = processor.Start(cts.Token);
+
+        intake.Enqueue(WindowKind.Control, Cmd("output.open", id: "a"));
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        intake.Enqueue(WindowKind.Control, Cmd("output.open", id: "b"));            // ocupa el único hueco
+        intake.Enqueue(WindowKind.Output, Cmd("output.open", id: "from-output"));   // no cabe: el aviso va a la SALIDA, no al panel
+        var (target1, _) = await NextOutboundAsync(outbox);
+        Assert.Equal(Targets.Output, target1);
+
+        // Una query descartada recibe un reply con error (no un command.failed), correlacionado por su id: el cliente la rechaza al instante.
+        intake.Enqueue(WindowKind.Control, """{"v":3,"id":"q9","kind":"query","type":"display.list","payload":{}}""");
+        var (target2, reply) = await NextOutboundAsync(outbox);
+        Assert.Equal(Targets.Control, target2);
+        Assert.Equal(("reply", IpcTypes.DisplayList, "q9"), (reply.Kind, reply.Type, reply.Id));
+        var body = reply.GetPayload<IpcReply>();
+        Assert.False(body.Ok);
+        Assert.Equal("overloaded", body.Error!.Code);
+
+        release.SetResult();
+        cts.Cancel(); intake.Complete();
+        await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        for (var i = 0; i < 400 && !condition(); i++) await Task.Delay(10);
+        Assert.True(condition(), "la condición no se cumplió a tiempo");
     }
 
     [Fact]
