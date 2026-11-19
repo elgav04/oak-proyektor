@@ -28,11 +28,23 @@ internal static class Program
         }
 
         // I11: instancia única (por carpeta de datos). Va ANTES de crear el log: abrirlo chocaría con el archivo de la primera instancia.
-        using var guard = SingleInstanceGuard.TryAcquire(SingleInstanceGuard.NameFor(paths.DataDirectory));
-        if (guard is null)
+        // SÍNCRONO a propósito (ver SingleInstanceCoordinator): un await aquí sacaría la ventana del hilo STA. Si la primera instancia se está
+        // cerrando, espera unos segundos a que suelte el candado y ARRANCA con normalidad; si hay una sana, la enfoca y sale.
+        var instanceName = SingleInstanceGuard.NameFor(paths.DataDirectory);
+        var instance = SingleInstanceCoordinator.Acquire(
+            () => SingleInstanceGuard.TryAcquire(instanceName),
+            () => ExistingInstance.TryBringToFront(ApplicationHost.ControlWindowTitle, Environment.ProcessPath),
+            SingleInstanceCoordinator.DefaultAttempts, Thread.Sleep, SingleInstanceCoordinator.DefaultPollMs);
+        using var guard = instance.Guard;
+        switch (instance.Outcome)
         {
-            await ExistingInstance.TryBringToFrontAsync(ApplicationHost.ControlWindowTitle, Environment.ProcessPath).ConfigureAwait(false);
-            return 0;
+            case InstanceOutcome.ExistingFocused:
+                return 0;
+            case InstanceOutcome.ExistingUnresponsive:
+                StartupFailure.Show(
+                    "Oak-Proyektor ya parece estar en ejecución con esta misma carpeta de datos, pero no tiene ninguna ventana ni se cierra.\n\n" +
+                    "Ciérralo desde el Administrador de tareas (Oak-Proyektor) y vuelve a abrirlo.", null);
+                return 1;
         }
 
         // M14: el logger se crea con respaldo (carpeta de datos → carpeta temporal → silencioso); nunca impide arrancar.

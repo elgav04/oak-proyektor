@@ -63,9 +63,131 @@ public class SingleInstanceTests
     }
 
     [Fact]
-    public async Task Looking_for_a_window_nobody_has_returns_false_quickly()
+    public void Looking_for_a_window_nobody_has_returns_false_immediately()
     {
-        var found = await ExistingInstance.TryBringToFrontAsync($"Ventana-que-no-existe-{Guid.NewGuid():N}", null, attempts: 2, delayMs: 5);
-        Assert.False(found);
+        Assert.False(ExistingInstance.TryBringToFront($"Ventana-que-no-existe-{Guid.NewGuid():N}", null));
+    }
+
+    // ───────── SingleInstanceCoordinator: qué hace una instancia recién lanzada ─────────
+
+    private sealed class Script
+    {
+        public int Acquires, Focuses, Sleeps;
+        public Func<int, SingleInstanceGuard?> TryAcquire = _ => null;   // recibe el nº de intento (1, 2, ...)
+        public Func<int, bool> HasWindow = _ => false;                    // recibe el nº de comprobación (1, 2, ...)
+
+        public InstanceResult Run(int attempts = 32) => SingleInstanceCoordinator.Acquire(
+            () => TryAcquire(++Acquires), () => HasWindow(++Focuses), attempts, _ => Sleeps++, pollMs: 250);
+    }
+
+    [Fact]
+    public void With_no_other_instance_it_starts_at_once_without_waiting_or_looking_for_windows()
+    {
+        var name = UniqueName();
+        var s = new Script { TryAcquire = _ => SingleInstanceGuard.TryAcquire(name) };
+
+        var r = s.Run();
+        using var guard = r.Guard;
+
+        Assert.Equal(InstanceOutcome.Primary, r.Outcome);
+        Assert.NotNull(guard);
+        Assert.Equal((1, 0, 0), (s.Acquires, s.Focuses, s.Sleeps));      // el caso normal no espera nada
+    }
+
+    [Fact]
+    public void With_a_healthy_other_instance_it_focuses_it_confirms_once_and_does_not_start()
+    {
+        var s = new Script { HasWindow = _ => true };
+
+        var r = s.Run();
+
+        Assert.Equal(InstanceOutcome.ExistingFocused, r.Outcome);
+        Assert.Null(r.Guard);
+        Assert.Equal(2, s.Focuses);                                        // enfoca y confirma
+        Assert.Equal(1, s.Sleeps);                                         // una sola pausa corta, no ocho segundos
+    }
+
+    [Fact]
+    public void If_the_first_instance_is_closing_no_window_then_the_lock_is_released_it_starts_normally_instead_of_exiting_silently()
+    {
+        var name = UniqueName();
+        var dying = SingleInstanceGuard.TryAcquire(name);
+        Assert.NotNull(dying);
+        var s = new Script
+        {
+            HasWindow = _ => false,                                         // la ventana ya se cerró
+            TryAcquire = attempt =>
+            {
+                if (attempt == 5) dying.Dispose();                          // al 5º intento el proceso termina y el sistema libera el candado
+                return SingleInstanceGuard.TryAcquire(name);
+            },
+        };
+
+        var r = s.Run();
+        using var guard = r.Guard;
+
+        Assert.Equal(InstanceOutcome.Primary, r.Outcome);
+        Assert.NotNull(guard);
+        Assert.Equal(5, s.Acquires);
+        Assert.Equal(4, s.Sleeps);                                          // esperó entre intentos
+    }
+
+    [Fact]
+    public void A_window_seen_once_that_then_vanishes_is_a_dying_instance_not_a_healthy_one()
+    {
+        var name = UniqueName();
+        var dying = SingleInstanceGuard.TryAcquire(name);
+        Assert.NotNull(dying);
+        var s = new Script
+        {
+            HasWindow = n => n == 1,                                      // la 1ª comprobación la ve; la confirmación ya no
+            TryAcquire = attempt =>
+            {
+                if (attempt == 3) dying.Dispose();
+                return SingleInstanceGuard.TryAcquire(name);
+            },
+        };
+
+        var r = s.Run();
+        using var guard = r.Guard;
+
+        Assert.Equal(InstanceOutcome.Primary, r.Outcome);                   // no se queda «enfocando» una ventana que desaparece
+    }
+
+    [Fact]
+    public void If_the_other_instance_is_still_starting_its_window_appears_and_it_is_focused()
+    {
+        var name = UniqueName();
+        using var other = SingleInstanceGuard.TryAcquire(name);
+        var s = new Script
+        {
+            TryAcquire = _ => SingleInstanceGuard.TryAcquire(name),
+            HasWindow = n => n >= 4,                                        // aún sin ventana en las primeras comprobaciones
+        };
+
+        var r = s.Run();
+
+        Assert.Equal(InstanceOutcome.ExistingFocused, r.Outcome);
+    }
+
+    [Fact]
+    public void With_another_process_holding_the_lock_and_never_a_window_it_gives_up_after_the_attempts_and_says_so()
+    {
+        var name = UniqueName();
+        using var stuck = SingleInstanceGuard.TryAcquire(name);
+        var s = new Script { TryAcquire = _ => SingleInstanceGuard.TryAcquire(name), HasWindow = _ => false };
+
+        var r = s.Run(attempts: 6);
+
+        Assert.Equal(InstanceOutcome.ExistingUnresponsive, r.Outcome);      // el llamador muestra un aviso: NO sale en silencio
+        Assert.Null(r.Guard);
+        Assert.Equal((6, 6, 5), (s.Acquires, s.Focuses, s.Sleeps));
+    }
+
+    [Fact]
+    public void The_default_wait_is_longer_than_the_shutdown_limit_of_the_first_instance()
+    {
+        // El apagado de la primera instancia tiene un límite de 3 s (CLAUDE.md): esperar menos que eso dejaría a la segunda salir antes de poder arrancar.
+        Assert.True(SingleInstanceCoordinator.DefaultAttempts * SingleInstanceCoordinator.DefaultPollMs > 3000 * 2);
     }
 }

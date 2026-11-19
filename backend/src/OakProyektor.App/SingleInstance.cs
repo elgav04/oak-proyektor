@@ -37,28 +37,70 @@ internal sealed class SingleInstanceGuard : IDisposable
     public void Dispose() => _mutex.Dispose();
 }
 
+internal enum InstanceOutcome
+{
+    /// <summary>Esta es la única instancia: arrancar con normalidad (<see cref="InstanceResult.Guard"/> la protege).</summary>
+    Primary,
+    /// <summary>Había otra instancia sana: se trajo al frente su ventana y esta debe salir.</summary>
+    ExistingFocused,
+    /// <summary>Hay otro proceso con el candado pero no tiene ventana ni lo suelta tras esperar: no se puede arrancar ni enfocar nada.</summary>
+    ExistingUnresponsive,
+}
+
+internal sealed record InstanceResult(InstanceOutcome Outcome, SingleInstanceGuard? Guard);
+
+/// <summary>
+/// Decide qué hace una instancia recién lanzada (menor de la ronda 2). Casos:
+/// <list type="bullet">
+/// <item>No hay otra: <c>Primary</c>.</item>
+/// <item>Hay otra con ventana (confirmada dos veces, por si se estaba cerrando): se enfoca y <c>ExistingFocused</c>.</item>
+/// <item>Hay otra SIN ventana: puede estar arrancando (la ventana aparecerá) o CERRÁNDOSE (soltará el candado en unos segundos, el apagado
+/// tiene un límite de 3 s). Se reintenta durante unos segundos y, en cuanto el candado queda libre, esta instancia ARRANCA con normalidad en
+/// lugar de salir en silencio. Si pasado el tiempo sigue sin haber ventana ni candado libre: <c>ExistingUnresponsive</c> (el llamador lo muestra).</item>
+/// </list>
+/// Es SÍNCRONO a propósito: <c>Main</c> es <c>[STAThread]</c> y WebView2 exige STA; un <c>await</c> aquí devolvería la continuación a un hilo del
+/// pool (MTA) y la ventana quedaría negra sin error. Solo bloquea cuando ya hay otra instancia (nunca en el arranque normal) y antes de crear ninguna ventana.
+/// </summary>
+internal static class SingleInstanceCoordinator
+{
+    /// <summary>32 intentos × 250 ms ≈ 8 s: más que el límite de apagado de la primera instancia (3 s).</summary>
+    public const int DefaultAttempts = 32;
+    public const int DefaultPollMs = 250;
+
+    public static InstanceResult Acquire(Func<SingleInstanceGuard?> tryAcquire, Func<bool> bringToFront, int attempts, Action<int> sleep, int pollMs)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            if (tryAcquire() is { } guard) return new InstanceResult(InstanceOutcome.Primary, guard);
+
+            // Con ventana: se enfoca y se CONFIRMA tras una pausa, porque una instancia que se está cerrando aún puede tenerla un instante.
+            if (bringToFront())
+            {
+                sleep(pollMs);
+                if (bringToFront()) return new InstanceResult(InstanceOutcome.ExistingFocused, null);
+            }
+
+            if (attempt >= attempts) return new InstanceResult(InstanceOutcome.ExistingUnresponsive, null);
+            sleep(pollMs);
+        }
+    }
+}
+
 internal static class ExistingInstance
 {
     /// <summary>
     /// Trae al frente la ventana de control de la otra instancia (restaurándola si está minimizada). Solo considera ventanas de un
-    /// proceso que ejecuta ESTE mismo ejecutable (otra aplicación con el mismo título no cuenta). Reintenta unos instantes por si la
-    /// primera instancia aún está creando su ventana. Devuelve true si la encontró.
+    /// proceso que ejecuta ESTE mismo ejecutable (otra aplicación con el mismo título no cuenta). Un solo intento, sin esperas
+    /// (<see cref="SingleInstanceCoordinator"/> decide cuánto reintentar). Devuelve true si la encontró.
     /// </summary>
-    public static async Task<bool> TryBringToFrontAsync(string windowTitle, string? exePath, int attempts = 15, int delayMs = 200)
+    public static bool TryBringToFront(string windowTitle, string? exePath)
     {
-        for (var i = 0; i < attempts; i++)
-        {
-            var hwnd = FindOtherInstanceWindow(windowTitle, exePath);
-            if (hwnd != 0)
-            {
-                if (NativeMethods.IsIconic(hwnd)) NativeMethods.ShowWindow(hwnd, NativeMethods.SW_RESTORE);
-                NativeMethods.BringWindowToTop(hwnd);
-                NativeMethods.SetForegroundWindow(hwnd);
-                return true;
-            }
-            await Task.Delay(delayMs).ConfigureAwait(false);
-        }
-        return false;
+        var hwnd = FindOtherInstanceWindow(windowTitle, exePath);
+        if (hwnd == 0) return false;
+        if (NativeMethods.IsIconic(hwnd)) NativeMethods.ShowWindow(hwnd, NativeMethods.SW_RESTORE);
+        NativeMethods.BringWindowToTop(hwnd);
+        NativeMethods.SetForegroundWindow(hwnd);
+        return true;
     }
 
     private static nint FindOtherInstanceWindow(string windowTitle, string? exePath)
