@@ -70,7 +70,9 @@
 - **Problema:** `w.WaitForClose()` "no bloquea" solo cuando se llama dentro de un `Invoke`. En el spike, dentro del handler `Created`, sí bloqueaba. Una actualización de Photino podría colgar el hilo de UI y congelar las dos ventanas.
 - **Corrección:** mantener la versión fijada, documentar la prueba manual obligatoria al actualizar Photino, y dejar un comentario de advertencia junto a la dependencia.
 
-### I8. Aislamiento entre panel y salida en WebView2, sin verificar
+### I8. Aislamiento entre panel y salida en WebView2 — **VERIFICADO A MANO (sin cambios de código)**
+> Verificado por el usuario el 2026-11-18 con el proyector real (Photino.NET 4.0.16, WebView2 157.0.4341.60): un bucle infinito en el panel desde DevTools congeló el panel y la proyección siguió funcionando. NO cambiar el entorno de WebView2. La prueba es obligatoria al actualizar Photino o WebView2 (ver `CLAUDE.md`) y quedó documentada en `ApplicationHost.cs`.
+
 - **Dónde:** `ApplicationHost.cs:22` y `OutputController.cs:75`.
 - **Problema:** las dos ventanas usan la misma carpeta de datos de WebView2, es decir, el mismo entorno. No se verificó si comparten proceso de navegador o de renderizado. Si lo comparten, un bucle infinito o un fallo del JS del panel podría congelar la salida.
 - **Corrección:** probarlo forzando un bucle en el panel. Si se confirma, dar a cada ventana su propio entorno con `SetTemporaryFilesPath`.
@@ -121,7 +123,7 @@
 | M10 | `DisplayManager.cs:37-42,53` | Con el panel minimizado (posición −32000), ningún monitor «aloja el panel» y la opción por defecto sería el monitor del panel. Afecta a futuros atajos globales. | Usar la última posición conocida del panel. |
 | M11 | `OutputController.cs:72-98,109-111` | Si la creación falla a mitad o `Close` falla, queda una ventana topmost huérfana que el panel no controla. **CORREGIDO.** | Registrar la ventana justo al crearla y reintentar el cierre. |
 | M12 | `IpcPump.cs:23` | `catch (OperationCanceledException) { throw; }` sin filtro: un OCE ajeno al apagado detendría la cola de entrada para siempre. Hoy no pasa porque el dispatcher no lo propaga. | Añadir `when (ct.IsCancellationRequested)`. |
-| M13 | `frontend/src/output/OutputView.tsx` | La salida no tiene `ErrorBoundary`: un error de render la deja en negro hasta recargar. | Un boundary que conserve el último estado pintado. |
+| M13 | `frontend/src/output/OutputView.tsx` | La salida no tiene `ErrorBoundary`: un error de render la deja en negro hasta recargar. **CORREGIDO** (`OutputErrorBoundary`). | Un boundary que conserve el último estado pintado. |
 | M14 | `Program.cs:12-20` | La resolución de rutas y la creación del logger quedan fuera del `try`: si fallan, no queda registro. | Moverlas dentro del `try` con un respaldo. |
 
 ## Qué probar primero, a mano
@@ -139,4 +141,6 @@
 | M1 | Corregido | cd56327 |
 | M11 | Corregido (registro inmediato + 3 reintentos y `WM_CLOSE`; no se declara cerrada si sigue existiendo) | cd56327 |
 | I6 | Parcial: el índice mostrado en el estado se deriva del rectángulo | cd56327 |
+| I8 | Verificado a mano el 2026-11-18; sin cambios de entorno; repetir al actualizar Photino/WebView2 | HASH |
+| M13 | Corregido: `OutputErrorBoundary` conserva el último estado pintado; probado en la ventana real y con `/output-probe.html` | HASH |
 | resto | Pendiente | — |

@@ -20,6 +20,16 @@ internal sealed class ApplicationHost : IDisposable
     public ApplicationHost(ApplicationPaths paths, Serilog.ILogger serilog, Action<IServiceCollection>? configureServices = null)
     {
         _paths = paths;
+
+        // AISLAMIENTO ENTRE PANEL Y SALIDA (hallazgo I8) — verificado A MANO, no por tests automáticos:
+        //   Fecha: 2026-11-18. Equipo: Windows 11 con proyector real.
+        //   Versiones: Photino.NET 4.0.16 (Photino.Native 4.0.22), WebView2 Runtime 157.0.4341.60.
+        //   Prueba: con la salida abierta y proyectando, se abrió DevTools en el panel (compilación Debug) y se ejecutó un
+        //   bucle infinito en la consola. Resultado: la ventana de control se congeló, la proyección siguió funcionando.
+        //   Por eso el panel y la salida se dejan en el MISMO entorno de WebView2 (el predeterminado de Photino):
+        //   NO se les asigna un entorno propio ni se cambia su relación (ver CLAUDE.md y docs/REVISION_FASE1.md, I8).
+        //   REPETIR esta prueba tras actualizar Photino.NET, Photino.Native o el runtime de WebView2: el aislamiento
+        //   depende de cómo WebView2 reparte los procesos de renderizado, y eso puede cambiar entre versiones.
         MainWindow = new PhotinoWindow()
             .SetTitle("Oak-Proyektor — Control")
             .SetSize(1100, 720)

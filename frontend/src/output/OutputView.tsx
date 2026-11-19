@@ -2,8 +2,9 @@
 import { ipc } from "@/ipc/instance";
 import type { OutputState } from "@/ipc/protocol";
 import { isEmergencyKey } from "./emergency";
+import { OutputScreen } from "./OutputScreen";
 
-/** La salida es "tonta": pinta el último snapshot que recibe y nada más. */
+/** La salida es "tonta": recibe snapshots por IPC y los pinta; nada más. */
 export function OutputView() {
   const [state, setState] = useState<OutputState | null>(null);
 
@@ -36,12 +37,5 @@ export function OutputView() {
     };
   }, []);
 
-  // Contenedores con clave estable: el fondo nunca se remonta al cambiar el texto.
-  return (
-    <div key="background" className="stage" style={{ backgroundColor: state?.backgroundColor ?? "#000000" }}>
-      <div key="content" className="content">{state?.text ?? ""}</div>
-    </div>
-  );
+  return <OutputScreen state={state} />;
 }
-
-

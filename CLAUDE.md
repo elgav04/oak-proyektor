@@ -86,6 +86,7 @@ Si un comando no existe todavía, créalo y documéntalo aquí.
   - Pausa y restauración de la salida se hacen con Win32 sobre su `WindowHandle` (`ShowWindow`, `SetWindowPos`), despachadas al hilo de UI. Única excepción: la pausa de emergencia actúa directamente, sin cola de UI ni candado de ciclo de vida, para funcionar aunque haya una operación lenta en curso.
   - El atajo global usa `RegisterHotKey` con `hWnd` nulo en un hilo propio con su bucle de mensajes (Photino no expone el suyo). `SetThreadExecutionState` es por hilo: siempre se llama en el hilo de UI, que vive toda la sesión.
   - La ventana de salida se registra en cuanto se construye (antes de configurarla) y se cierra con hasta 3 reintentos más `WM_CLOSE`; si sigue existiendo, NO se declara cerrada (el panel la sigue mostrando y se puede reintentar). El handler de cierre captura sus excepciones.
+  - **PRUEBA MANUAL OBLIGATORIA tras actualizar Photino.NET, Photino.Native o el runtime de WebView2 (aislamiento panel/salida, hallazgo I8).** Panel y salida comparten el entorno de WebView2 predeterminado, y que un bloqueo del JS del panel no afecte a la salida depende de cómo WebView2 reparte los procesos de renderizado (puede cambiar entre versiones). Pasos: (1) `npm run build` y compilación **Debug** (DevTools solo se habilita en Debug); (2) abrir la salida en el proyector y poner Live para que muestre algo; (3) en el panel abrir DevTools (clic derecho → Inspeccionar) y en la consola ejecutar `while (true) {}`; (4) esperado: el panel se congela pero la salida sigue mostrando su contenido, sin parpadear ni ponerse en negro, y el atajo Ctrl+Alt+Shift+M sigue minimizándola (prueba que el hilo de UI de C# sigue vivo). Si la salida se congela o se pone en negro: el aislamiento se rompió; dar a cada ventana su propio entorno de WebView2 (`SetTemporaryFilesPath`) y repetir la prueba. **No cambies el entorno de WebView2 mientras la prueba pase.** Última verificación: 2026-11-18 con Photino.NET 4.0.16 (Photino.Native 4.0.22) y WebView2 157.0.4341.60: la salida siguió funcionando. Al repetirla, actualiza esta línea y el comentario de `ApplicationHost.cs`.
 
 ## Convenciones TypeScript / React
 
@@ -93,6 +94,7 @@ Si un comando no existe todavía, créalo y documéntalo aquí.
 - Zustand solo como **réplica** del estado que manda C#: el cliente envía comandos y reacciona a eventos; no muta estado de negocio localmente.
 - Atajos de teclado centralizados (un solo archivo de mapa), nunca dispersos por componentes.
 - Componentes del panel de control optimizados para operar rápido: foco por teclado, objetivos grandes, estados claros (EN VIVO / listo).
+- La página de salida está protegida por `OutputErrorBoundary` (M13): ante un error de render conserva el último estado que sí se pintó (sin negro) y reintenta cuando llega un snapshot de otra `revision`. Sin boundary, React desmonta todo el árbol y la salida queda en negro aunque llegue un snapshot válido (reproducido en la ventana real). Prueba manual: `npm run dev` y abrir `/output-probe.html` (solo desarrollo; no entra en el build). No hay aún un ejecutor de tests de JS en el repo.
 
 ## Protocolo IPC
 
