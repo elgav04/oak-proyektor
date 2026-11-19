@@ -11,7 +11,7 @@ frontend/dist/
 *.tsbuildinfo
 
 # Datos locales (BD, cachés, logs)
-data/
+/data/
 
 # Varios
 .DS_Store
