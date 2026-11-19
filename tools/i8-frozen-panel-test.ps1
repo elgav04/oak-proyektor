@@ -118,14 +118,40 @@ try {
   return true;
 })()
 '@)
+    # 3b. Video EN BUCLE en la salida (no hay capa de video de fondo todavia): se graba 1 s de un canvas animado con MediaRecorder y se reproduce
+    #     con loop desde un blob; asi se mide el decodificador y la presentacion de video del renderizador de la salida, no solo CSS.
+    $result.videoReady = Eval $ows @'
+(async () => {
+  const c = document.createElement('canvas'); c.width = 320; c.height = 180;
+  const g = c.getContext('2d');
+  const stream = c.captureStream(30);
+  const rec = new MediaRecorder(stream, { mimeType: 'video/webm' });
+  const chunks = [];
+  rec.ondataavailable = (e) => chunks.push(e.data);
+  const done = new Promise((r) => { rec.onstop = r; });
+  let n = 0;
+  const draw = setInterval(() => { g.fillStyle = `hsl(${(n++ * 12) % 360} 80% 50%)`; g.fillRect(0, 0, 320, 180); }, 33);
+  rec.start(); await new Promise((r) => setTimeout(r, 1000)); rec.stop(); await done; clearInterval(draw);
+  const v = document.createElement('video');
+  v.id = 'oakprobevideo'; v.muted = true; v.loop = true; v.autoplay = true;
+  v.style.cssText = 'position:fixed;top:50px;left:0;width:160px;height:90px;z-index:99999';
+  v.src = URL.createObjectURL(new Blob(chunks, { type: 'video/webm' }));
+  document.body.appendChild(v);
+  await v.play();
+  await new Promise((r) => setTimeout(r, 1500));   // al menos un ciclo completo del bucle
+  return !v.paused;
+})()
+'@ 15000
     $measure = @'
 new Promise((resolve) => {
   const t0 = performance.now();
   const a0 = document.getAnimations()[0]?.currentTime ?? -1;
-  let frames = 0;
+  const v = document.getElementById('oakprobevideo');
+  let frames = 0, videoFrames = 0;
+  if (v && v.requestVideoFrameCallback) (function vf() { videoFrames++; v.requestVideoFrameCallback(vf); })();
   (function tick() {
     frames++;
-    if (performance.now() - t0 >= 1000) resolve(JSON.stringify({ frames, cssAnimationAdvanced: (document.getAnimations()[0]?.currentTime ?? -1) !== a0 }));
+    if (performance.now() - t0 >= 1000) resolve(JSON.stringify({ frames, cssAnimationAdvanced: (document.getAnimations()[0]?.currentTime ?? -1) !== a0, videoFrames, videoPlaying: !!v && !v.paused }));
     else requestAnimationFrame(tick);
   })();
 })
