@@ -144,13 +144,13 @@
 | I14 | Corregido (`ScreenWakeLock`, `SetThreadExecutionState` en el hilo de UI) | cd56327 |
 | M1 | Corregido | cd56327 |
 | M11 | Corregido (registro inmediato + 3 reintentos y `WM_CLOSE`; no se declara cerrada si sigue existiendo) | cd56327 |
-| I6 | Parcial en cd56327; completado: ID de monitor en todo el protocolo y la UI | cd56327 / HASH |
+| I6 | Parcial en cd56327; completado: ID de monitor en todo el protocolo y la UI | cd56327 / 227366a |
 | I8 | Verificado a mano el 2026-11-18; sin cambios de entorno; repetir al actualizar Photino/WebView2 | 0f59c06 |
 | M13 | Corregido: `OutputErrorBoundary` conserva el último estado pintado; probado en la ventana real y con `/output-probe.html` | 0f59c06 |
-| I3 | Corregido (`seq` global bajo candado; replicas descartan seq <= última) | HASH |
-| I4 | Corregido (reintento indefinido, conectado con cualquier mensaje, «Reconectar») | HASH |
-| I5 | Corregido (carril de prioridad; verificado con la app real) | HASH |
-| I12 | Corregido (replies ok/error, `command.failed`) | HASH |
-| M4 | Corregido (`Outbox` compacta snapshots) | HASH |
-| M12 | Corregido (`InboundProcessor`) | HASH |
+| I3 | Corregido (`seq` global bajo candado; replicas descartan seq <= última) | 227366a |
+| I4 | Corregido (reintento indefinido, conectado con cualquier mensaje, «Reconectar») | 227366a |
+| I5 | Corregido (carril de prioridad; verificado con la app real) | 227366a |
+| I12 | Corregido (replies ok/error, `command.failed`) | 227366a |
+| M4 | Corregido (`Outbox` compacta snapshots) | 227366a |
+| M12 | Corregido (`InboundProcessor`) | 227366a |
 | resto | Pendiente | — |
