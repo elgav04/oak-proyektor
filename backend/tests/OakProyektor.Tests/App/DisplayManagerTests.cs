@@ -2,6 +2,8 @@
 using OakProyektor.App;
 using OakProyektor.Core.Display;
 using OakProyektor.Core.Output;
+using OakProyektor.Ipc;
+using OakProyektor.Ipc.Messages;
 
 namespace OakProyektor.Tests.App;
 
@@ -19,6 +21,9 @@ public class DisplayManagerTests
         public MonitorSnapshot Read() => new([.. Monitors], PanelCenter.X, PanelCenter.Y);
     }
 
+    private const string PanelId = "0,0,1920x1080";
+    private const string ProjectorId = "1920,0,1920x1080";
+
     private static DisplayManager Create(FakeProvider provider, out Outbox outbox)
     {
         outbox = new Outbox(NullLogger<Outbox>.Instance);
@@ -26,14 +31,25 @@ public class DisplayManagerTests
     }
 
     [Fact]
-    public void Marks_the_primary_monitor_and_the_one_hosting_the_panel()
+    public void Monitors_get_a_stable_id_derived_from_their_area_and_are_marked_primary_and_panel()
     {
-        var p = new FakeProvider();
-        var list = Create(p, out _).Refresh();
+        var list = Create(new FakeProvider(), out _).Refresh();
 
+        Assert.Equal([PanelId, ProjectorId], list.Select(d => d.Id));
         Assert.Equal([true, false], list.Select(d => d.IsPrimary));
         Assert.Equal([true, false], list.Select(d => d.HostsPanel));
-        Assert.Equal([0, 1], list.Select(d => d.Index));
+    }
+
+    [Fact]
+    public void The_id_does_not_depend_on_enumeration_order()
+    {
+        var p = new FakeProvider();
+        p.Monitors.Reverse();   // Windows enumera en otro orden tras reconectar
+        var dm = Create(p, out _);
+        dm.Refresh();
+
+        Assert.Equal(ProjectorId, dm.Resolve(ProjectorId)!.Id);
+        Assert.Equal(PanelId, dm.Resolve(PanelId)!.Id);
     }
 
     [Fact]
@@ -51,13 +67,13 @@ public class DisplayManagerTests
     }
 
     [Fact]
-    public void Resolve_prefers_the_requested_index_else_the_first_monitor_without_the_panel()
+    public void Resolve_prefers_the_requested_id_else_the_first_monitor_without_the_panel()
     {
         var dm = Create(new FakeProvider(), out _);
         dm.Refresh();
-        Assert.Equal(0, dm.Resolve(0)!.Index);
-        Assert.Equal(1, dm.Resolve(null)!.Index);
-        Assert.Equal(1, dm.Resolve(9)!.Index);      // índice inexistente: cae al automático
+        Assert.Equal(PanelId, dm.Resolve(PanelId)!.Id);
+        Assert.Equal(ProjectorId, dm.Resolve(null)!.Id);
+        Assert.Equal(ProjectorId, dm.Resolve("9,9,9x9")!.Id);      // ID desconocido: cae al automático
     }
 
     [Fact]
@@ -71,29 +87,52 @@ public class DisplayManagerTests
     }
 
     [Fact]
-    public async Task Polling_raises_Polled_every_cycle_and_publishes_display_changed_only_on_real_changes()
+    public async Task Seq_grows_only_when_the_monitor_list_changes_and_the_snapshot_reply_carries_it()
     {
         var p = new FakeProvider();
         var dm = Create(p, out var outbox);
+
+        dm.Refresh();
+        var first = dm.Snapshot().Seq;
+        dm.Refresh();
+        dm.Refresh();
+        Assert.Equal(first, dm.Snapshot().Seq);                 // sin cambios no hay secuencia nueva
+
+        p.Monitors.RemoveAt(1);
+        dm.Refresh();
+        var second = dm.Snapshot();
+        Assert.True(second.Seq > first);
+        Assert.Single(second.Displays);
+
+        outbox.Complete();
+        var seqs = new List<long>();
+        await foreach (var (_, json) in outbox.ReadAllAsync(CancellationToken.None))
+        {
+            Assert.True(IpcSerializer.TryParse(json, out var env, out _));
+            seqs.Add(env!.GetPayload<DisplayListPayload>().Seq);
+        }
+        Assert.Equal([first, second.Seq], seqs);                // un evento por cambio real, en orden
+    }
+
+    [Fact]
+    public async Task Polling_raises_Polled_every_cycle()
+    {
+        var p = new FakeProvider();
+        var dm = Create(p, out _);
         var polls = 0;
         var seenCounts = new List<int>();
         dm.Polled += list => { polls++; seenCounts.Add(list.Count); };
 
         using var cts = new CancellationTokenSource();
         var task = dm.StartPolling(cts.Token);
-        await Task.Delay(1300);                 // ~2 ciclos de 500 ms sin cambios
+        await Task.Delay(1300);
         var pollsWithoutChanges = polls;
-        p.Monitors.RemoveAt(1);                  // se "desconecta" el proyector
+        p.Monitors.RemoveAt(1);
         await Task.Delay(1100);
         cts.Cancel();
         await task;
-        outbox.Complete();
 
         Assert.True(pollsWithoutChanges >= 2, $"ciclos sin cambios: {pollsWithoutChanges}");
-        Assert.Contains(1, seenCounts);          // llegó a verse la lista con un solo monitor
-        var events = new List<string>();
-        await foreach (var (_, json) in outbox.ReadAllAsync(CancellationToken.None)) events.Add(json);
-        Assert.Single(events);                   // exactamente un display.changed (el de la desconexión)
-        Assert.Contains("display.changed", events[0]);
+        Assert.Contains(1, seenCounts);
     }
 }

@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "oak-proyektor-frontend",
   "private": true,
   "version": "0.0.0",
@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "node --test tests/"
   },
   "dependencies": {
     "@dnd-kit/core": "6.3.1",

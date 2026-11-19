@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using OakProyektor.Data;
 using OakProyektor.Ipc;
@@ -47,7 +47,7 @@ internal sealed class ApplicationHost : IDisposable
         services.AddSingleton(new WindowRegistry(MainWindow));
         services.AddSingleton<IUiDispatcher, PhotinoUiDispatcher>();
         services.AddSingleton<InboundQueue>();
-        services.AddSingleton<Outbox>();
+        services.AddSingleton<IOutbox, Outbox>();
         services.AddSingleton<IMonitorProvider, PhotinoMonitorProvider>();
         services.AddSingleton<ISettingsStore, SettingsStore>();
         services.AddSingleton<ScreenWakeLock>();
@@ -64,6 +64,7 @@ internal sealed class ApplicationHost : IDisposable
         services.AddSingleton<IIpcHandler, Handlers.OutputRecoverHandler>();
         services.AddSingleton<IIpcHandler, Handlers.SettingsSetAutoRestoreHandler>();
         services.AddSingleton<IpcDispatcher>();
+        services.AddSingleton<InboundProcessor>();
         services.AddSingleton<IpcPump>();
         services.AddSingleton(new DatabaseOptions(Path.Combine(paths.DataDirectory, DatabaseOptions.FileName)));
         services.AddSingleton<ISqliteConnectionFactory, SqliteConnectionFactory>();
@@ -143,7 +144,7 @@ internal sealed class ApplicationHost : IDisposable
     {
         _shutdown.Cancel();
         _services.GetRequiredService<InboundQueue>().Complete();
-        _services.GetRequiredService<Outbox>().Complete();
+        _services.GetRequiredService<IOutbox>().Complete();
         _services.GetRequiredService<EmergencyHotkey>().Dispose();
         _services.GetRequiredService<IOutputController>().CloseForShutdown();   // sin esperar a las tareas: estamos en el hilo de UI
     }

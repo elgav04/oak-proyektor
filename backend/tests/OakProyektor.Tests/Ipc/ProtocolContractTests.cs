@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using OakProyektor.Core.Display;
 using OakProyektor.Core.Output;
@@ -96,18 +96,21 @@ public partial class ProtocolContractTests
     [Fact]
     public void Payload_interfaces_have_the_same_fields_as_the_serialized_csharp_types()
     {
-        var display = new DisplayInfo(0, 0, 0, 1, 1, 1, true, true);
+        var display = new DisplayInfo("0,0,1x1", 0, 0, 1, 1, 1, true, true);
         var state = OutputState.Initial;
-        var window = new OutputWindowStatus(true, 0, false, false, null, true, null);
+        var window = new OutputWindowStatus(true, "0,0,1x1", false, false, null, true, null);
 
         Assert.Equal(JsonKeys(display), TsFields("DisplayInfo"));
         Assert.Equal(JsonKeys(state), TsFields("OutputState"));
         Assert.Equal(JsonKeys(new OutputOpenPayload(null)), TsFields("OutputOpenPayload"));
         Assert.Equal(JsonKeys(new OutputSetMasterPayload(MasterMode.Live)), TsFields("OutputSetMasterPayload"));
-        Assert.Equal(JsonKeys(new DisplayListPayload([display])), TsFields("DisplayListPayload"));
+        Assert.Equal(JsonKeys(new DisplayListPayload(1, [display])), TsFields("DisplayListPayload"));
         Assert.Equal(JsonKeys(window), TsFields("OutputWindowStatus"));
         Assert.Equal(JsonKeys(new SetAutoRestorePayload(true)), TsFields("SetAutoRestorePayload"));
-        Assert.Equal(JsonKeys(new OutputStateChangedPayload(state, window)), TsFields("OutputStateChangedPayload"));
+        Assert.Equal(JsonKeys(new OutputStateChangedPayload(1, state, window)), TsFields("OutputStateChangedPayload"));
+        Assert.Equal(JsonKeys(new IpcError("c", "m")), TsFields("IpcErrorPayload"));
+        Assert.Equal(JsonKeys(new IpcReply(true, null, null)), TsFields("IpcReplyFields"));
+        Assert.Equal(JsonKeys(new CommandFailedPayload("id", "t", new IpcError("c", "m"))), TsFields("CommandFailedPayload"));
     }
 }
 

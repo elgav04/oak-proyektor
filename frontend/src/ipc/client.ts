@@ -1,10 +1,11 @@
-﻿import {
+import {
   PROTOCOL_VERSION,
   type CommandPayloads,
   type CommandType,
   type EventPayloads,
   type EventType,
   type IncomingMessage,
+  type IpcErrorPayload,
   type QueryPayloads,
   type QueryType,
 } from "./protocol";
@@ -20,8 +21,23 @@ interface Pending {
 
 const DEFAULT_TIMEOUT_MS = 5000;
 
+/** Error de una query: el del servidor (`code` y `message` reales) o `timeout` / `transport` si nunca hubo respuesta. */
+export class IpcRequestError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "IpcRequestError";
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function isErrorPayload(value: unknown): value is IpcErrorPayload {
+  return isRecord(value) && typeof value.code === "string" && typeof value.message === "string";
 }
 
 /** Valida la forma del sobre. Devuelve null (y nunca lanza) si el mensaje no es utilizable. */
@@ -42,6 +58,10 @@ function parseIncoming(raw: string): IncomingMessage | null {
     console.warn("[ipc] sobre incompleto; ignorado");
     return null;
   }
+  if (kind === "reply" && typeof payload.ok !== "boolean") {
+    console.warn("[ipc] reply sin `ok`; ignorado");
+    return null;
+  }
   // El payload se confía por tipo de mensaje (lo produce nuestro backend); la forma del sobre sí se valida.
   return { v: PROTOCOL_VERSION, id, kind, type, payload } as unknown as IncomingMessage;
 }
@@ -49,6 +69,7 @@ function parseIncoming(raw: string): IncomingMessage | null {
 export class IpcClient {
   private readonly pending = new Map<string, Pending>();
   private readonly subscribers = new Map<EventType, Set<Handler<never>>>();
+  private readonly activity = new Set<() => void>();
 
   constructor(private readonly transport: IpcTransport) {
     transport.onMessage((raw) => {
@@ -56,18 +77,21 @@ export class IpcClient {
     });
   }
 
-  /** Envía un comando (sin respuesta). */
+  /** Envía un comando (sin respuesta). Si falla en el servidor llega el evento `command.failed`. */
   send<T extends CommandType>(type: T, payload: CommandPayloads[T]): void {
     this.post({ v: PROTOCOL_VERSION, id: crypto.randomUUID(), kind: "command", type, payload });
   }
 
-  /** Envía una query y espera su reply correlacionado por id. Rechaza si vence el tiempo. */
+  /**
+   * Envía una query y espera su reply correlacionado por id. Si el servidor responde con error, rechaza YA con ese error
+   * (`IpcRequestError` con su `code` y `message` reales); solo si no hay respuesta rechaza por tiempo (`code: "timeout"`).
+   */
   request<T extends QueryType>(type: T, payload: QueryPayloads[T]["request"], timeoutMs = DEFAULT_TIMEOUT_MS): Promise<QueryPayloads[T]["reply"]> {
     const id = crypto.randomUUID();
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`Tiempo agotado esperando la respuesta de ${type}`));
+        reject(new IpcRequestError("timeout", `Tiempo agotado esperando la respuesta de ${type}`));
       }, timeoutMs);
       this.pending.set(id, { type, resolve: resolve as (payload: unknown) => void, reject, timer });
       try {
@@ -75,7 +99,7 @@ export class IpcClient {
       } catch (error) {
         clearTimeout(timer);
         this.pending.delete(id);
-        reject(error instanceof Error ? error : new Error(String(error)));
+        reject(new IpcRequestError("transport", error instanceof Error ? error.message : String(error)));
       }
     });
   }
@@ -93,6 +117,14 @@ export class IpcClient {
     };
   }
 
+  /** Avisa cada vez que llega CUALQUIER mensaje válido (evento o reply): prueba de que el backend responde. */
+  onActivity(handler: () => void): () => void {
+    this.activity.add(handler);
+    return () => {
+      this.activity.delete(handler);
+    };
+  }
+
   private post(message: { v: number; id: string; kind: string; type: string; payload: unknown }): void {
     this.transport.send(JSON.stringify(message));
   }
@@ -100,6 +132,14 @@ export class IpcClient {
   private handle(raw: string): void {
     const message = parseIncoming(raw);
     if (!message) return;
+
+    for (const handler of this.activity) {
+      try {
+        handler();
+      } catch (error) {
+        console.error("[ipc] un observador de actividad falló", error);
+      }
+    }
 
     if (message.kind === "reply") {
       const entry = this.pending.get(message.id);
@@ -109,7 +149,10 @@ export class IpcClient {
       }
       clearTimeout(entry.timer);
       this.pending.delete(message.id);
-      entry.resolve(message.payload);
+      const reply = message.payload as { ok: boolean; result: unknown; error: unknown };
+      if (reply.ok) entry.resolve(reply.result);
+      else if (isErrorPayload(reply.error)) entry.reject(new IpcRequestError(reply.error.code, reply.error.message));
+      else entry.reject(new IpcRequestError("unknown", "El servidor respondió con un error sin detalle"));
       return;
     }
 
@@ -124,5 +167,3 @@ export class IpcClient {
     }
   }
 }
-
-

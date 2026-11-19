@@ -1,4 +1,4 @@
-﻿namespace OakProyektor.Ipc;
+namespace OakProyektor.Ipc;
 
 public static class IpcKind
 {
@@ -20,13 +20,18 @@ public static class IpcTypes
     public const string SettingsSetAutoRestore = "settings.setAutoRestore";
     public const string DisplayChanged = "display.changed";
     public const string OutputStateChanged = "output.stateChanged";
+    public const string CommandFailed = "command.failed";
 }
 
 public sealed record MessageDescriptor(string Type, string Kind);
 
 public static class IpcCatalog
 {
-    public const int ProtocolVersion = 1;
+    /// <summary>
+    /// v2: snapshots con <c>seq</c> global creciente; monitores por ID (no por índice); replies con <c>{ ok, result, error }</c>;
+    /// evento <c>command.failed</c>; <c>output.setMaster</c> y <c>output.recover</c> van por un carril de prioridad (ver <see cref="IpcPriority"/>).
+    /// </summary>
+    public const int ProtocolVersion = 2;
 
     public static IReadOnlyList<MessageDescriptor> Messages { get; } =
     [
@@ -41,6 +46,7 @@ public static class IpcCatalog
         new(IpcTypes.OutputGetState, IpcKind.Reply),
         new(IpcTypes.DisplayChanged, IpcKind.Event),
         new(IpcTypes.OutputStateChanged, IpcKind.Event),
+        new(IpcTypes.CommandFailed, IpcKind.Event),
     ];
 }
 

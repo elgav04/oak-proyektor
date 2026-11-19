@@ -1,8 +1,8 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ipc } from "@/ipc/instance";
 import { MASTER_MODES, type DisplayInfo, type MasterMode, type OutputPauseReason } from "@/ipc/protocol";
-import { connectControlStore, useControlStore } from "./store";
+import { connectControlStore, dismissFailure, reconnectControl, useControlStore } from "./store";
 
 const MASTER_LABELS: Record<MasterMode, string> = {
   live: "Live",
@@ -19,40 +19,67 @@ const PAUSE_MESSAGES: Record<OutputPauseReason, string> = {
   emergency: "Salida en pausa (atajo de emergencia)",
 };
 
-function displayLabel(d: DisplayInfo): string {
+/** El número es solo una etiqueta para el operador (posición en la lista); NUNCA se envía: un monitor se identifica por su `id`. */
+function displayLabel(d: DisplayInfo, position: number): string {
   const tags = [d.hostsPanel ? "panel" : null, d.isPrimary ? "principal" : null].filter(Boolean).join(", ");
-  return `Monitor ${String(d.index + 1)} — ${String(d.width)}×${String(d.height)}${tags ? ` (${tags})` : ""}`;
+  return `Monitor ${String(position + 1)} — ${String(d.width)}×${String(d.height)}${tags ? ` (${tags})` : ""}`;
 }
 
 export function App() {
   const connected = useControlStore((s) => s.connected);
   const displays = useControlStore((s) => s.displays);
   const output = useControlStore((s) => s.output);
-  // Elección del operador antes de abrir (null = automático). Es estado de la vista, no de negocio.
-  const [selected, setSelected] = useState<number | null>(null);
+  const failure = useControlStore((s) => s.failure);
+  // Elección del operador antes de abrir: ID del monitor, o null = automático. Es estado de la vista, no de negocio.
+  const [selected, setSelected] = useState<string | null>(null);
 
-  useEffect(() => connectControlStore(), []);
+  useEffect(() => {
+    const connection = connectControlStore();
+    return () => {
+      connection.dispose();
+    };
+  }, []);
 
   const isOpen = output?.window.isOpen ?? false;
   const isPaused = output?.window.isPaused ?? false;
   const pauseReason = output?.window.pauseReason ?? null;
+  const outputDisplayId = output?.window.displayId ?? null;
   const master = output?.state.master;
 
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-8 p-6">
-      <header className="flex items-center justify-between">
+      <header className="flex items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">Oak-Proyektor</h1>
-        <span
-          className={`rounded-full px-3 py-1 text-sm font-semibold ${isPaused ? "bg-red-600 text-white" : isOpen ? "bg-green-600 text-white" : "bg-neutral-200 text-neutral-700"}`}
-        >
-          {!connected ? "Conectando…" : isPaused ? "SALIDA EN PAUSA" : isOpen ? "SALIDA ABIERTA" : "Salida cerrada"}
-        </span>
+        <div className="flex items-center gap-3">
+          {!connected && (
+            <Button variant="outline" onClick={reconnectControl}>
+              Reconectar
+            </Button>
+          )}
+          <span
+            className={`rounded-full px-3 py-1 text-sm font-semibold ${isPaused ? "bg-red-600 text-white" : isOpen ? "bg-green-600 text-white" : "bg-neutral-200 text-neutral-700"}`}
+          >
+            {!connected ? "Conectando…" : isPaused ? "SALIDA EN PAUSA" : isOpen ? "SALIDA ABIERTA" : "Salida cerrada"}
+          </span>
+        </div>
       </header>
+
+      {failure && (
+        <div role="alert" className="flex items-start justify-between gap-4 rounded-lg border-2 border-amber-600 bg-amber-100 p-4 text-amber-950">
+          <p>
+            <span className="font-bold">No se pudo completar «{failure.commandType}»: </span>
+            {failure.message}
+          </p>
+          <Button variant="outline" className="shrink-0" onClick={dismissFailure}>
+            Cerrar aviso
+          </Button>
+        </div>
+      )}
 
       {isPaused && (
         <div role="alert" className="flex items-center justify-between gap-4 rounded-lg border-2 border-red-700 bg-red-600 p-5 text-white">
           <p className="text-xl font-bold">{pauseReason ? PAUSE_MESSAGES[pauseReason] : "Salida en pausa"}</p>
-          <Button size="lg" variant="outline" className="h-12 shrink-0 text-black" onClick={() => { ipc.send("output.open", { displayIndex: output?.window.displayIndex ?? null }); }}>
+          <Button size="lg" variant="outline" className="h-12 shrink-0 text-black" onClick={() => { ipc.send("output.open", { displayId: outputDisplayId }); }}>
             Reanudar salida
           </Button>
         </div>
@@ -68,12 +95,12 @@ export function App() {
               <span>Automático (primer monitor que no sea el del panel)</span>
             </label>
           </li>
-          {displays.map((d) => (
-            <li key={d.index}>
+          {displays.map((d, position) => (
+            <li key={d.id}>
               <label className="flex cursor-pointer items-center gap-3 rounded-md border p-3">
-                <input type="radio" name="display" checked={selected === d.index} onChange={() => { setSelected(d.index); }} />
-                <span>{displayLabel(d)}</span>
-                {isOpen && output?.window.displayIndex === d.index && <span className="ml-auto text-sm font-semibold text-green-700">salida aquí</span>}
+                <input type="radio" name="display" checked={selected === d.id} onChange={() => { setSelected(d.id); }} />
+                <span>{displayLabel(d, position)}</span>
+                {isOpen && outputDisplayId === d.id && <span className="ml-auto text-sm font-semibold text-green-700">salida aquí</span>}
               </label>
             </li>
           ))}
@@ -84,7 +111,7 @@ export function App() {
           </p>
         )}
         <div className="flex flex-wrap gap-3">
-          <Button size="lg" disabled={!connected} onClick={() => { ipc.send("output.open", { displayIndex: selected }); }}>
+          <Button size="lg" disabled={!connected} onClick={() => { ipc.send("output.open", { displayId: selected }); }}>
             {isPaused ? "Reanudar salida" : isOpen ? "Mover / reabrir salida" : "Abrir salida"}
           </Button>
           <Button size="lg" variant="outline" disabled={!connected || !isOpen} onClick={() => { ipc.send("output.close", {}); }}>
@@ -136,9 +163,3 @@ export function App() {
     </main>
   );
 }
-
-
-
-
-
-

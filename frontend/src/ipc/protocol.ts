@@ -1,8 +1,13 @@
-﻿// Reflejo manual de OakProyektor.Ipc / OakProyektor.Core. Un test de contrato (backend/tests) compara:
+// Reflejo manual de OakProyektor.Ipc / OakProyektor.Core. Un test de contrato (backend/tests) compara:
 // PROTOCOL_VERSION, MESSAGE_CATALOG, MASTER_MODES y los campos de cada interfaz "payload" con los tipos de C#.
-// MantÃ©n las interfaces planas (sin objetos anidados en lÃ­nea) para que ese test pueda leerlas.
+// Mantén las interfaces planas (sin objetos anidados en línea) para que ese test pueda leerlas.
 
-export const PROTOCOL_VERSION = 1;
+/**
+ * v2: snapshots con `seq` global creciente (las réplicas descartan seq <= la última); monitores por `id` (no por índice);
+ * replies `{ ok, result, error }`; evento `command.failed`; `output.setMaster` y `output.recover` van por un carril de
+ * prioridad en el backend (el orden entre carriles no está garantizado; dentro de cada uno sí).
+ */
+export const PROTOCOL_VERSION = 2;
 
 export type MessageKind = "command" | "event" | "query" | "reply";
 
@@ -18,6 +23,7 @@ export const MESSAGE_CATALOG = [
   { type: "output.getState", kind: "reply" },
   { type: "display.changed", kind: "event" },
   { type: "output.stateChanged", kind: "event" },
+  { type: "command.failed", kind: "event" },
 ] as const;
 
 export const MASTER_MODES = ["live", "clearText", "black", "logo", "freeze"] as const;
@@ -28,8 +34,9 @@ export type OutputPauseReason = (typeof PAUSE_REASONS)[number];
 
 export type EmptyPayload = Record<string, never>;
 
+/** `id` es la ÚNICA forma de referirse a un monitor; no uses la posición en la lista. */
 export interface DisplayInfo {
-  index: number;
+  id: string;
   x: number;
   y: number;
   width: number;
@@ -47,7 +54,7 @@ export interface OutputState {
 }
 
 export interface OutputOpenPayload {
-  displayIndex: number | null;
+  displayId: string | null;
 }
 
 export interface OutputSetMasterPayload {
@@ -55,6 +62,7 @@ export interface OutputSetMasterPayload {
 }
 
 export interface DisplayListPayload {
+  seq: number;
   displays: DisplayInfo[];
 }
 
@@ -64,7 +72,7 @@ export interface SetAutoRestorePayload {
 
 export interface OutputWindowStatus {
   isOpen: boolean;
-  displayIndex: number | null;
+  displayId: string | null;
   isWindowed: boolean;
   isPaused: boolean;
   pauseReason: OutputPauseReason | null;
@@ -73,11 +81,33 @@ export interface OutputWindowStatus {
 }
 
 export interface OutputStateChangedPayload {
+  seq: number;
   state: OutputState;
   window: OutputWindowStatus;
 }
 
-/** Payload de cada comando (UI â†’ C#). */
+export interface IpcErrorPayload {
+  code: string;
+  message: string;
+}
+
+/** Forma común de todo reply. */
+export interface IpcReplyFields {
+  ok: boolean;
+  result: unknown;
+  error: IpcErrorPayload | null;
+}
+
+/** Payload de un reply, discriminado por `ok`. */
+export type ReplyPayload<T> = { ok: true; result: T; error: null } | { ok: false; result: null; error: IpcErrorPayload };
+
+export interface CommandFailedPayload {
+  commandId: string;
+  commandType: string;
+  error: IpcErrorPayload;
+}
+
+/** Payload de cada comando (UI → C#). */
 export interface CommandPayloads {
   "output.open": OutputOpenPayload;
   "output.close": EmptyPayload;
@@ -86,10 +116,11 @@ export interface CommandPayloads {
   "settings.setAutoRestore": SetAutoRestorePayload;
 }
 
-/** Payload de cada evento (C# â†’ UI). */
+/** Payload de cada evento (C# → UI). */
 export interface EventPayloads {
   "display.changed": DisplayListPayload;
   "output.stateChanged": OutputStateChangedPayload;
+  "command.failed": CommandFailedPayload;
 }
 
 /** Payload de cada query y de su reply. */
@@ -114,7 +145,7 @@ interface Envelope<K extends MessageKind, T extends string, P> {
 export type CommandMessage = { [T in CommandType]: Envelope<"command", T, CommandPayloads[T]> }[CommandType];
 export type EventMessage = { [T in EventType]: Envelope<"event", T, EventPayloads[T]> }[EventType];
 export type QueryMessage = { [T in QueryType]: Envelope<"query", T, QueryPayloads[T]["request"]> }[QueryType];
-export type ReplyMessage = { [T in QueryType]: Envelope<"reply", T, QueryPayloads[T]["reply"]> }[QueryType];
+export type ReplyMessage = { [T in QueryType]: Envelope<"reply", T, ReplyPayload<QueryPayloads[T]["reply"]>> }[QueryType];
 export type IncomingMessage = EventMessage | ReplyMessage;
 
 

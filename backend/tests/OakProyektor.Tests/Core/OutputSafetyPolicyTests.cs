@@ -1,18 +1,18 @@
-﻿using OakProyektor.Core.Display;
+using OakProyektor.Core.Display;
 using OakProyektor.Core.Output;
 
 namespace OakProyektor.Tests.Core;
 
 public class OutputSafetyPolicyTests
 {
-    private static readonly DisplayInfo Panel = new(0, 0, 0, 1920, 1080, 1.25, true, true);
-    private static readonly DisplayInfo Projector = new(1, 1920, 0, 1920, 1080, 1, false, false);
+    private static readonly DisplayInfo Panel = new(DisplayId.From(0, 0, 1920, 1080), 0, 0, 1920, 1080, 1.25, true, true);
+    private static readonly DisplayInfo Projector = new(DisplayId.From(1920, 0, 1920, 1080), 1920, 0, 1920, 1080, 1, false, false);
     private static readonly ScreenRect ProjectorRect = ScreenRect.Of(Projector);
 
     private static OutputSafetyDecision Eval(
         ScreenRect? output = null, bool topmost = true, IReadOnlyList<DisplayInfo>? displays = null,
         bool paused = false, OutputPauseReason? reason = null, bool autoRestore = true) =>
-        OutputSafetyPolicy.Evaluate(new OutputSafetyInput(output ?? ProjectorRect, topmost, displays ?? [Panel, Projector], ProjectorRect, paused, reason, autoRestore));
+        OutputSafetyPolicy.Evaluate(new OutputSafetyInput(output ?? ProjectorRect, topmost, displays ?? [Panel, Projector], Projector.Id, paused, reason, autoRestore));
 
     [Fact]
     public void Healthy_output_fully_inside_the_projector_needs_nothing()
@@ -96,7 +96,7 @@ public class OutputSafetyPolicyTests
     [Fact]
     public void A_different_monitor_at_another_position_is_not_the_same_monitor()
     {
-        var other = new DisplayInfo(1, 1920, 0, 1280, 720, 1, false, false);   // otro proyector con otra resolución
+        var other = new DisplayInfo(DisplayId.From(1920, 0, 1280, 720), 1920, 0, 1280, 720, 1, false, false);   // otro proyector con otra resolución
         Assert.Equal(SafetyActionKind.None, Eval(paused: true, reason: OutputPauseReason.DisplayLost, displays: [Panel, other]).Kind);
     }
 
@@ -104,6 +104,14 @@ public class OutputSafetyPolicyTests
     public void An_empty_enumeration_is_treated_as_unreliable_not_as_a_disconnection()
     {
         Assert.Equal(SafetyActionKind.None, Eval(displays: []).Kind);
+    }
+
+    [Fact]
+    public void The_monitor_is_found_by_id_even_if_the_list_order_changes()
+    {
+        // Antes (por índice) esto apuntaba al monitor equivocado: el proyector pasa de la posición 1 a la 0.
+        var d = Eval(displays: [Projector, Panel]);
+        Assert.Equal(SafetyActionKind.None, d.Kind);
     }
 
     [Fact]

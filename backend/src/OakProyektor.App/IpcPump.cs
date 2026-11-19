@@ -1,32 +1,11 @@
 ﻿using Microsoft.Extensions.Logging;
-using OakProyektor.Ipc;
 
 namespace OakProyektor.App;
 
-/// <summary>Dos tareas de fondo: procesa mensajes entrantes en orden y envía los salientes a las ventanas.</summary>
-internal sealed class IpcPump(
-    InboundQueue inbound, Outbox outbox, IpcDispatcher dispatcher, WindowRegistry windows, IUiDispatcher ui, ILogger<IpcPump> logger)
+/// <summary>Tareas de fondo: el procesador de entrada (dos carriles) y el envío de los mensajes salientes a las ventanas.</summary>
+internal sealed class IpcPump(InboundProcessor inbound, IOutbox outbox, WindowRegistry windows, IUiDispatcher ui, ILogger<IpcPump> logger)
 {
-    public Task[] Start(CancellationToken ct) => [Task.Run(() => RunInboundAsync(ct), CancellationToken.None), Task.Run(() => RunOutboundAsync(ct), CancellationToken.None)];
-
-    private async Task RunInboundAsync(CancellationToken ct)
-    {
-        try
-        {
-            await foreach (var (source, raw) in inbound.ReadAllAsync(ct).ConfigureAwait(false))
-            {
-                try
-                {
-                    var reply = await dispatcher.DispatchAsync(raw, ct).ConfigureAwait(false);
-                    if (reply is not null) outbox.Publish(reply, source == WindowKind.Control ? Targets.Control : Targets.Output);
-                }
-                catch (OperationCanceledException) { throw; }
-                catch (Exception ex) { logger.LogError(ex, "Error procesando un mensaje de {Source}", source); }   // una falla no detiene la cola
-            }
-        }
-        catch (OperationCanceledException) { /* apagado */ }
-        catch (Exception ex) { logger.LogCritical(ex, "La cola de entrada IPC terminó inesperadamente"); }
-    }
+    public Task[] Start(CancellationToken ct) => [.. inbound.Start(ct), Task.Run(() => RunOutboundAsync(ct), CancellationToken.None)];
 
     private async Task RunOutboundAsync(CancellationToken ct)
     {
@@ -45,8 +24,7 @@ internal sealed class IpcPump(
                 }
             }
         }
-        catch (OperationCanceledException) { /* apagado */ }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { /* apagado */ }
         catch (Exception ex) { logger.LogCritical(ex, "La cola de salida IPC terminó inesperadamente"); }
     }
 }
-

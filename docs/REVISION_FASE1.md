@@ -43,23 +43,26 @@
 - **Problema:** cuando `REPLACE` borra una fila para resolver un conflicto, SQLite **no dispara los triggers DELETE** salvo que `recursive_triggers` esté activado. En `VersesFts`, que usa contenido externo, eso deja entradas fantasma. Los `delete` posteriores con valores que no coinciden pueden dejar el índice inconsistente o corrupto. Un importador de Biblias es justo el código que tendería a usar `REPLACE`.
 - **Corrección:** `PRAGMA recursive_triggers = ON` en cada conexión, o prohibir `REPLACE` y usar `ON CONFLICT DO UPDATE`. Ejecutar el `integrity-check` de FTS tras cada importación.
 
-### I3. Carrera de snapshots: el panel puede mostrar «SALIDA ABIERTA» con la salida ya cerrada
+### I3. Carrera de snapshots: el panel puede mostrar «SALIDA ABIERTA» con la salida ya cerrada — **CORREGIDO**
+> `SequencedSnapshotPublisher`: construir el snapshot, asignarle el `seq` global y encolarlo bajo un mismo candado; el `seq` cambia con cualquier cambio de estado (también el de la ventana de salida); las réplicas descartan `seq` menor o igual (protocolo v2).
 - **Dónde:** `OutputController.cs:146-147` y `:40`.
 - **Problema:** `Publish()` toma el snapshot y lo encola en dos pasos no atómicos. Además, `revision` solo cambia con los controles maestros, no con el estado de la ventana. Si la salida se cierra con Alt+F4 (en el hilo de UI) mientras se procesa un comando, el snapshot viejo puede llegar después. Como tiene la misma `revision`, la réplica lo acepta (`frontend/src/control/store.ts:17` descarta solo si es menor).
 - **Corrección:** tomar el snapshot y escribirlo en la cola bajo un mismo candado, y añadir una secuencia global que crezca con cada cambio de cualquier parte del estado.
 
-### I4. El panel puede quedarse deshabilitado para siempre
+### I4. El panel puede quedarse deshabilitado para siempre — **CORREGIDO**
+> Reintento indefinido con espera creciente (`createRetrier`), conectado con cualquier mensaje válido y botón «Reconectar».
 - **Dónde:** `frontend/src/control/store.ts:36-45` y `:18`.
 - **Problema:** `connected` solo pasa a `true` cuando se aplica un snapshot. Si los 5 intentos iniciales fallan (25 s), todos los botones quedan deshabilitados y ningún evento llegará, porque los eventos solo nacen de comandos que ya no se pueden enviar.
 - **Corrección:** reintentar indefinidamente con espera creciente, marcar como conectado con cualquier mensaje válido, y añadir un botón «Reconectar».
 
-### I5. Los controles maestros no tienen prioridad (contradice `CLAUDE.md:117`)
+### I5. Los controles maestros no tienen prioridad (contradice `CLAUDE.md:117`) — **CORREGIDO**
+> `InboundProcessor` con dos carriles; `output.setMaster` y `output.recover` (`IpcPriority`) no esperan detrás de comandos lentos. Verificado con la app real: con un `output.open` de 1,5 s, el `setMaster` se publicó a los 100 ms.
 - **Dónde:** `backend/src/OakProyektor.App/IpcPump.cs:16-21` y `OutputController.cs:49-101`.
 - **Problema:** todo pasa por una sola cola FIFO. Un `output.open` (refresco de monitores y creación de ventana, varios segundos en las pruebas) retrasa un «Black» pulsado justo después.
 - **Corrección:** un carril aparte para `output.setMaster`, o que `Open` no bloquee la cola.
 
-### I6. Los índices de monitor no son estables — **PARCIAL**
-> `OutputWindowStatus.displayIndex` ahora se deriva del rectángulo del monitor de la salida (null si ya no está). Pendiente: que `output.open` y la UI identifiquen monitores por rectángulo en vez de por índice.
+### I6. Los índices de monitor no son estables — **CORREGIDO**
+> `DisplayInfo.Id` (`DisplayId`, derivado del rectángulo; Photino no da ID de dispositivo) es la única referencia a un monitor en el protocolo (`output.open.displayId`, `window.displayId`) y en la UI; ya no existe `Index`. Limitación: el ID cambia si el monitor cambia de posición o resolución, que la política de seguridad ya trata como «otro monitor». Si algún día hay un ID de dispositivo real, se cambia solo en `DisplayId`.
 
 - **Dónde:** `DisplayManager.cs:41`, `OutputController.cs:52,96` y `frontend/src/control/App.tsx:31,55,69`.
 - **Problema:** el índice que muestra y envía la UI cambia si se reconecta un monitor. Consecuencias: abrir la salida en otro monitor, «salida aquí» marcado en el monitor equivocado, y el aviso «monitor desconectado» falso o ausente.
@@ -92,7 +95,8 @@
 - **Problema:** un doble clic en el icono abre dos procesos: dos salidas sobre el proyector, y dos escritores sobre el mismo log y la misma BD.
 - **Corrección:** un `Mutex` con nombre, y traer al frente la instancia que ya está abierta.
 
-### I12. El protocolo no tiene respuestas de error
+### I12. El protocolo no tiene respuestas de error — **CORREGIDO**
+> Replies `{ ok, result, error }` y evento `command.failed`; el cliente rechaza con el error real al instante; los comandos que fallan notifican al panel (protocolo v2).
 - **Dónde:** `backend/src/OakProyektor.Ipc/IpcDispatcher.cs:45-49` y `:56-60`.
 - **Problema:** una query que falla obliga al cliente a esperar 5 s de timeout. Un comando que falla (por ejemplo, falta `output.html`) no da ninguna señal al panel. Esto pesará cuando crezca el protocolo.
 - **Corrección:** respuestas `reply` con `ok`/`error`, o un kind `error` correlacionado por `id`.
@@ -114,7 +118,7 @@
 | M1 | `OutputController.cs:91` | El handler de cierre de la salida no captura excepciones (contradice `CLAUDE.md:83`). **CORREGIDO.** | Envolverlo en try/catch. |
 | M2 | `ApplicationHost.cs:126` | `Task.WaitAll` contradice `CLAUDE.md:70`. Está acotado a 3 s. | Apagado asíncrono, o documentar la excepción. |
 | M3 | `IpcSerializer.cs:11` | Opciones estáticas públicas que se pueden modificar hasta su primer uso (contradice `CLAUDE.md:72`). | Llamar a `MakeReadOnly()`. |
-| M4 | `MessageQueues.cs:14,33` | Con la cola llena, comandos y eventos se descartan solo con un log. | En la salida, conservar solo el último snapshot de cada tipo. |
+| M4 | `MessageQueues.cs:14,33` | Con la cola llena, comandos y eventos se descartan solo con un log. **CORREGIDO** (`Outbox` compacta: solo el último snapshot por tipo y destino). | En la salida, conservar solo el último snapshot de cada tipo. |
 | M5 | `0001_Initial.sql:88,105` | `Verses_au` se dispara con cualquier `UPDATE`. `Songs_au` no cubre un cambio de `Id`. | `AFTER UPDATE OF Text`, y prohibir cambiar `Id`. |
 | M6 | `Migrations/Migration.cs` | No se guarda un hash de las migraciones aplicadas: editar la 0001 tras publicarla pasa desapercibido. | Un test que fije el hash de cada migración ya publicada. |
 | M7 | `CLAUDE.md:48` | Dice que `wwwroot` está «pendiente», pero ya existe (`OakProyektor.App.csproj:23`). | Actualizar el texto. |
@@ -122,7 +126,7 @@
 | M9 | `ApplicationHost.cs:71` y `OutputController.cs:92` | La navegación del WebView no está restringida: cualquier página que se cargue tendría `window.external`. | Bloquear la navegación fuera de las páginas propias. |
 | M10 | `DisplayManager.cs:37-42,53` | Con el panel minimizado (posición −32000), ningún monitor «aloja el panel» y la opción por defecto sería el monitor del panel. Afecta a futuros atajos globales. | Usar la última posición conocida del panel. |
 | M11 | `OutputController.cs:72-98,109-111` | Si la creación falla a mitad o `Close` falla, queda una ventana topmost huérfana que el panel no controla. **CORREGIDO.** | Registrar la ventana justo al crearla y reintentar el cierre. |
-| M12 | `IpcPump.cs:23` | `catch (OperationCanceledException) { throw; }` sin filtro: un OCE ajeno al apagado detendría la cola de entrada para siempre. Hoy no pasa porque el dispatcher no lo propaga. | Añadir `when (ct.IsCancellationRequested)`. |
+| M12 | `IpcPump.cs:23` | `catch (OperationCanceledException) { throw; }` sin filtro: un OCE ajeno al apagado detendría la cola de entrada para siempre. Hoy no pasa porque el dispatcher no lo propaga. **CORREGIDO** (ahora en `InboundProcessor`, con `when (ct.IsCancellationRequested)` y test). | Añadir `when (ct.IsCancellationRequested)`. |
 | M13 | `frontend/src/output/OutputView.tsx` | La salida no tiene `ErrorBoundary`: un error de render la deja en negro hasta recargar. **CORREGIDO** (`OutputErrorBoundary`). | Un boundary que conserve el último estado pintado. |
 | M14 | `Program.cs:12-20` | La resolución de rutas y la creación del logger quedan fuera del `try`: si fallan, no queda registro. | Moverlas dentro del `try` con un respaldo. |
 
@@ -140,7 +144,13 @@
 | I14 | Corregido (`ScreenWakeLock`, `SetThreadExecutionState` en el hilo de UI) | cd56327 |
 | M1 | Corregido | cd56327 |
 | M11 | Corregido (registro inmediato + 3 reintentos y `WM_CLOSE`; no se declara cerrada si sigue existiendo) | cd56327 |
-| I6 | Parcial: el índice mostrado en el estado se deriva del rectángulo | cd56327 |
+| I6 | Parcial en cd56327; completado: ID de monitor en todo el protocolo y la UI | cd56327 / HASH |
 | I8 | Verificado a mano el 2026-11-18; sin cambios de entorno; repetir al actualizar Photino/WebView2 | 0f59c06 |
 | M13 | Corregido: `OutputErrorBoundary` conserva el último estado pintado; probado en la ventana real y con `/output-probe.html` | 0f59c06 |
+| I3 | Corregido (`seq` global bajo candado; replicas descartan seq <= última) | HASH |
+| I4 | Corregido (reintento indefinido, conectado con cualquier mensaje, «Reconectar») | HASH |
+| I5 | Corregido (carril de prioridad; verificado con la app real) | HASH |
+| I12 | Corregido (replies ok/error, `command.failed`) | HASH |
+| M4 | Corregido (`Outbox` compacta snapshots) | HASH |
+| M12 | Corregido (`InboundProcessor`) | HASH |
 | resto | Pendiente | — |

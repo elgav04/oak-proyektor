@@ -1,14 +1,20 @@
-﻿using OakProyektor.Ipc;
+using OakProyektor.Ipc;
 using OakProyektor.Ipc.Messages;
 
 namespace OakProyektor.App.Handlers;
 
 internal sealed class DisplayListHandler(IDisplayManager displays) : IIpcHandler
 {
+    private DisplayListPayload RefreshAndSnapshot()
+    {
+        displays.Refresh();
+        return displays.Snapshot();
+    }
+
     public string Kind => IpcKind.Query;
     public string Type => IpcTypes.DisplayList;
     public Task<object?> HandleAsync(IpcEnvelope request, CancellationToken cancellationToken) =>
-        Task.FromResult<object?>(new DisplayListPayload(displays.Refresh()));
+        Task.FromResult<object?>(RefreshAndSnapshot());
 }
 
 internal sealed class OutputGetStateHandler(IOutputController output) : IIpcHandler
@@ -25,7 +31,7 @@ internal sealed class OutputOpenHandler(IOutputController output) : IIpcHandler
     public string Type => IpcTypes.OutputOpen;
     public Task<object?> HandleAsync(IpcEnvelope request, CancellationToken cancellationToken)
     {
-        output.Open(request.GetPayload<OutputOpenPayload>().DisplayIndex);
+        output.Open(request.GetPayload<OutputOpenPayload>().DisplayId);
         return Task.FromResult<object?>(null);
     }
 }

@@ -1,4 +1,4 @@
-﻿using OakProyektor.Core.Display;
+using OakProyektor.Core.Display;
 
 namespace OakProyektor.Core.Output;
 
@@ -36,15 +36,15 @@ public sealed record OutputSafetyDecision(SafetyActionKind Kind, OutputPauseReas
 }
 
 /// <param name="OutputRect">Posición real actual de la ventana de salida (ignorada mientras está en pausa/minimizada).</param>
-/// <param name="Target">Monitor al que se asignó la salida, identificado por su rectángulo.</param>
+/// <param name="TargetId">ID (<see cref="DisplayId"/>) del monitor al que se asignó la salida.</param>
 public sealed record OutputSafetyInput(
-    ScreenRect OutputRect, bool IsTopmost, IReadOnlyList<DisplayInfo> Displays, ScreenRect Target,
+    ScreenRect OutputRect, bool IsTopmost, IReadOnlyList<DisplayInfo> Displays, string TargetId,
     bool IsPaused, OutputPauseReason? PauseReason, bool AutoRestore);
 
 /// <summary>
 /// Política de seguridad de la salida a pantalla completa (función pura):
 /// topmost solo mientras esté TOTALMENTE dentro de un monitor que no es el del panel; si el monitor desaparece o la salida
-/// se cruza con el monitor del panel, se pausa (sin cerrar); si el mismo monitor reaparece, se reanuda (si está permitido).
+/// se cruza con el monitor del panel, se pausa (sin cerrar); si el mismo monitor reaparece, se reanuda (si está permitido). El monitor se identifica por su ID, no por su posición en la lista.
 /// </summary>
 public static class OutputSafetyPolicy
 {
@@ -53,7 +53,7 @@ public static class OutputSafetyPolicy
         // Una enumeración vacía es un fallo transitorio del sistema, no "se desconectaron todos los monitores".
         if (input.Displays.Count == 0) return OutputSafetyDecision.None;
 
-        var target = input.Displays.FirstOrDefault(d => ScreenRect.Of(d) == input.Target);
+        var target = input.Displays.FirstOrDefault(d => d.Id == input.TargetId);
         var panel = input.Displays.FirstOrDefault(d => d.HostsPanel);
 
         if (!input.IsPaused)

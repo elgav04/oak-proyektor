@@ -1,16 +1,17 @@
-﻿using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging.Abstractions;
 using OakProyektor.App.Handlers;
 using OakProyektor.Core.Display;
 using OakProyektor.Core.Output;
 using OakProyektor.Ipc;
 using OakProyektor.Ipc.Messages;
+using OakProyektor.Tests.Ipc;
 
 namespace OakProyektor.Tests.App;
 
 public class HandlerTests
 {
     private static string Msg(string kind, string type, string payload = "{}") =>
-        $$"""{"v":1,"id":"q1","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
+        $$"""{"v":2,"id":"q1","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
 
     private static (IpcDispatcher Dispatcher, FakeOutputController Output) Create(params DisplayInfo[] displays)
     {
@@ -71,22 +72,23 @@ public class HandlerTests
     public async Task Open_passes_the_requested_display_index_or_auto()
     {
         var (d, output) = Create();
-        await d.DispatchAsync(Msg("command", "output.open", """{"displayIndex":1}"""), CancellationToken.None);
-        await d.DispatchAsync(Msg("command", "output.open", """{"displayIndex":null}"""), CancellationToken.None);
+        await d.DispatchAsync(Msg("command", "output.open", """{"displayId":"1920,0,1920x1080"}"""), CancellationToken.None);
+        await d.DispatchAsync(Msg("command", "output.open", """{"displayId":null}"""), CancellationToken.None);
         await d.DispatchAsync(Msg("command", "output.open"), CancellationToken.None);
-        Assert.Equal(["open:1", "open:auto", "open:auto"], output.Calls);
+        Assert.Equal(["open:1920,0,1920x1080", "open:auto", "open:auto"], output.Calls);
     }
 
     [Fact]
     public async Task Display_list_query_replies_with_the_monitors()
     {
-        var (d, _) = Create(new DisplayInfo(0, 0, 0, 1920, 1080, 1.25, true, true), new DisplayInfo(1, 1920, 0, 1920, 1080, 1, false, false));
+        var (d, _) = Create(new DisplayInfo(DisplayId.From(0, 0, 1920, 1080), 0, 0, 1920, 1080, 1.25, true, true), new DisplayInfo(DisplayId.From(1920, 0, 1920, 1080), 1920, 0, 1920, 1080, 1, false, false));
 
         var reply = await d.DispatchAsync(Msg("query", "display.list"), CancellationToken.None);
 
         Assert.NotNull(reply);
         Assert.Equal(("q1", "reply"), (reply.Id, reply.Kind));
-        Assert.Equal(2, reply.GetPayload<DisplayListPayload>().Displays.Count);
+        Assert.True(reply.GetPayload<IpcReply>().Ok);
+        Assert.Equal(2, reply.ReplyResult<DisplayListPayload>().Displays.Count);
     }
 
     [Fact]
@@ -94,7 +96,7 @@ public class HandlerTests
     {
         var (d, _) = Create();
         var reply = await d.DispatchAsync(Msg("query", "output.getState"), CancellationToken.None);
-        Assert.Equal(MasterMode.Black, reply!.GetPayload<OutputStateChangedPayload>().State.Master);
+        Assert.Equal(MasterMode.Black, reply!.ReplyResult<OutputStateChangedPayload>().State.Master);
     }
 }
 

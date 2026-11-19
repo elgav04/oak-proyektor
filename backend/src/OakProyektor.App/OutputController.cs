@@ -10,8 +10,11 @@ namespace OakProyektor.App;
 
 internal interface IOutputController
 {
+    /// <summary>El snapshot actual con su secuencia. Publica antes cualquier cambio pendiente, para que reply y eventos no se contradigan.</summary>
     OutputStateChangedPayload Snapshot();
-    void Open(int? displayIndex);
+    /// <summary>Abre/mueve/reanuda la salida. Lanza <see cref="IpcException"/> si no puede (el panel recibe <c>command.failed</c>).</summary>
+    void Open(string? displayId);
+    /// <summary>Cierra la salida. Lanza <see cref="IpcException"/> si la ventana no se pudo cerrar.</summary>
     void Close();
     void SetMaster(MasterMode master);
     /// <summary>
@@ -30,61 +33,63 @@ internal interface IOutputController
 /// Dueño del <see cref="OutputState"/>, del ciclo de vida de la ventana de salida y de su política de seguridad.
 /// Candados: <c>_lifecycle</c> serializa abrir/cerrar/pausar/reanudar (puede mantenerse mientras se espera al hilo de UI);
 /// <c>_gate</c> protege los campos y NUNCA se mantiene mientras se espera al hilo de UI, porque los handlers de Photino
-/// (que corren en ese hilo) lo toman. El hilo de UI jamás toma <c>_lifecycle</c>.
+/// (que corren en ese hilo) lo toman. El hilo de UI jamás toma <c>_lifecycle</c>. El candado del publicador de snapshots
+/// se toma ANTES que <c>_gate</c> y nunca espera al hilo de UI.
 /// </summary>
 internal sealed class OutputController : IOutputController
 {
     private static readonly Size WindowedSize = new(960, 540);
     private const int LostTicksBeforePause = 2;   // ~1 s: un parpadeo de enumeración no debe dejar la proyección en negro
 
+    private sealed record OutputSnapshot(OutputState State, OutputWindowStatus Window);
+
     private readonly PhotinoWindow _main;
     private readonly WindowRegistry _windows;
     private readonly IUiDispatcher _ui;
     private readonly IDisplayManager _displays;
     private readonly InboundQueue _inbound;
-    private readonly Outbox _outbox;
     private readonly ApplicationPaths _paths;
     private readonly ISettingsStore _settings;
     private readonly ScreenWakeLock _wakeLock;
     private readonly ILogger<OutputController> _logger;
+    private readonly SequencedSnapshotPublisher<OutputSnapshot> _publisher;
 
     private readonly object _gate = new();
     private readonly object _lifecycle = new();
     private OutputState _state = OutputState.Initial;
     private PhotinoWindow? _window;
     private nint _hwnd;
-    private int? _displayIndex;          // solo se usa en modo ventana; en pantalla completa el índice se deriva del rectángulo
-    private ScreenRect? _targetRect;     // identidad del monitor de la salida (null en modo ventana)
+    private string? _displayId;          // monitor asignado a la salida (en modo ventana, donde se colocó)
     private bool _windowed;
     private bool _paused;
     private OutputPauseReason? _reason;
     private string? _hotkey;
-    private OutputWindowStatus? _lastStatus;
     private int _lostTicks;              // solo bajo _lifecycle
 
     public OutputController(
         PhotinoWindow main, WindowRegistry windows, IUiDispatcher ui, IDisplayManager displays, InboundQueue inbound,
-        Outbox outbox, ApplicationPaths paths, ISettingsStore settings, ScreenWakeLock wakeLock, ILogger<OutputController> logger)
+        IOutbox outbox, ApplicationPaths paths, ISettingsStore settings, ScreenWakeLock wakeLock, ILogger<OutputController> logger)
     {
-        _main = main; _windows = windows; _ui = ui; _displays = displays; _inbound = inbound; _outbox = outbox;
+        _main = main; _windows = windows; _ui = ui; _displays = displays; _inbound = inbound;
         _paths = paths; _settings = settings; _wakeLock = wakeLock; _logger = logger;
+        _publisher = new SequencedSnapshotPublisher<OutputSnapshot>(
+            outbox, IpcTypes.OutputStateChanged, Targets.All, (seq, s) => new OutputStateChangedPayload(seq, s.State, s.Window));
         _displays.Polled += OnPolled;
     }
 
     // ───────────────────────────── estado ─────────────────────────────
 
-    public OutputStateChangedPayload Snapshot()
+    private OutputSnapshot BuildSnapshot()
     {
-        var list = _displays.Current;
         lock (_gate)
-        {
-            int? index = null;
-            if (_window is not null)
-                index = _windowed ? _displayIndex : _targetRect is { } r ? list.FirstOrDefault(d => ScreenRect.Of(d) == r)?.Index : null;
-            return new OutputStateChangedPayload(_state,
-                new OutputWindowStatus(_window is not null, index, _windowed, _paused, _reason, _settings.Current.AutoRestoreOutput, _hotkey));
-        }
+            return new OutputSnapshot(_state,
+                new OutputWindowStatus(_window is not null, _window is null ? null : _displayId, _windowed, _paused, _reason, _settings.Current.AutoRestoreOutput, _hotkey));
     }
+
+    public OutputStateChangedPayload Snapshot() => _publisher.Read(BuildSnapshot, (seq, s) => new OutputStateChangedPayload(seq, s.State, s.Window));
+
+    /// <summary>Toma el snapshot y lo encola bajo un mismo candado; no publica nada si no cambió. Nunca llamar con <c>_gate</c> tomado.</summary>
+    private void Publish() => _publisher.Publish(BuildSnapshot);
 
     public void SetMaster(MasterMode master)
     {
@@ -102,9 +107,9 @@ internal sealed class OutputController : IOutputController
 
     // ─────────────────────────── abrir / cerrar ───────────────────────────
 
-    public void Open(int? displayIndex)
+    public void Open(string? displayId)
     {
-        lock (_lifecycle) OpenLocked(displayIndex);
+        lock (_lifecycle) OpenLocked(displayId);
     }
 
     public void Close()
@@ -112,56 +117,52 @@ internal sealed class OutputController : IOutputController
         lock (_lifecycle) CloseLocked();
     }
 
-    private void OpenLocked(int? displayIndex)
+    private void OpenLocked(string? displayId)
     {
-        _displays.Refresh();   // los índices de la UI pueden estar viejos
-        var target = _displays.Resolve(displayIndex);
+        _displays.Refresh();   // la UI puede tener una lista vieja
+        var target = _displays.Resolve(displayId);
         // Pantalla completa solo en un monitor que NO aloja el panel; en cualquier otro caso, ventana normal que no lo tape.
         var windowed = target is null || target.HostsPanel;
-        ScreenRect? wantedRect = windowed ? null : ScreenRect.Of(target!);
 
-        PhotinoWindow? existing; ScreenRect? currentRect; int? currentIndex; bool currentWindowed, paused;
-        lock (_gate) { existing = _window; currentRect = _targetRect; currentIndex = _displayIndex; currentWindowed = _windowed; paused = _paused; }
+        PhotinoWindow? existing; string? currentId; bool currentWindowed, paused;
+        lock (_gate) { existing = _window; currentId = _displayId; currentWindowed = _windowed; paused = _paused; }
 
         if (existing is not null)
         {
-            var same = currentWindowed == windowed && (windowed ? currentIndex == target?.Index : currentRect == wantedRect);
-            if (same)
+            if (currentWindowed == windowed && currentId == target?.Id)
             {
                 if (paused) TryResumeLocked(); else Publish();
                 return;
             }
-            CloseLocked();
-            lock (_gate) existing = _window;
-            if (existing is not null) { _logger.LogError("No se pudo cerrar la salida anterior; no se abre otra"); Publish(); return; }
+            CloseLocked();   // lanza si no pudo cerrarla: no se abre otra encima
         }
 
         if (!File.Exists(_paths.OutputPage))
         {
             _logger.LogError("No existe {Page}; ejecuta `npm run build` en frontend/", _paths.OutputPage);
             Publish();
-            return;
+            throw new IpcException("output.pageMissing", "No se encontró la página de la salida (output.html). Compila el frontend con «npm run build».");
         }
 
         try
         {
-            _ui.Invoke(() => CreateWindow(windowed, target, wantedRect));
+            _ui.Invoke(() => CreateWindow(windowed, target));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "No se pudo abrir la salida");
             Publish();
-            return;
+            throw new IpcException("output.openFailed", $"No se pudo abrir la ventana de salida: {ex.Message}", ex);
         }
 
         _lostTicks = 0;
         _wakeLock.Acquire();
-        _logger.LogInformation("Salida abierta: monitor {Display}, {Mode}", target?.Index, windowed ? "ventana" : "pantalla completa");
+        _logger.LogInformation("Salida abierta: monitor {Display}, {Mode}", target?.Id, windowed ? "ventana" : "pantalla completa");
         Publish();
     }
 
     /// <summary>Se ejecuta en el hilo de UI. La ventana se construye Y arranca ahí (verificado: en otro hilo hay interbloqueo).</summary>
-    private void CreateWindow(bool windowed, DisplayInfo? target, ScreenRect? wantedRect)
+    private void CreateWindow(bool windowed, DisplayInfo? target)
     {
         PhotinoWindow? w = null;
         try
@@ -170,7 +171,7 @@ internal sealed class OutputController : IOutputController
             // Se registra en cuanto existe (M11): si algo falla a mitad, el estado sabe de ella y se puede limpiar.
             lock (_gate)
             {
-                _window = w; _hwnd = 0; _windowed = windowed; _displayIndex = target?.Index; _targetRect = wantedRect;
+                _window = w; _hwnd = 0; _windowed = windowed; _displayId = target?.Id;
                 _paused = false; _reason = null;
             }
             _windows.SetOutput(w);
@@ -209,7 +210,7 @@ internal sealed class OutputController : IOutputController
             if (w is not null)
             {
                 var orphan = w;
-                lock (_gate) { if (ReferenceEquals(_window, orphan)) { _window = null; _hwnd = 0; _targetRect = null; _windowed = false; _displayIndex = null; } }
+                lock (_gate) { if (ReferenceEquals(_window, orphan)) { _window = null; _hwnd = 0; _displayId = null; _windowed = false; } }
                 _windows.SetOutput(null);
                 try { orphan.Close(); } catch { /* no llegó a crearse la ventana nativa */ }
             }
@@ -223,13 +224,12 @@ internal sealed class OutputController : IOutputController
         lock (_gate) { w = _window; hwnd = _hwnd; }
         if (w is null) { Publish(); return; }
 
-        if (TryCloseNative(w, hwnd)) OnClosed(w);
-        else
-        {
-            // M11: no se declara cerrada una ventana que sigue ahí; el panel la sigue mostrando como abierta y se puede reintentar.
-            _logger.LogError("No se pudo cerrar la ventana de salida tras varios intentos; sigue abierta");
-            Publish();
-        }
+        if (TryCloseNative(w, hwnd)) { OnClosed(w); return; }
+
+        // M11: no se declara cerrada una ventana que sigue ahí; el panel la sigue mostrando como abierta y se puede reintentar.
+        _logger.LogError("No se pudo cerrar la ventana de salida tras varios intentos; sigue abierta");
+        Publish();
+        throw new IpcException("output.closeFailed", "No se pudo cerrar la ventana de salida; sigue abierta. Inténtalo de nuevo.");
     }
 
     /// <summary>Cierra con reintentos y, si Photino falla, con WM_CLOSE. Devuelve true solo si la ventana ya no existe.</summary>
@@ -282,7 +282,7 @@ internal sealed class OutputController : IOutputController
         lock (_gate)
         {
             changed = ReferenceEquals(_window, w);
-            if (changed) { _window = null; _hwnd = 0; _displayIndex = null; _targetRect = null; _windowed = false; _paused = false; _reason = null; }
+            if (changed) { _window = null; _hwnd = 0; _displayId = null; _windowed = false; _paused = false; _reason = null; }
         }
         if (!changed) return;
         _windows.SetOutput(null);
@@ -317,16 +317,16 @@ internal sealed class OutputController : IOutputController
 
     private void EvaluateLocked(IReadOnlyList<DisplayInfo> displays)
     {
-        PhotinoWindow? w; nint hwnd; ScreenRect? target; bool windowed, paused; OutputPauseReason? reason;
-        lock (_gate) { w = _window; hwnd = _hwnd; target = _targetRect; windowed = _windowed; paused = _paused; reason = _reason; }
+        PhotinoWindow? w; nint hwnd; string? targetId; bool windowed, paused; OutputPauseReason? reason;
+        lock (_gate) { w = _window; hwnd = _hwnd; targetId = _displayId; windowed = _windowed; paused = _paused; reason = _reason; }
 
-        if (w is not null && !windowed && target is { } targetRect && hwnd != 0)
+        if (w is not null && !windowed && targetId is not null && hwnd != 0)
         {
             var rect = paused ? default : NativeMethods.GetRect(hwnd);
             if (paused || rect is not null)
             {
                 var decision = OutputSafetyPolicy.Evaluate(new OutputSafetyInput(
-                    rect ?? default, !paused && NativeMethods.IsTopmost(hwnd), displays, targetRect, paused, reason, _settings.Current.AutoRestoreOutput));
+                    rect ?? default, !paused && NativeMethods.IsTopmost(hwnd), displays, targetId, paused, reason, _settings.Current.AutoRestoreOutput));
 
                 if (decision is { Kind: SafetyActionKind.Pause, Reason: OutputPauseReason.DisplayLost })
                 {
@@ -340,7 +340,8 @@ internal sealed class OutputController : IOutputController
                         PauseLocked(decision.Reason ?? OutputPauseReason.PanelCrossed);
                         break;
                     case SafetyActionKind.Resume:
-                        ResumeLocked(hwnd, targetRect, topmost: true);
+                        if (displays.FirstOrDefault(d => d.Id == targetId) is { } display)
+                            ResumeLocked(hwnd, ScreenRect.Of(display), topmost: true);
                         break;
                     case SafetyActionKind.SetTopmost:
                         _logger.LogInformation("Topmost de la salida: {Topmost}", decision.Topmost);
@@ -350,11 +351,7 @@ internal sealed class OutputController : IOutputController
             }
         }
 
-        // Algo visible puede haber cambiado sin acción (p. ej. el índice del monitor): republicar solo si es distinto.
-        OutputWindowStatus current;
-        bool differs;
-        lock (_gate) { current = Snapshot().Window; differs = current != _lastStatus; }
-        if (differs) Publish();
+        Publish();   // algo visible puede haber cambiado sin acción (p. ej. el monitor dejó de estar conectado); el publicador no repite lo que no cambió
     }
 
     private void PauseLocked(OutputPauseReason reason)
@@ -388,26 +385,17 @@ internal sealed class OutputController : IOutputController
     /// <summary>El operador pidió abrir/reanudar con la salida en pausa: se reanuda si su monitor está y no aloja el panel.</summary>
     private void TryResumeLocked()
     {
-        nint hwnd; ScreenRect? target; bool windowed;
-        lock (_gate) { hwnd = _hwnd; target = _targetRect; windowed = _windowed; }
+        nint hwnd; string? targetId; bool windowed;
+        lock (_gate) { hwnd = _hwnd; targetId = _displayId; windowed = _windowed; }
 
         if (windowed) { ResumeLocked(hwnd, null, topmost: false); return; }
-        var display = target is { } t ? _displays.Current.FirstOrDefault(d => ScreenRect.Of(d) == t) : null;
+        var display = targetId is null ? null : _displays.Current.FirstOrDefault(d => d.Id == targetId);
         if (display is null || display.HostsPanel)
         {
             _logger.LogWarning("No se puede reanudar la salida: su monitor no está disponible o aloja el panel");
             Publish();
-            return;
+            throw new IpcException("output.cannotResume", "No se puede reanudar la salida: su monitor no está conectado o aloja el panel.");
         }
-        ResumeLocked(hwnd, target, topmost: true);
-    }
-
-    private void Publish()
-    {
-        var snapshot = Snapshot();
-        lock (_gate) _lastStatus = snapshot.Window;
-        _outbox.Publish(IpcEnvelope.Create(IpcKind.Event, IpcTypes.OutputStateChanged, snapshot), Targets.All);
+        ResumeLocked(hwnd, ScreenRect.Of(display), topmost: true);
     }
 }
-
-
