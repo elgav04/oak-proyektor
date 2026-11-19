@@ -3,7 +3,7 @@
 - **Rango revisado:** `3d776be..HEAD` (HEAD = `13e0635`).
 - **Fecha:** 2026-11-19.
 - **Origen:** revisión hecha con el modelo Opus 5.5 en modo solo lectura; no se modificó nada.
-- **Estado:** corregidos K1, I-A y varios menores (ver el registro al final); el resto sigue pendiente. Al corregir uno, anota aquí su estado y el commit.
+- **Estado:** corregidos K1, I-A, I-B, I-C y todos los menores salvo los **pospuestos** (pasajes de `PlaylistItems`, `OutputController` sin tests y M9), con su motivo en el registro del final y en la tabla de estado de `REVISION_FASE1.md`. Siguen pendientes las pruebas manuales con el proyector real.
 - **Marcas:** [VERIFICADO] = comprobado leyendo código o ejecutando; [A PROBAR] = no se puede confirmar sin hardware real.
 
 **Resumen:** hay un problema crítico, pero es de entrega, no de estabilidad en vivo: los tests de la base de datos no están en el repositorio. En la salida, la mensajería y la base de datos no se encontró nada crítico.
@@ -106,4 +106,13 @@
 ull = automático), error output.displayNotFound, la ventana en pausa se conserva. Falta probar con monitores reales | 348d3b2 |
 | Menor: monitor nuevo con otro ID | Corregido: aviso «Apareció un monitor distinto al de la salida» con botón por monitor; nunca se abre sola; ya no dice «Proyector desconectado» si el monitor volvió. Falta probar con monitores reales | 348d3b2 |
 | I-C | Corregido (esetKey = seq); solo verificado con typecheck y la página de prueba no se ha repetido a mano | 348d3b2 |
-| Resto de menores | Pendiente | — |
+| Menor: copia previa a medias / error original tapado (`MigrationRunner`) | Corregido (`MigrationRunnerHooks` solo pruebas; 6 tests) | f5a41c7 |
+| Menor: `new SqliteConnection(` y REPLACE en SQL partido | Corregido (`SourceRulesTests`, 37 pruebas; mutación temporal verificada) | 16dc0ce |
+| Menor: mensajes descartados sin aviso | Corregido: el solicitante recibe `overloaded` (2 tests) | 94a0297 |
+| Menor: el panel nunca vuelve a «desconectado» | Corregido: heartbeat 4 s / 12 s, `everConnected`, aviso «SIN RESPUESTA» (7 tests) | 162d173 |
+| Menor: segunda instancia durante el apagado de la primera | Corregido: espera ≈ 8 s y arranca; si no, avisa. Síncrono por el hilo STA (7 tests + ejecutable real) | 01b1a87 |
+| Menor: test de contrato solo comparaba nombres | Corregido: tipos, nulabilidad por dirección y huella del formato por versión (`ProtocolFormatTests`) | ca4a291 |
+| Menor: contradicciones de `CLAUDE.md` / estado de `REVISION_FASE1.md` | Corregido: tabla de estado completa | (este lote) |
+| Menor: pasajes de `PlaylistItems` dependen del `Id` de libro | **Pospuesto**: decidir antes del importador de Biblias | — |
+| Menor: `OutputController` sin tests | **Pospuesto**: depende de Photino/Win32, sin arnés; se compensa con clases puras y pruebas manuales | — |
+| Menor: M9 (navegación del WebView) | **Pospuesto a petición expresa** | — |

@@ -4,7 +4,7 @@
 - **Fecha:** 2026-11-18.
 - **Alcance:** `CLAUDE.md`, App, Ipc, Data, la migración SQL y el frontend (`ipc/`, `control/`, `output/`).
 - **Origen:** revisión hecha con el modelo Opus 5.5 en modo solo lectura; no se modificó nada.
-- **Estado:** **ningún hallazgo está corregido todavía.** Al corregir uno, anota aquí su estado y el commit.
+- **Estado:** ver la **tabla de estado** al final de este documento (qué está corregido, qué se verificó a mano, qué se pospuso y por qué). Los hallazgos de la segunda revisión (sobre las correcciones) están en `docs/REVISION_FASE1_RONDA2.md`. Al corregir uno, anota allí su estado y el commit.
 
 > Cómo usar este documento: los hallazgos están ordenados por prioridad. Antes de tocar C1, C2 o I8, léelos completos: C1 e I8 son hipótesis que hay que probar a mano; C2 requiere una decisión del usuario porque cambia una regla de `CLAUDE.md`.
 
@@ -138,41 +138,65 @@
 | M14 | `Program.cs:12-20` | La resolución de rutas y la creación del logger quedan fuera del `try`: si fallan, no queda registro. **CORREGIDO** (rutas dentro de un `try`, logger con respaldo comprobando la escritura de verdad, y cuadro de diálogo si el arranque falla). | Moverlas dentro del `try` con un respaldo. |
 
 ## Qué probar primero, a mano
-1. **C1:** abrir la salida y minimizar el panel.
-2. **C2:** con la salida abierta, desconectar el cable del proyector.
-3. **I8:** con la salida abierta, forzar un bucle infinito en el panel (desde DevTools en Debug).
+1. **C1:** abrir la salida y minimizar el panel. — *Hecho por el usuario: no se confirma.*
+2. **C2:** con la salida abierta, desconectar el cable del proyector. — *El problema se confirmó con el proyector real; la corrección está probada con un arnés, pero **falta la prueba con el cable real**.*
+3. **I8:** con la salida abierta, forzar un bucle infinito en el panel (desde DevTools en Debug). — *Hecho por el usuario el 2026-11-18; **repetir** tras mover el perfil de WebView2 y tras cualquier actualización de Photino o WebView2.*
 
-## Registro de correcciones
+## Tabla de estado
 
-| Hallazgo | Estado | Commit |
-|---|---|---|
-| C1 | No se confirma (verificado por el usuario) | — |
-| C2 | Corregido; falta probar con el cable real (ver pruebas manuales en el commit) | cd56327 |
-| I14 | Corregido (`ScreenWakeLock`, `SetThreadExecutionState` en el hilo de UI) | cd56327 |
-| M1 | Corregido | cd56327 |
-| M11 | Corregido (registro inmediato + 3 reintentos y `WM_CLOSE`; no se declara cerrada si sigue existiendo) | cd56327 |
-| I6 | Parcial en cd56327; completado: ID de monitor en todo el protocolo y la UI | cd56327 / 227366a |
-| I8 | Verificado a mano el 2026-11-18; sin cambios de entorno; repetir al actualizar Photino/WebView2 | 0f59c06 |
-| M13 | Corregido: `OutputErrorBoundary` conserva el último estado pintado; probado en la ventana real y con `/output-probe.html` | 0f59c06 |
-| I3 | Corregido (`seq` global bajo candado; replicas descartan seq <= última) | 227366a |
-| I4 | Corregido (reintento indefinido, conectado con cualquier mensaje, «Reconectar») | 227366a |
-| I5 | Corregido (carril de prioridad; verificado con la app real) | 227366a |
-| I12 | Corregido (replies ok/error, `command.failed`) | 227366a |
-| M4 | Corregido (`Outbox` compacta snapshots) | 227366a |
-| M12 | Corregido (`InboundProcessor`) | 227366a |
-| I1 | Corregido (`MigrationRunner`) | 8a5ef9a |
-| I2 | Corregido (`recursive_triggers` + `REPLACE` prohibido) | 8a5ef9a |
-| I9 | Corregido (`IDatabaseReadiness`, `database.statusChanged`) | 8a5ef9a |
-| I13 | Corregido (migración 3, `PlaylistItems`; falta el aviso en la UI al abrir un servicio) | 8a5ef9a |
-| M5 | Corregido (migración 2) | 8a5ef9a |
-| M6 | Corregido (`MigrationHashTests`) | 8a5ef9a |
-| I7 | Corregido (pin exacto, advertencia, `PhotinoPinTests`, prueba manual ampliada) | d45c109 |
-| I10 | Corregido (`LocalAppData` en producción; perfil de WebView2 incluido, con respaldo) | d45c109 |
-| I11 | Corregido (`SingleInstanceGuard`) | d45c109 |
-| M2 | Corregido (`DisposeAsync`) | d45c109 |
-| M3 | Corregido (`IpcSerializer.Options` de solo lectura) | d45c109 |
-| M7 | Corregido | d45c109 |
-| M8 | Corregido (`CheckFrontendBuild`) | d45c109 |
-| M10 | Corregido (`PanelCenterTracker`) | d45c109 |
-| M14 | Corregido (`LoggerSetup`, `WritableDirectory`, `StartupFailure`) | d45c109 |
-| resto | Pendiente (entre otros, M9: restringir la navegación del WebView, a petición expresa) | — |
+Leyenda de **cómo se verificó**:
+- **Tests**: pruebas automáticas (xUnit o `node:test`) que fallan si se revierte la corrección.
+- **App real**: se ejecutó el programa real (o un arnés sobre el equipo), sin proyector físico de por medio.
+- **A mano**: lo comprobó el usuario con el proyector real.
+- **Falta prueba manual**: corregido y probado, pero hay un comportamiento que solo puede comprobarse con hardware.
+
+| Hallazgo | Estado | Verificación | Commit / motivo |
+|---|---|---|---|
+| C1 minimizar el panel oculta la salida | **No se confirma** | A mano (usuario, proyector real) | — No se cambió nada: la salida sigue creándose con el panel como padre. |
+| C2 desconectar el proyector tapa el panel | **Corregido** | Tests (política pura) + arnés en el equipo real. **Falta prueba manual**: la desconexión física del cable | cd56327; refinado en 8f70942 (pausa inmediata si ya cruza el panel) |
+| I1 migraciones borran en cascada | Corregido | Tests | 8a5ef9a; endurecido en f5a41c7 |
+| I2 `INSERT OR REPLACE` y FTS | Corregido | Tests (incluye el control que demuestra el peligro) | 8a5ef9a; regla reforzada en 16dc0ce |
+| I3 carrera de snapshots | Corregido | Tests | 227366a |
+| I4 panel deshabilitado para siempre | Corregido | Tests (JS) | 227366a; heartbeat en 162d173 |
+| I5 controles maestros sin prioridad | Corregido | Tests + App real (con un `output.open` de 1,5 s, `setMaster` se publicó a los 100 ms) | 227366a |
+| I6 índices de monitor inestables | Corregido | Tests | cd56327 / 227366a; sin caída al automático en 348d3b2 |
+| I7 dependencia de Photino no documentada | Corregido (versiones fijadas + advertencia). **La prueba manual vuelve a ser obligatoria al actualizar** | Tests (`PhotinoPinTests`) | d45c109 |
+| I8 aislamiento panel/salida en WebView2 | **Verificado a mano** el 2026-11-18, sin cambios de código. **Repetir** tras mover el perfil (2026-11-19) | A mano (usuario); estructura de procesos comprobada en 2026-11-19 | 0f59c06 |
+| I9 BD sin señal de «lista» | Corregido | Tests + App real (la proyección sigue con la BD caída) | 8a5ef9a |
+| I10 ruta de datos no escribible | Corregido | Tests + App real (copia «instalada» en carpeta sin escritura) | d45c109 |
+| I11 sin instancia única | Corregido | Tests + App real (ejecutable real, con la primera minimizada o detrás de otra ventana) | d45c109; segunda instancia mientras la primera se cierra: 01b1a87 |
+| I12 sin respuestas de error | Corregido | Tests | 227366a; carril lleno avisa: 94a0297 |
+| I13 `ItemsJson` sin integridad referencial | Corregido (tabla `PlaylistItems`). **Pospuesto** el aviso «Falta: …» en la interfaz | Tests | 8a5ef9a. Motivo del aplazamiento: aún no existe la función de abrir un servicio donde mostrarlo. |
+| I14 la pantalla puede apagarse | Corregido (`ScreenWakeLock`). **Falta prueba manual** (`powercfg /requests`) | Sin test automático (depende de Win32); el registro no recoge otra prueba | cd56327 |
+| M1 handler de cierre sin try/catch | Corregido | Sin test automático; el registro no recoge otra prueba | cd56327 |
+| M2 `Task.WaitAll` en el apagado | Corregido (`DisposeAsync`) | Sin test automático; el registro no recoge otra prueba | d45c109 |
+| M3 opciones de serialización mutables | Corregido (`MakeReadOnly`) | Tests | d45c109 |
+| M4 cola de salida descarta eventos | Corregido (`Outbox` compacta snapshots) | Tests | 227366a |
+| M5 triggers sin `UPDATE OF` | Corregido (migración 2; la 0001 no se editó) | Hash de la migración fijado en `MigrationHashTests`; el registro no recoge un test específico de los triggers | 8a5ef9a |
+| M6 sin hash de migraciones | Corregido (`MigrationHashTests`) | Tests | 8a5ef9a; los tests de `Data/` no estaban versionados hasta 08abc97 |
+| M7 `CLAUDE.md` decía «pendiente» | Corregido | Revisión | d45c109 |
+| M8 `dist` desactualizado | Corregido (`CheckFrontendBuild`) | App real (dist al día, desactualizado, inexistente y `FrontendCheck=false`) | d45c109 |
+| **M9 navegación del WebView sin restringir** | **Pospuesto** | — | **A petición expresa del usuario.** Riesgo acotado: la aplicación solo carga páginas propias por `file://`; si se cargara otra, tendría `window.external`. |
+| M10 panel minimizado y monitor por defecto | Corregido (`PanelCenterTracker`) | Tests + App real (con el panel minimizado la salida automática va al monitor 2) | d45c109 |
+| M11 ventana huérfana si falla la creación o el cierre | Corregido (registro inmediato + 3 reintentos y `WM_CLOSE`; no se declara cerrada si sigue existiendo) | Sin test automático; el registro no recoge otra prueba | cd56327 |
+| M12 `OperationCanceledException` sin filtro | Corregido (`InboundProcessor`) | Tests | 227366a |
+| M13 salida sin `ErrorBoundary` | Corregido (`OutputErrorBoundary`) | Ventana real y `/output-probe.html` (a mano) | 0f59c06; `resetKey` por `seq` en 348d3b2 |
+| M14 rutas y logger fuera del `try` | Corregido (`LoggerSetup`, `WritableDirectory`, `StartupFailure`) | Tests | d45c109 |
+
+### Hallazgos de la segunda revisión (`REVISION_FASE1_RONDA2.md`)
+
+| Hallazgo | Estado | Verificación | Commit / motivo |
+|---|---|---|---|
+| K1 tests de `Data/` ignorados por git | Corregido | Copia limpia: 229 tests en backend y 38 en frontend | 08abc97 |
+| I-A pausa de emergencia no atómica | Corregido (`OutputPauseState`, orden de llegada, candado) | Tests sobre la máquina de estados pura. **Falta prueba manual** (carrera «Mover / reabrir» + «Recuperar control») | 8f70942 |
+| I-B «Reanudar» abría la salida en otro monitor | Corregido (`DisplayResolver`, `output.displayNotFound`) | Tests. **Falta prueba manual** con monitores reales | 348d3b2 |
+| I-C `resetKey` por `revision` | Corregido (`seq`) | `typecheck`; **falta** probarlo en `/output-probe.html` | 348d3b2 |
+| Menores: copia a medias, error original tapado | Corregido | Tests | f5a41c7 |
+| Menores: `new SqliteConnection(`, REPLACE partido | Corregido | Tests + mutación temporal en `backend/src` | 16dc0ce |
+| Menores: mensajes descartados sin aviso | Corregido (`overloaded`) | Tests | 94a0297 |
+| Menores: panel nunca vuelve a «desconectado» | Corregido (heartbeat 4 s / 12 s) | Tests (JS) | 162d173 |
+| Menores: segunda instancia durante el apagado | Corregido | Tests + ejecutable real | 01b1a87 |
+| Menores: test de contrato solo comparaba nombres | Corregido (`ProtocolFormatTests`, huella por versión) | Tests + mutaciones | ca4a291 |
+| Menores: contradicciones en `CLAUDE.md` | Corregido | Revisión | (este commit) |
+| Menor: pasajes de `PlaylistItems` dependen del `Id` de libro | **Pospuesto** | — | Hay que decidirlo antes de escribir el importador de Biblias: reimportar una Biblia (borrar e importar) marcaría como faltantes todos los pasajes de todos los servicios. |
+| Menor: `OutputController` sin tests | **Pospuesto** | — | Depende de Photino y de Win32; no hay arnés. Se compensa sacando la lógica a clases puras (`OutputPauseState`, `OutputSafetyPolicy`, `DisplayResolver`) y con las pruebas manuales documentadas. |
