@@ -144,6 +144,8 @@ Controles maestros: `Live`, `ClearText` (deja solo fondo), `Black`, `Logo`, `Fre
 - Al terminar cada tarea, informa por separado: qué **verificaste** (compilación, tests, ejecución) y qué **no pudiste verificar** (por ejemplo, comportamiento con un segundo monitor real).
 - Si falta información o hay ambigüedad que cambia el diseño, pregunta; si es un detalle menor, decide y documenta la decisión.
 - Commits pequeños, con mensaje descriptivo en español o inglés (consistente). No hagas commit de `data/`, `node_modules/`, `bin/` ni `obj/`.
+- **Haz `git commit` del trabajo pendiente antes de empezar cada nuevo prompt/tarea**, para que cada tarea parta de un árbol limpio y se pueda revertir por separado.
+- La revisión de la Fase 1 (riesgos de IPC, ventanas/hilos, SQLite/FTS y contradicciones con este archivo) está en `docs/REVISION_FASE1.md`, con prioridad, archivo:línea y corrección propuesta. Léela antes de tocar IPC, ventanas o migraciones, y anota allí el estado y el commit de cada hallazgo que corrijas.
 
 
 
