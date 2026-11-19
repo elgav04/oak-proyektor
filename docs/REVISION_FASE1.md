@@ -166,13 +166,13 @@
 | I13 | Corregido (migración 3, `PlaylistItems`; falta el aviso en la UI al abrir un servicio) | 8a5ef9a |
 | M5 | Corregido (migración 2) | 8a5ef9a |
 | M6 | Corregido (`MigrationHashTests`) | 8a5ef9a |
-| I7 | Corregido (pin exacto, advertencia, `PhotinoPinTests`, prueba manual ampliada) | HASH |
-| I10 | Corregido (`LocalAppData` en producción; perfil de WebView2 incluido, con respaldo) | HASH |
-| I11 | Corregido (`SingleInstanceGuard`) | HASH |
-| M2 | Corregido (`DisposeAsync`) | HASH |
-| M3 | Corregido (`IpcSerializer.Options` de solo lectura) | HASH |
-| M7 | Corregido | HASH |
-| M8 | Corregido (`CheckFrontendBuild`) | HASH |
-| M10 | Corregido (`PanelCenterTracker`) | HASH |
-| M14 | Corregido (`LoggerSetup`, `WritableDirectory`, `StartupFailure`) | HASH |
+| I7 | Corregido (pin exacto, advertencia, `PhotinoPinTests`, prueba manual ampliada) | d45c109 |
+| I10 | Corregido (`LocalAppData` en producción; perfil de WebView2 incluido, con respaldo) | d45c109 |
+| I11 | Corregido (`SingleInstanceGuard`) | d45c109 |
+| M2 | Corregido (`DisposeAsync`) | d45c109 |
+| M3 | Corregido (`IpcSerializer.Options` de solo lectura) | d45c109 |
+| M7 | Corregido | d45c109 |
+| M8 | Corregido (`CheckFrontendBuild`) | d45c109 |
+| M10 | Corregido (`PanelCenterTracker`) | d45c109 |
+| M14 | Corregido (`LoggerSetup`, `WritableDirectory`, `StartupFailure`) | d45c109 |
 | resto | Pendiente (entre otros, M9: restringir la navegación del WebView, a petición expresa) | — |
