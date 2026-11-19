@@ -17,12 +17,16 @@
 
 ## Crítico
 
-### C1. Minimizar el panel podría ocultar la proyección (por verificar)
+### C1. Minimizar el panel podría ocultar la proyección — **NO se confirma**
+> Verificado por el usuario con el proyector real: minimizar el panel no oculta la salida. No cambiar cómo se crea la ventana de salida ni su relación con el panel.
+
 - **Dónde:** `backend/src/OakProyektor.App/OutputController.cs:75`, `new PhotinoWindow(main)`.
 - **Problema:** la salida se crea con el panel como padre. En Win32, si una ventana es "poseída" por otra, Windows la **oculta al minimizar la propietaria**. No se leyó el código nativo de Photino para confirmar que pasa ese padre como propietario. Si lo hace, minimizar el panel durante el culto hace desaparecer la proyección.
 - **Corrección:** probarlo a mano ya (abrir la salida y minimizar el panel). Si se confirma, crear la salida sin padre (`new PhotinoWindow()`), con un spike nuevo para comprobar que la regla de "construir en el hilo de UI" sigue funcionando sin padre.
 
-### C2. Al desconectar el proyector, la salida puede tapar el panel y dejar al operador sin control
+### C2. Al desconectar el proyector, la salida puede tapar el panel y dejar al operador sin control — **CORREGIDO (pendiente de prueba con el cable real)**
+> Confirmado por el usuario con el proyector real (la salida tapó el panel por completo). Política nueva en `CLAUDE.md` (sección «Protocolo IPC», «Política de seguridad de la salida»).
+
 - **Dónde:** `OutputController.cs:83` (`SetChromeless(true)…SetTopMost(true)`), `DisplayManager.cs:64-72` y `CLAUDE.md:107`.
 - **Problema:** la salida es topmost, sin bordes y sin menú contextual. Si se desconecta el proyector, Windows suele mover esa ventana al monitor que queda, el del panel, y lo cubre entero por encima de todo. Pasa lo mismo si el operador arrastra el panel al monitor de la salida. `DisplayManager` solo avisa, y la política documentada prohíbe mover la salida. Sin bordes ni menú, la única salida es Alt+F4, y eso no es obvio.
 - **Corrección propuesta:** decidir la política. Cuando cambian los monitores, si el monitor de la salida desapareció o la salida se cruza con el monitor del panel, quitar `TopMost` y pasarla a ventana normal, sin cerrarla. Añadir además un atajo de emergencia en la salida. Requiere cambiar la regla de `CLAUDE.md:107`. **Pendiente de decisión del usuario.**
@@ -54,7 +58,9 @@
 - **Problema:** todo pasa por una sola cola FIFO. Un `output.open` (refresco de monitores y creación de ventana, varios segundos en las pruebas) retrasa un «Black» pulsado justo después.
 - **Corrección:** un carril aparte para `output.setMaster`, o que `Open` no bloquee la cola.
 
-### I6. Los índices de monitor no son estables
+### I6. Los índices de monitor no son estables — **PARCIAL**
+> `OutputWindowStatus.displayIndex` ahora se deriva del rectángulo del monitor de la salida (null si ya no está). Pendiente: que `output.open` y la UI identifiquen monitores por rectángulo en vez de por índice.
+
 - **Dónde:** `DisplayManager.cs:41`, `OutputController.cs:52,96` y `frontend/src/control/App.tsx:31,55,69`.
 - **Problema:** el índice que muestra y envía la UI cambia si se reconecta un monitor. Consecuencias: abrir la salida en otro monitor, «salida aquí» marcado en el monitor equivocado, y el aviso «monitor desconectado» falso o ausente.
 - **Corrección:** identificar cada monitor por su rectángulo o por ID de dispositivo en `DisplayInfo` y en `OutputWindowStatus`.
@@ -94,7 +100,7 @@
 - **Problema:** borrar una canción deja un servicio con una referencia rota, que puede aparecer en pleno culto. Fue un requisito literal del usuario, así que es una decisión de diseño.
 - **Corrección:** una tabla `PlaylistItems` con claves foráneas, o validar las referencias al cargar el servicio.
 
-### I14. Nada impide que la pantalla se apague durante el culto
+### I14. Nada impide que la pantalla se apague durante el culto — **CORREGIDO**
 - **Dónde:** fuera de lo pedido, pero es un riesgo en vivo.
 - **Problema:** el ahorro de energía o el salvapantallas pueden apagar el proyector.
 - **Corrección:** `SetThreadExecutionState` mientras la salida esté abierta.
@@ -103,7 +109,7 @@
 
 | # | Archivo:línea | Problema | Corrección |
 |---|---|---|---|
-| M1 | `OutputController.cs:91` | El handler de cierre de la salida no captura excepciones (contradice `CLAUDE.md:83`). | Envolverlo en try/catch. |
+| M1 | `OutputController.cs:91` | El handler de cierre de la salida no captura excepciones (contradice `CLAUDE.md:83`). **CORREGIDO.** | Envolverlo en try/catch. |
 | M2 | `ApplicationHost.cs:126` | `Task.WaitAll` contradice `CLAUDE.md:70`. Está acotado a 3 s. | Apagado asíncrono, o documentar la excepción. |
 | M3 | `IpcSerializer.cs:11` | Opciones estáticas públicas que se pueden modificar hasta su primer uso (contradice `CLAUDE.md:72`). | Llamar a `MakeReadOnly()`. |
 | M4 | `MessageQueues.cs:14,33` | Con la cola llena, comandos y eventos se descartan solo con un log. | En la salida, conservar solo el último snapshot de cada tipo. |
@@ -113,7 +119,7 @@
 | M8 | `OakProyektor.App.csproj:23` | Sin `npm run build` se empaqueta un `dist` viejo. El test de contrato compara las fuentes, no el `dist`. | Un target de MSBuild que lo compruebe, o un handshake con hash de build. |
 | M9 | `ApplicationHost.cs:71` y `OutputController.cs:92` | La navegación del WebView no está restringida: cualquier página que se cargue tendría `window.external`. | Bloquear la navegación fuera de las páginas propias. |
 | M10 | `DisplayManager.cs:37-42,53` | Con el panel minimizado (posición −32000), ningún monitor «aloja el panel» y la opción por defecto sería el monitor del panel. Afecta a futuros atajos globales. | Usar la última posición conocida del panel. |
-| M11 | `OutputController.cs:72-98,109-111` | Si la creación falla a mitad o `Close` falla, queda una ventana topmost huérfana que el panel no controla. | Registrar la ventana justo al crearla y reintentar el cierre. |
+| M11 | `OutputController.cs:72-98,109-111` | Si la creación falla a mitad o `Close` falla, queda una ventana topmost huérfana que el panel no controla. **CORREGIDO.** | Registrar la ventana justo al crearla y reintentar el cierre. |
 | M12 | `IpcPump.cs:23` | `catch (OperationCanceledException) { throw; }` sin filtro: un OCE ajeno al apagado detendría la cola de entrada para siempre. Hoy no pasa porque el dispatcher no lo propaga. | Añadir `when (ct.IsCancellationRequested)`. |
 | M13 | `frontend/src/output/OutputView.tsx` | La salida no tiene `ErrorBoundary`: un error de render la deja en negro hasta recargar. | Un boundary que conserve el último estado pintado. |
 | M14 | `Program.cs:12-20` | La resolución de rutas y la creación del logger quedan fuera del `try`: si fallan, no queda registro. | Moverlas dentro del `try` con un respaldo. |
@@ -127,4 +133,10 @@
 
 | Hallazgo | Estado | Commit |
 |---|---|---|
-| (todos) | Pendiente | — |
+| C1 | No se confirma (verificado por el usuario) | — |
+| C2 | Corregido; falta probar con el cable real (ver pruebas manuales en el commit) | HASH |
+| I14 | Corregido (`ScreenWakeLock`, `SetThreadExecutionState` en el hilo de UI) | HASH |
+| M1 | Corregido | HASH |
+| M11 | Corregido (registro inmediato + 3 reintentos y `WM_CLOSE`; no se declara cerrada si sigue existiendo) | HASH |
+| I6 | Parcial: el índice mostrado en el estado se deriva del rectángulo | HASH |
+| resto | Pendiente | — |

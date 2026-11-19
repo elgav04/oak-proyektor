@@ -51,3 +51,27 @@ internal sealed class OutputSetMasterHandler(IOutputController output) : IIpcHan
         return Task.FromResult<object?>(null);
     }
 }
+
+internal sealed class OutputRecoverHandler(IOutputController output) : IIpcHandler
+{
+    public string Kind => IpcKind.Command;
+    public string Type => IpcTypes.OutputRecover;
+    public Task<object?> HandleAsync(IpcEnvelope request, CancellationToken cancellationToken)
+    {
+        output.EmergencyPause(OakProyektor.Core.Output.OutputPauseReason.Manual);
+        return Task.FromResult<object?>(null);
+    }
+}
+
+internal sealed class SettingsSetAutoRestoreHandler(ISettingsStore settings, IOutputController output) : IIpcHandler
+{
+    public string Kind => IpcKind.Command;
+    public string Type => IpcTypes.SettingsSetAutoRestore;
+    public async Task<object?> HandleAsync(IpcEnvelope request, CancellationToken cancellationToken)
+    {
+        var enabled = request.GetPayload<SetAutoRestorePayload>().Enabled;
+        await settings.UpdateAsync(s => s with { AutoRestoreOutput = enabled }, cancellationToken).ConfigureAwait(false);
+        output.SettingsChanged();
+        return null;
+    }
+}

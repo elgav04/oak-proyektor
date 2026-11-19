@@ -1,4 +1,4 @@
-﻿# Oak-Proyektor
+# Oak-Proyektor
 
 Software de proyección para iglesias. Reemplazo de EasyWorship 6 para uso interno (no comercial).
 Prioridad absoluta: **estabilidad en vivo**. La ventana de proyección nunca debe congelarse, parpadear ni cerrarse sola durante un culto.
@@ -60,7 +60,7 @@ cd frontend && npm run build                   # genera estáticos para Photino
 cd frontend && npm run typecheck && npm run lint
 ```
 
-Orden: `npm run build` en `frontend/` ANTES de `dotnet build`/`dotnet run` (el build de App copia `frontend/dist` a `wwwroot`; sin él el panel muestra un aviso). Datos y logs: `data/` en la raíz del repo en desarrollo (se detecta por `CLAUDE.md`); `OAK_DATA_DIR` lo reemplaza; fuera del repo, `data/` junto al ejecutable.
+Orden: `npm run build` en `frontend/` ANTES de `dotnet build`/`dotnet run` (el build de App copia `frontend/dist` a `wwwroot`; sin él el panel muestra un aviso). Datos y logs: `data/` en la raíz del repo en desarrollo (se detecta por `CLAUDE.md`); `OAK_DATA_DIR` lo reemplaza; fuera del repo, `data/` junto al ejecutable. La configuración persistente (`AppSettings`) está en `data/settings.json`; un archivo ausente o corrupto no impide arrancar.
 
 Si un comando no existe todavía, créalo y documéntalo aquí.
 
@@ -75,13 +75,17 @@ Si un comando no existe todavía, créalo y documéntalo aquí.
 - Nunca asumas que Photino es seguro entre hilos: serializa los envíos hacia las ventanas por un único canal y verifica en la documentación o el código del paquete cómo despachar al hilo de UI.
 - **Photino (verificado con un spike en Windows 11, Photino.NET 4.0.16):**
   - `Main` debe ser `[STAThread]`; en MTA la ventana queda negra sin error.
-  - `Monitors` solo se puede leer tras crear la ventana principal (usa `RegisterWindowCreatedHandler`). No existe evento de cambio de monitores: `DisplayManager` sondea `Monitors` cada 1–2 s y compara.
+  - `Monitors` solo se puede leer tras crear la ventana principal (usa `RegisterWindowCreatedHandler`). No existe evento de cambio de monitores: `DisplayManager` sondea `Monitors` cada 500 ms y compara.
   - La ventana de salida se construye y arranca en el hilo de UI: `main.Invoke(() => { new PhotinoWindow(main)…; w.WaitForClose(); })`. Construirla en un hilo de trabajo provoca interbloqueo.
   - Las páginas cargan por `file://` (`Load(ruta)`); no hace falta esquema `app://`.
   - Ventana sin bordes con posición y tamaño exactos del monitor (`MonitorArea`, píxeles físicos); no hace falta `SetFullScreen`.
   - **No llames `SendWebMessage` a una ventana hasta que su página haya enviado su primer mensaje**: el WebView2 se inicializa de forma asíncrona y enviar antes provocó una violación de acceso nativa (`0xC0000005`) que cierra el proceso. `WindowRegistry` lo aplica; las páginas piden su estado al cargar (`output.getState`), así que nada se pierde.
   - Todo callback de Photino (handlers de mensajes, cierre, creación) debe capturar sus excepciones: no pueden cruzar la frontera nativa. Una excepción no controlada en un hilo de fondo termina el proceso en .NET y no se puede evitar, por eso todo trabajo de fondo captura las suyas.
   - Ambas ventanas comparten el hilo de UI: un handler lento en C# congela panel y salida a la vez. Los handlers solo encolan; el trabajo se hace en otro hilo.
+  - **El proceso no es DPI-aware**: Photino y `DisplayInfo` usan píxeles físicos, pero `GetWindowRect`/`SetWindowPos` devuelven coordenadas virtualizadas en monitores escalados (verificado: 1440×740 con Photino vs 1152×592 con Win32 al 125 %). Toda llamada Win32 con coordenadas va dentro de `NativeMethods.UsePhysicalCoordinates()`; no cambies la conciencia DPI del proceso (afectaría a Photino).
+  - Pausa y restauración de la salida se hacen con Win32 sobre su `WindowHandle` (`ShowWindow`, `SetWindowPos`), despachadas al hilo de UI. Única excepción: la pausa de emergencia actúa directamente, sin cola de UI ni candado de ciclo de vida, para funcionar aunque haya una operación lenta en curso.
+  - El atajo global usa `RegisterHotKey` con `hWnd` nulo en un hilo propio con su bucle de mensajes (Photino no expone el suyo). `SetThreadExecutionState` es por hilo: siempre se llama en el hilo de UI, que vive toda la sesión.
+  - La ventana de salida se registra en cuanto se construye (antes de configurarla) y se cierra con hasta 3 reintentos más `WM_CLOSE`; si sigue existiendo, NO se declara cerrada (el panel la sigue mostrando y se puede reintentar). El handler de cierre captura sus excepciones.
 
 ## Convenciones TypeScript / React
 
@@ -102,9 +106,16 @@ Sobre cada mensaje va un sobre común:
 - Los tipos viven en C# (`OakProyektor.Ipc`) y se reflejan a mano en `frontend/src/ipc/`. Un test de contrato debe fallar si divergen.
 - Versiona el protocolo (`v`). Ignora con log los mensajes desconocidos; no lances excepciones.
 - La ventana de salida recibe snapshots completos de `OutputState` (idempotentes), no diffs. Cada snapshot lleva `revision` creciente; las réplicas descartan los más viejos.
-- Mensajes actuales (catálogo en `IpcCatalog` y `frontend/src/ipc/protocol.ts`): commands `output.open`, `output.close`, `output.setMaster`; queries `display.list`, `output.getState` (reply con el mismo `type` y `id`); events `display.changed`, `output.stateChanged`. El payload de `output.stateChanged` y del reply de `output.getState` es el mismo.
+- Mensajes actuales (catálogo en `IpcCatalog` y `frontend/src/ipc/protocol.ts`): commands `output.open`, `output.close`, `output.setMaster`, `output.recover` (pausa de emergencia), `settings.setAutoRestore`; queries `display.list`, `output.getState` (reply con el mismo `type` y `id`); events `display.changed`, `output.stateChanged`. El payload de `output.stateChanged` y del reply de `output.getState` es el mismo e incluye `window.isPaused`, `pauseReason`, `autoRestore` y `emergencyHotkey`: el aviso de pausa del panel sale de ese snapshot (idempotente), no de un evento aparte.
 - Entrada: los handlers de Photino solo encolan (`InboundQueue`, FIFO); un único hilo procesa y responde. Salida: un único canal (`Outbox`, FIFO) hacia ambas ventanas.
-- Política de la ventana de salida: pantalla completa sin bordes solo en un monitor que NO aloja el panel (por defecto, el primero que no lo aloja). Si solo hay un monitor o se elige el del panel, se abre como ventana normal de 960×540. La salida nunca se cierra ni se mueve por sí sola (tampoco si desaparece su monitor; el panel avisa).
+- **Política de seguridad de la salida** (`OutputSafetyPolicy`, función pura en Core; la aplica `OutputController` en cada ciclo de sondeo de 500 ms). Verificada con un arnés sobre el equipo real, salvo la desconexión física del cable:
+  1. Pantalla completa sin bordes solo en un monitor que NO aloja el panel (por defecto, el primero que no lo aloja). Con un solo monitor, o si se elige el del panel, se abre como ventana normal de 960×540, sin topmost, y esta política no aplica.
+  2. Topmost solo mientras la ventana esté TOTALMENTE dentro del monitor de la salida y este no sea el del panel.
+  3. Si el monitor de la salida desaparece (con antirrebote de 2 ciclos ≈ 1 s, para que un parpadeo de enumeración no deje la proyección en negro), o la salida se cruza con el monitor del panel (o el panel pasa al monitor de la salida): se quita topmost y se minimiza (**pausa**), sin cerrar la ventana ni perder el `OutputState`. El panel muestra «Proyector desconectado: salida en pausa» (o el aviso del motivo). El monitor se identifica por su rectángulo (Photino no da ID de dispositivo).
+  4. Si reaparece el mismo monitor (mismo rectángulo) y no aloja el panel, se restaura en su posición exacta y vuelve a topmost, solo si `AutoRestoreOutput` está activo (por defecto sí; casilla en el panel; se guarda en `data/settings.json`). Solo se reanudan solas las pausas automáticas (`displayLost`, `panelCrossed`); las manuales y de emergencia esperan al operador («Reanudar salida» = `output.open`).
+  5. Emergencia: el atajo global **Ctrl+Alt+Shift+M** (funciona con cualquier ventana enfocada) y el botón «Recuperar control» (`output.recover`) minimizan la salida y le quitan topmost. Respaldo: la misma combinación dentro de la página de salida, por si el global no pudo registrarse (otra aplicación lo usa); el panel indica cuál está activo.
+  6. Mientras la salida esté abierta (también en pausa) se impide que la pantalla se apague o el equipo se suspenda (`ScreenWakeLock`).
+  La salida nunca se cierra ni se mueve por sí sola.
 
 ## Modelo de salida por capas
 

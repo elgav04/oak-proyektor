@@ -1,7 +1,7 @@
 ﻿import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ipc } from "@/ipc/instance";
-import { MASTER_MODES, type DisplayInfo, type MasterMode } from "@/ipc/protocol";
+import { MASTER_MODES, type DisplayInfo, type MasterMode, type OutputPauseReason } from "@/ipc/protocol";
 import { connectControlStore, useControlStore } from "./store";
 
 const MASTER_LABELS: Record<MasterMode, string> = {
@@ -10,6 +10,13 @@ const MASTER_LABELS: Record<MasterMode, string> = {
   black: "Black",
   logo: "Logo",
   freeze: "Freeze",
+};
+
+const PAUSE_MESSAGES: Record<OutputPauseReason, string> = {
+  displayLost: "Proyector desconectado: salida en pausa",
+  panelCrossed: "La salida invadió el monitor del panel: salida en pausa",
+  manual: "Salida en pausa (recuperación manual)",
+  emergency: "Salida en pausa (atajo de emergencia)",
 };
 
 function displayLabel(d: DisplayInfo): string {
@@ -27,17 +34,29 @@ export function App() {
   useEffect(() => connectControlStore(), []);
 
   const isOpen = output?.window.isOpen ?? false;
+  const isPaused = output?.window.isPaused ?? false;
+  const pauseReason = output?.window.pauseReason ?? null;
   const master = output?.state.master;
-  const outputDisplayMissing = isOpen && output?.window.displayIndex != null && !displays.some((d) => d.index === output.window.displayIndex);
 
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-8 p-6">
       <header className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Oak-Proyektor</h1>
-        <span className={`rounded-full px-3 py-1 text-sm font-semibold ${isOpen ? "bg-green-600 text-white" : "bg-neutral-200 text-neutral-700"}`}>
-          {!connected ? "Conectando…" : isOpen ? "SALIDA ABIERTA" : "Salida cerrada"}
+        <span
+          className={`rounded-full px-3 py-1 text-sm font-semibold ${isPaused ? "bg-red-600 text-white" : isOpen ? "bg-green-600 text-white" : "bg-neutral-200 text-neutral-700"}`}
+        >
+          {!connected ? "Conectando…" : isPaused ? "SALIDA EN PAUSA" : isOpen ? "SALIDA ABIERTA" : "Salida cerrada"}
         </span>
       </header>
+
+      {isPaused && (
+        <div role="alert" className="flex items-center justify-between gap-4 rounded-lg border-2 border-red-700 bg-red-600 p-5 text-white">
+          <p className="text-xl font-bold">{pauseReason ? PAUSE_MESSAGES[pauseReason] : "Salida en pausa"}</p>
+          <Button size="lg" variant="outline" className="h-12 shrink-0 text-black" onClick={() => { ipc.send("output.open", { displayIndex: output?.window.displayIndex ?? null }); }}>
+            Reanudar salida
+          </Button>
+        </div>
+      )}
 
       <section aria-labelledby="displays-title" className="flex flex-col gap-3">
         <h2 id="displays-title" className="text-lg font-semibold">Monitores</h2>
@@ -64,15 +83,31 @@ export function App() {
             La salida se abrió como ventana normal: solo hay un monitor o el elegido es el del panel, y no se proyecta a pantalla completa sobre el panel.
           </p>
         )}
-        {outputDisplayMissing && <p className="text-sm font-semibold text-red-700">El monitor de la salida ya no está conectado.</p>}
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           <Button size="lg" disabled={!connected} onClick={() => { ipc.send("output.open", { displayIndex: selected }); }}>
-            {isOpen ? "Mover / reabrir salida" : "Abrir salida"}
+            {isPaused ? "Reanudar salida" : isOpen ? "Mover / reabrir salida" : "Abrir salida"}
           </Button>
           <Button size="lg" variant="outline" disabled={!connected || !isOpen} onClick={() => { ipc.send("output.close", {}); }}>
             Cerrar salida
           </Button>
+          <Button size="lg" variant="destructive" disabled={!connected || !isOpen || isPaused} onClick={() => { ipc.send("output.recover", {}); }}>
+            Recuperar control
+          </Button>
         </div>
+        <label className="flex cursor-pointer items-center gap-3 text-sm">
+          <input
+            type="checkbox"
+            checked={output?.window.autoRestore ?? true}
+            disabled={!connected}
+            onChange={(e) => { ipc.send("settings.setAutoRestore", { enabled: e.target.checked }); }}
+          />
+          <span>Restaurar la salida automáticamente cuando el proyector vuelva a conectarse</span>
+        </label>
+        <p className="text-sm text-neutral-600">
+          {output?.window.emergencyHotkey
+            ? `Atajo de emergencia (minimiza la salida desde cualquier ventana): ${output.window.emergencyHotkey}`
+            : connected && "Atajo de emergencia global no disponible (otra aplicación usa esa combinación). Dentro de la ventana de salida: Ctrl+Alt+Shift+M."}
+        </p>
       </section>
 
       <section aria-labelledby="master-title" className="flex flex-col gap-3">
@@ -101,3 +136,9 @@ export function App() {
     </main>
   );
 }
+
+
+
+
+
+

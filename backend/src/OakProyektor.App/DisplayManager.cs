@@ -1,15 +1,16 @@
-﻿using System.Drawing;
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using OakProyektor.Core.Display;
+using OakProyektor.Core.Output;
 using OakProyektor.Ipc;
 using OakProyektor.Ipc.Messages;
-using Photino.NET;
 
 namespace OakProyektor.App;
 
 internal interface IDisplayManager
 {
     IReadOnlyList<DisplayInfo> Current { get; }
+    /// <summary>Se dispara en cada ciclo de sondeo (cambie algo o no), con la lista recién leída.</summary>
+    event Action<IReadOnlyList<DisplayInfo>>? Polled;
     /// <summary>Consulta los monitores ahora. No publica eventos.</summary>
     IReadOnlyList<DisplayInfo> Refresh();
     /// <summary>Monitor elegido: el indicado si existe; si no, el primero que no aloja el panel. Null si no hay candidato.</summary>
@@ -17,31 +18,28 @@ internal interface IDisplayManager
 }
 
 /// <summary>
-/// Enumera monitores con la API de Photino (<c>PhotinoWindow.Monitors</c>) y detecta cambios sondeando,
-/// porque Photino no expone ningún evento de cambio de pantallas. Nunca cierra ni mueve la salida por sí mismo.
+/// Enumera monitores y detecta cambios sondeando cada 500 ms, porque Photino no expone ningún evento de cambio de pantallas.
+/// Nunca cierra ni mueve la salida por sí mismo: la política de seguridad vive en <see cref="OutputController"/>.
 /// </summary>
-internal sealed class DisplayManager(PhotinoWindow main, IUiDispatcher ui, Outbox outbox, ILogger<DisplayManager> logger) : IDisplayManager
+internal sealed class DisplayManager(IMonitorProvider provider, IUiDispatcher ui, Outbox outbox, ILogger<DisplayManager> logger) : IDisplayManager
 {
-    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(1500);
+    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
     private volatile IReadOnlyList<DisplayInfo> _current = [];
 
     public IReadOnlyList<DisplayInfo> Current => _current;
 
+    public event Action<IReadOnlyList<DisplayInfo>>? Polled;
+
     public IReadOnlyList<DisplayInfo> Refresh()
     {
-        IReadOnlyList<DisplayInfo> result = [];
-        // Monitors y Location/Size solo son válidos en el hilo de UI y tras crear la ventana principal.
-        ui.Invoke(() =>
-        {
-            var monitors = main.Monitors;
-            var location = main.Location;
-            var size = main.Size;
-            var panelCenter = new Point(location.X + size.Width / 2, location.Y + size.Height / 2);
-            result = monitors
-                .Select((m, i) => new DisplayInfo(i, m.MonitorArea.X, m.MonitorArea.Y, m.MonitorArea.Width, m.MonitorArea.Height, m.Scale,
-                    IsPrimary: m.MonitorArea is { X: 0, Y: 0 }, HostsPanel: m.MonitorArea.Contains(panelCenter)))
-                .ToList();
-        });
+        MonitorSnapshot? snapshot = null;
+        ui.Invoke(() => snapshot = provider.Read());   // solo válido en el hilo de UI
+        var panelCenter = new System.Drawing.Point(snapshot!.PanelCenterX, snapshot.PanelCenterY);
+        var result = snapshot.Monitors
+            .Select((m, i) => new DisplayInfo(i, m.Area.X, m.Area.Y, m.Area.Width, m.Area.Height, m.Scale,
+                IsPrimary: m.Area is { X: 0, Y: 0 },
+                HostsPanel: panelCenter.X >= m.Area.X && panelCenter.X < m.Area.Right && panelCenter.Y >= m.Area.Y && panelCenter.Y < m.Area.Bottom))
+            .ToList();
         _current = result;
         return result;
     }
@@ -67,9 +65,12 @@ internal sealed class DisplayManager(PhotinoWindow main, IUiDispatcher ui, Outbo
                 {
                     var before = _current;
                     var after = Refresh();
-                    if (before.SequenceEqual(after)) continue;
-                    logger.LogInformation("Cambio de monitores: {Displays}", Describe(after));
-                    outbox.Publish(IpcEnvelope.Create(IpcKind.Event, IpcTypes.DisplayChanged, new DisplayListPayload(after)), Targets.Control);
+                    if (!before.SequenceEqual(after))
+                    {
+                        logger.LogInformation("Cambio de monitores: {Displays}", Describe(after));
+                        outbox.Publish(IpcEnvelope.Create(IpcKind.Event, IpcTypes.DisplayChanged, new DisplayListPayload(after)), Targets.Control);
+                    }
+                    Polled?.Invoke(after);
                 }
                 catch (Exception ex) { logger.LogWarning(ex, "Falló un ciclo de sondeo de monitores"); }   // el sondeo sigue
             }

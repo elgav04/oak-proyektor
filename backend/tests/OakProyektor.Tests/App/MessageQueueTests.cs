@@ -36,7 +36,7 @@ public class MessageQueueTests
     public async Task Outbox_is_fifo_and_keeps_targets()
     {
         var box = new Outbox(NullLogger<Outbox>.Instance);
-        box.Publish(IpcEnvelope.Create(IpcKind.Event, IpcTypes.OutputStateChanged, new OutputStateChangedPayload(OutputState.Initial, new OutputWindowStatus(false, null, false))), Targets.All);
+        box.Publish(IpcEnvelope.Create(IpcKind.Event, IpcTypes.OutputStateChanged, new OutputStateChangedPayload(OutputState.Initial, new OutputWindowStatus(false, null, false, false, null, true, null))), Targets.All);
         box.Publish(IpcEnvelope.Create(IpcKind.Event, IpcTypes.DisplayChanged, new DisplayListPayload([])), Targets.Control);
         box.Complete();
 
@@ -56,3 +56,4 @@ public class MessageQueueTests
         box.Publish(IpcEnvelope.Create(IpcKind.Event, IpcTypes.DisplayChanged, new DisplayListPayload([])), Targets.Control);
     }
 }
+

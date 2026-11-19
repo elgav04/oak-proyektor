@@ -22,6 +22,8 @@ public class HandlerTests
             new OutputOpenHandler(output),
             new OutputCloseHandler(output),
             new OutputSetMasterHandler(output),
+            new OutputRecoverHandler(output),
+            new SettingsSetAutoRestoreHandler(new InMemorySettings(), output),
         ];
         return (new IpcDispatcher(handlers, NullLogger<IpcDispatcher>.Instance), output);
     }
@@ -32,11 +34,37 @@ public class HandlerTests
         var (d, output) = Create();
         foreach (var m in IpcCatalog.Messages.Where(m => m.Kind is IpcKind.Command or IpcKind.Query))
         {
-            var payload = m.Type == IpcTypes.OutputSetMaster ? """{"master":"live"}""" : "{}";
+            var payload = m.Type switch
+            {
+                IpcTypes.OutputSetMaster => """{"master":"live"}""",
+                IpcTypes.SettingsSetAutoRestore => """{"enabled":false}""",
+                _ => "{}",
+            };
             await d.DispatchAsync(Msg(m.Kind, m.Type, payload), CancellationToken.None);
         }
         // Los comandos llegaron a su handler (si faltara uno, el despachador solo lo registraría y no quedaría la llamada).
-        Assert.Equal(["open:auto", "close", "master:Live"], output.Calls);
+        Assert.Equal(["open:auto", "close", "master:Live", "pause:Manual", "settingsChanged"], output.Calls);
+    }
+
+    [Fact]
+    public async Task Auto_restore_setting_is_persisted_then_the_output_is_notified()
+    {
+        var settings = new InMemorySettings();
+        var output = new FakeOutputController();
+        var d = new IpcDispatcher([new SettingsSetAutoRestoreHandler(settings, output)], NullLogger<IpcDispatcher>.Instance);
+
+        await d.DispatchAsync(Msg("command", "settings.setAutoRestore", """{"enabled":false}"""), CancellationToken.None);
+
+        Assert.False(settings.Current.AutoRestoreOutput);
+        Assert.Equal(["settingsChanged"], output.Calls);
+    }
+
+    [Fact]
+    public async Task Recover_command_pauses_the_output_as_manual()
+    {
+        var (d, output) = Create();
+        await d.DispatchAsync(Msg("command", "output.recover"), CancellationToken.None);
+        Assert.Equal(["pause:Manual"], output.Calls);
     }
 
     [Fact]
@@ -69,3 +97,7 @@ public class HandlerTests
         Assert.Equal(MasterMode.Black, reply!.GetPayload<OutputStateChangedPayload>().State.Master);
     }
 }
+
+
+
+

@@ -16,7 +16,8 @@ internal sealed class ApplicationHost : IDisposable
     private readonly ApplicationPaths _paths;
     private Task[] _background = [];
 
-    public ApplicationHost(ApplicationPaths paths, Serilog.ILogger serilog)
+    /// <param name="configureServices">Gancho opcional (pruebas) para sustituir servicios, p. ej. <see cref="IMonitorProvider"/>.</param>
+    public ApplicationHost(ApplicationPaths paths, Serilog.ILogger serilog, Action<IServiceCollection>? configureServices = null)
     {
         _paths = paths;
         MainWindow = new PhotinoWindow()
@@ -37,6 +38,10 @@ internal sealed class ApplicationHost : IDisposable
         services.AddSingleton<IUiDispatcher, PhotinoUiDispatcher>();
         services.AddSingleton<InboundQueue>();
         services.AddSingleton<Outbox>();
+        services.AddSingleton<IMonitorProvider, PhotinoMonitorProvider>();
+        services.AddSingleton<ISettingsStore, SettingsStore>();
+        services.AddSingleton<ScreenWakeLock>();
+        services.AddSingleton<EmergencyHotkey>();
         services.AddSingleton<DisplayManager>();
         services.AddSingleton<IDisplayManager>(sp => sp.GetRequiredService<DisplayManager>());
         services.AddSingleton<OutputController>();
@@ -46,11 +51,14 @@ internal sealed class ApplicationHost : IDisposable
         services.AddSingleton<IIpcHandler, Handlers.OutputOpenHandler>();
         services.AddSingleton<IIpcHandler, Handlers.OutputCloseHandler>();
         services.AddSingleton<IIpcHandler, Handlers.OutputSetMasterHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.OutputRecoverHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.SettingsSetAutoRestoreHandler>();
         services.AddSingleton<IpcDispatcher>();
         services.AddSingleton<IpcPump>();
         services.AddSingleton(new DatabaseOptions(Path.Combine(paths.DataDirectory, DatabaseOptions.FileName)));
         services.AddSingleton<ISqliteConnectionFactory, SqliteConnectionFactory>();
         services.AddSingleton<IDatabaseInitializer, DatabaseInitializer>();
+        configureServices?.Invoke(services);
         _services = services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
         _logger = _services.GetRequiredService<ILogger<ApplicationHost>>();
     }
@@ -95,14 +103,30 @@ internal sealed class ApplicationHost : IDisposable
     {
         var ct = _shutdown.Token;
         var pump = _services.GetRequiredService<IpcPump>().Start(ct);
-        var polling = _services.GetRequiredService<DisplayManager>().StartPolling(ct);
+        var startup = Task.Run(async () =>
+        {
+            try
+            {
+                var settings = _services.GetRequiredService<ISettingsStore>();
+                await settings.LoadAsync(ct).ConfigureAwait(false);   // antes de que la política use AutoRestore
+
+                var output = _services.GetRequiredService<IOutputController>();
+                var hotkey = _services.GetRequiredService<EmergencyHotkey>();
+                hotkey.Start(() => output.EmergencyPause(OakProyektor.Core.Output.OutputPauseReason.Emergency));
+                output.SetEmergencyHotkey(hotkey.Description);   // null = no se pudo registrar; el panel lo avisa
+
+                await _services.GetRequiredService<DisplayManager>().StartPolling(ct).ConfigureAwait(false);   // dura hasta el apagado
+            }
+            catch (OperationCanceledException) { /* apagado */ }
+            catch (Exception ex) { _logger.LogError(ex, "Falló el arranque de los servicios de fondo"); }
+        }, CancellationToken.None);
         var db = Task.Run(async () =>
         {
             try { await _services.GetRequiredService<IDatabaseInitializer>().InitializeAsync(ct).ConfigureAwait(false); }
             catch (OperationCanceledException) { /* apagado */ }
             catch (Exception ex) { _logger.LogError(ex, "No se pudo inicializar la base de datos"); }   // el panel y la salida no dependen de la BD todavía
         }, CancellationToken.None);
-        _background = [.. pump, polling, db];
+        _background = [.. pump, startup, db];
     }
 
     private void OnMainClosing()
@@ -110,6 +134,7 @@ internal sealed class ApplicationHost : IDisposable
         _shutdown.Cancel();
         _services.GetRequiredService<InboundQueue>().Complete();
         _services.GetRequiredService<Outbox>().Complete();
+        _services.GetRequiredService<EmergencyHotkey>().Dispose();
         _services.GetRequiredService<IOutputController>().CloseForShutdown();   // sin esperar a las tareas: estamos en el hilo de UI
     }
 
@@ -128,4 +153,11 @@ internal sealed class ApplicationHost : IDisposable
         _shutdown.Dispose();
     }
 }
+
+
+
+
+
+
+
 

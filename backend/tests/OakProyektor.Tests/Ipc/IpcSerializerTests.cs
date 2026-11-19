@@ -65,7 +65,7 @@ public class IpcSerializerTests
         var back = Parse(IpcSerializer.Serialize(IpcEnvelope.Create(IpcKind.Event, IpcTypes.DisplayChanged, displays))).GetPayload<DisplayListPayload>();
         Assert.Equal(displays.Displays, back.Displays);
 
-        var state = new OutputStateChangedPayload(OutputState.Initial.WithMaster(MasterMode.Live), new OutputWindowStatus(true, 1, false));
+        var state = new OutputStateChangedPayload(OutputState.Initial.WithMaster(MasterMode.Live), new OutputWindowStatus(true, 1, false, true, OutputPauseReason.DisplayLost, true, "Ctrl+Alt+Shift+M"));
         var back2 = Parse(IpcSerializer.Serialize(IpcEnvelope.Create(IpcKind.Event, IpcTypes.OutputStateChanged, state))).GetPayload<OutputStateChangedPayload>();
         Assert.Equal(state, back2);
     }
@@ -115,5 +115,6 @@ public class IpcSerializerTests
         Assert.Contains("demasiado grande", error);
     }
 }
+
 
 

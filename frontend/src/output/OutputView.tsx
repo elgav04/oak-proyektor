@@ -1,6 +1,7 @@
 ﻿import { useEffect, useState } from "react";
 import { ipc } from "@/ipc/instance";
 import type { OutputState } from "@/ipc/protocol";
+import { isEmergencyKey } from "./emergency";
 
 /** La salida es "tonta": pinta el último snapshot que recibe y nada más. */
 export function OutputView() {
@@ -22,7 +23,17 @@ export function OutputView() {
         }
       }
     })();
-    return off;
+    // Respaldo del atajo global: pide a C# minimizar la salida. La salida no decide nada; solo avisa.
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (!isEmergencyKey(e)) return;
+      e.preventDefault();
+      ipc.send("output.recover", {});
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      off();
+      window.removeEventListener("keydown", onKeyDown);
+    };
   }, []);
 
   // Contenedores con clave estable: el fondo nunca se remonta al cambiar el texto.
@@ -32,3 +43,5 @@ export function OutputView() {
     </div>
   );
 }
+
+

@@ -1,6 +1,6 @@
-// Reflejo manual de OakProyektor.Ipc / OakProyektor.Core. Un test de contrato (backend/tests) compara:
+﻿// Reflejo manual de OakProyektor.Ipc / OakProyektor.Core. Un test de contrato (backend/tests) compara:
 // PROTOCOL_VERSION, MESSAGE_CATALOG, MASTER_MODES y los campos de cada interfaz "payload" con los tipos de C#.
-// Mantén las interfaces planas (sin objetos anidados en línea) para que ese test pueda leerlas.
+// MantÃ©n las interfaces planas (sin objetos anidados en lÃ­nea) para que ese test pueda leerlas.
 
 export const PROTOCOL_VERSION = 1;
 
@@ -10,6 +10,8 @@ export const MESSAGE_CATALOG = [
   { type: "output.open", kind: "command" },
   { type: "output.close", kind: "command" },
   { type: "output.setMaster", kind: "command" },
+  { type: "output.recover", kind: "command" },
+  { type: "settings.setAutoRestore", kind: "command" },
   { type: "display.list", kind: "query" },
   { type: "display.list", kind: "reply" },
   { type: "output.getState", kind: "query" },
@@ -20,6 +22,9 @@ export const MESSAGE_CATALOG = [
 
 export const MASTER_MODES = ["live", "clearText", "black", "logo", "freeze"] as const;
 export type MasterMode = (typeof MASTER_MODES)[number];
+
+export const PAUSE_REASONS = ["displayLost", "panelCrossed", "manual", "emergency"] as const;
+export type OutputPauseReason = (typeof PAUSE_REASONS)[number];
 
 export type EmptyPayload = Record<string, never>;
 
@@ -53,10 +58,18 @@ export interface DisplayListPayload {
   displays: DisplayInfo[];
 }
 
+export interface SetAutoRestorePayload {
+  enabled: boolean;
+}
+
 export interface OutputWindowStatus {
   isOpen: boolean;
   displayIndex: number | null;
   isWindowed: boolean;
+  isPaused: boolean;
+  pauseReason: OutputPauseReason | null;
+  autoRestore: boolean;
+  emergencyHotkey: string | null;
 }
 
 export interface OutputStateChangedPayload {
@@ -64,14 +77,16 @@ export interface OutputStateChangedPayload {
   window: OutputWindowStatus;
 }
 
-/** Payload de cada comando (UI → C#). */
+/** Payload de cada comando (UI â†’ C#). */
 export interface CommandPayloads {
   "output.open": OutputOpenPayload;
   "output.close": EmptyPayload;
   "output.setMaster": OutputSetMasterPayload;
+  "output.recover": EmptyPayload;
+  "settings.setAutoRestore": SetAutoRestorePayload;
 }
 
-/** Payload de cada evento (C# → UI). */
+/** Payload de cada evento (C# â†’ UI). */
 export interface EventPayloads {
   "display.changed": DisplayListPayload;
   "output.stateChanged": OutputStateChangedPayload;
@@ -101,3 +116,7 @@ export type EventMessage = { [T in EventType]: Envelope<"event", T, EventPayload
 export type QueryMessage = { [T in QueryType]: Envelope<"query", T, QueryPayloads[T]["request"]> }[QueryType];
 export type ReplyMessage = { [T in QueryType]: Envelope<"reply", T, QueryPayloads[T]["reply"]> }[QueryType];
 export type IncomingMessage = EventMessage | ReplyMessage;
+
+
+
+

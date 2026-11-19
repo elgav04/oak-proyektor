@@ -16,6 +16,8 @@ public static class IpcTypes
     public const string OutputOpen = "output.open";
     public const string OutputClose = "output.close";
     public const string OutputSetMaster = "output.setMaster";
+    public const string OutputRecover = "output.recover";
+    public const string SettingsSetAutoRestore = "settings.setAutoRestore";
     public const string DisplayChanged = "display.changed";
     public const string OutputStateChanged = "output.stateChanged";
 }
@@ -31,6 +33,8 @@ public static class IpcCatalog
         new(IpcTypes.OutputOpen, IpcKind.Command),
         new(IpcTypes.OutputClose, IpcKind.Command),
         new(IpcTypes.OutputSetMaster, IpcKind.Command),
+        new(IpcTypes.OutputRecover, IpcKind.Command),
+        new(IpcTypes.SettingsSetAutoRestore, IpcKind.Command),
         new(IpcTypes.DisplayList, IpcKind.Query),
         new(IpcTypes.DisplayList, IpcKind.Reply),
         new(IpcTypes.OutputGetState, IpcKind.Query),
@@ -39,3 +43,5 @@ public static class IpcCatalog
         new(IpcTypes.OutputStateChanged, IpcKind.Event),
     ];
 }
+
+

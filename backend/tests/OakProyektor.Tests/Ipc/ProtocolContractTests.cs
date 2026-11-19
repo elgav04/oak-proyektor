@@ -31,6 +31,9 @@ public partial class ProtocolContractTests
     [GeneratedRegex(@"MASTER_MODES\s*=\s*\[([^\]]*)\]")]
     private static partial Regex MasterModesRegex();
 
+    [GeneratedRegex(@"PAUSE_REASONS\s*=\s*\[([^\]]*)\]")]
+    private static partial Regex PauseReasonsRegex();
+
     [GeneratedRegex(@"export interface (\w+) \{([^}]*)\}")]
     private static partial Regex InterfaceRegex();
 
@@ -83,11 +86,19 @@ public partial class ProtocolContractTests
     }
 
     [Fact]
+    public void Pause_reasons_match_in_name_and_order()
+    {
+        var ts = Regex.Matches(PauseReasonsRegex().Match(TsSource).Groups[1].Value, "\"([^\"]+)\"").Select(m => m.Groups[1].Value).ToArray();
+        var cs = Enum.GetNames<OutputPauseReason>().Select(n => JsonNamingPolicy.CamelCase.ConvertName(n)).ToArray();
+        Assert.Equal(cs, ts);
+    }
+
+    [Fact]
     public void Payload_interfaces_have_the_same_fields_as_the_serialized_csharp_types()
     {
         var display = new DisplayInfo(0, 0, 0, 1, 1, 1, true, true);
         var state = OutputState.Initial;
-        var window = new OutputWindowStatus(true, 0, false);
+        var window = new OutputWindowStatus(true, 0, false, false, null, true, null);
 
         Assert.Equal(JsonKeys(display), TsFields("DisplayInfo"));
         Assert.Equal(JsonKeys(state), TsFields("OutputState"));
@@ -95,6 +106,11 @@ public partial class ProtocolContractTests
         Assert.Equal(JsonKeys(new OutputSetMasterPayload(MasterMode.Live)), TsFields("OutputSetMasterPayload"));
         Assert.Equal(JsonKeys(new DisplayListPayload([display])), TsFields("DisplayListPayload"));
         Assert.Equal(JsonKeys(window), TsFields("OutputWindowStatus"));
+        Assert.Equal(JsonKeys(new SetAutoRestorePayload(true)), TsFields("SetAutoRestorePayload"));
         Assert.Equal(JsonKeys(new OutputStateChangedPayload(state, window)), TsFields("OutputStateChangedPayload"));
     }
 }
+
+
+
+
