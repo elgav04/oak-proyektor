@@ -3,6 +3,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using OakProyektor.Data;
 using OakProyektor.Data.Migrations;
+using OakProyektor.Tests.Ipc;
 
 namespace OakProyektor.Tests.Data;
 
@@ -150,6 +151,110 @@ public sealed class MigrationRunnerTests : IDisposable
         Assert.Contains("copia de seguridad", ex.Message);
         Assert.Equal(1L, await c.ExecuteScalarAsync<long>("PRAGMA user_version"));
         Assert.Equal(0L, await c.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM sqlite_master WHERE name = 'Agregada'"));
+    }
+
+    private static readonly Migration Agrega = new(2, "Agrega", "CREATE TABLE Agregada (X INTEGER);");
+    private static readonly DateTimeOffset FixedNow = new(2026, 11, 19, 12, 0, 0, TimeSpan.Zero);
+
+    private MigrationRunner RunnerWith(MigrationRunnerHooks hooks, ListLogger<MigrationRunner>? log = null, params Migration[] migrations) =>
+        new(migrations, _db.Options, log ?? new ListLogger<MigrationRunner>(), () => FixedNow, hooks);
+
+    [Fact]
+    public async Task A_half_written_backup_is_deleted_when_the_copy_fails_and_nothing_is_migrated()
+    {
+        await using var c = await SeedVersion1Async();
+        // Simula un disco lleno: la copia empieza a escribirse (queda un archivo truncado) y entonces falla.
+        var hooks = new MigrationRunnerHooks
+        {
+            WriteBackup = async (_, path, _) =>
+            {
+                await File.WriteAllBytesAsync(path, [1, 2, 3, 4]);
+                throw new IOException("No hay espacio suficiente en el disco.");
+            },
+        };
+
+        var ex = await Assert.ThrowsAsync<MigrationException>(() => RunnerWith(hooks, null, First, Agrega).RunAsync(c, CancellationToken.None));
+
+        Assert.Contains("copia de seguridad", ex.Message);
+        Assert.Contains("No hay espacio", ex.Message);
+        Assert.Null(ex.BackupPath);                                                           // no hay copia que ofrecer
+        Assert.Empty(Directory.GetFiles(_db.Options.BackupDirectory));                        // el archivo truncado NO se dejó
+        Assert.Equal(1L, await c.ExecuteScalarAsync<long>("PRAGMA user_version"));            // y no se migró
+    }
+
+    [Fact]
+    public async Task A_backup_that_comes_out_empty_is_also_deleted()
+    {
+        await using var c = await SeedVersion1Async();
+        var hooks = new MigrationRunnerHooks { WriteBackup = async (_, path, _) => await File.WriteAllBytesAsync(path, []) };
+
+        await Assert.ThrowsAsync<MigrationException>(() => RunnerWith(hooks, null, First, Agrega).RunAsync(c, CancellationToken.None));
+
+        Assert.Empty(Directory.GetFiles(_db.Options.BackupDirectory));
+    }
+
+    [Fact]
+    public async Task A_cancelled_copy_leaves_no_partial_file_either_and_stays_a_cancellation()
+    {
+        await using var c = await SeedVersion1Async();
+        var hooks = new MigrationRunnerHooks
+        {
+            WriteBackup = async (_, path, _) => { await File.WriteAllBytesAsync(path, [9]); throw new OperationCanceledException(); },
+        };
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => RunnerWith(hooks, null, First, Agrega).RunAsync(c, CancellationToken.None));
+
+        Assert.Empty(Directory.GetFiles(_db.Options.BackupDirectory));
+    }
+
+    [Fact]
+    public async Task A_failed_copy_never_deletes_a_file_it_did_not_create()
+    {
+        await using var c = await SeedVersion1Async();
+        // Mismo reloj fijo → mismo nombre: ya hay allí un archivo anterior (p. ej. una copia buena de otra ejecución). No es nuestro: no se toca.
+        Directory.CreateDirectory(_db.Options.BackupDirectory);
+        var stamp = FixedNow.UtcDateTime.ToString("yyyyMMdd'T'HHmmssfff'Z'", System.Globalization.CultureInfo.InvariantCulture);
+        var existing = Path.Combine(_db.Options.BackupDirectory, $"oak-proyektor.v1.{stamp}.db");
+        await File.WriteAllTextAsync(existing, "copia anterior que no es nuestra");
+        var hooks = new MigrationRunnerHooks { WriteBackup = (_, _, _) => throw new IOException("falló") };
+
+        await Assert.ThrowsAsync<MigrationException>(() => RunnerWith(hooks, null, First, Agrega).RunAsync(c, CancellationToken.None));
+
+        Assert.Equal("copia anterior que no es nuestra", await File.ReadAllTextAsync(existing));
+    }
+
+    [Fact]
+    public async Task A_failure_re_enabling_foreign_keys_does_not_mask_the_migrations_own_error()
+    {
+        await using var c = await SeedVersion1Async();
+        var log = new ListLogger<MigrationRunner>();
+        var hooks = new MigrationRunnerHooks { EnableForeignKeys = _ => throw new InvalidOperationException("la conexión se rompió al reactivar") };
+        var bad = new Migration(2, "Rota", "SELECT * FROM tabla_que_no_existe;");
+
+        var ex = await Assert.ThrowsAsync<MigrationException>(() => RunnerWith(hooks, log, First, bad).RunAsync(c, CancellationToken.None));
+
+        // Quien llama recibe la causa REAL (la migración), no la excepción del PRAGMA.
+        Assert.Equal(2, ex.Version);
+        Assert.Contains("Falló la migración 2", ex.Message);
+        Assert.Contains("tabla_que_no_existe", ex.Message);
+        Assert.DoesNotContain("al reactivar", ex.Message);
+        Assert.NotNull(ex.BackupPath);
+        // ...y el fallo secundario no se pierde: queda registrado como crítico.
+        Assert.Contains(log.Entries, e => e.Level == Microsoft.Extensions.Logging.LogLevel.Critical && e.Message.Contains("reactivación de foreign_keys"));
+    }
+
+    [Fact]
+    public async Task A_failure_re_enabling_foreign_keys_after_a_successful_migration_is_logged_without_failing_the_committed_migration()
+    {
+        await using var c = await SeedVersion1Async();
+        var log = new ListLogger<MigrationRunner>();
+        var hooks = new MigrationRunnerHooks { EnableForeignKeys = _ => throw new InvalidOperationException("boom") };
+
+        var result = await RunnerWith(hooks, log, First, Agrega).RunAsync(c, CancellationToken.None);
+
+        Assert.Equal(2, result.ToVersion);                                                    // la migración ya estaba confirmada
+        Assert.Equal(2L, await c.ExecuteScalarAsync<long>("PRAGMA user_version"));
+        Assert.Contains(log.Entries, e => e.Level == Microsoft.Extensions.Logging.LogLevel.Critical);
     }
 
     [Fact]

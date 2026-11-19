@@ -106,9 +106,11 @@ public class HandlerTests
     [Fact]
     public void The_arrival_number_never_travels_in_the_json()
     {
-        var env = IpcEnvelope.Create(IpcKind.Command, IpcTypes.OutputOpen, new OutputOpenPayload(null)) with { Order = 99 };
-        Assert.DoesNotContain("99", IpcSerializer.Serialize(env));
-        Assert.DoesNotContain("order", IpcSerializer.Serialize(env), StringComparison.OrdinalIgnoreCase);
+        // Id fijo: con un GUID aleatorio, buscar un número en el JSON fallaba al azar cuando el GUID lo contenía.
+        var env = IpcEnvelope.Create(IpcKind.Command, IpcTypes.OutputOpen, new OutputOpenPayload(null), id: "fijo") with { Order = 987654321 };
+        using var doc = System.Text.Json.JsonDocument.Parse(IpcSerializer.Serialize(env));
+        Assert.Equal(["v", "id", "kind", "type", "payload"], doc.RootElement.EnumerateObject().Select(p => p.Name));
+        Assert.DoesNotContain("987654321", doc.RootElement.GetRawText());
     }
 
     [Fact]
