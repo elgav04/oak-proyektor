@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { ipc } from "@/ipc/instance";
-import type { DisplayInfo, DisplayListPayload, OutputStateChangedPayload } from "@/ipc/protocol";
+import type { DatabaseStatusPayload, DisplayInfo, DisplayListPayload, OutputStateChangedPayload } from "@/ipc/protocol";
 import { createRetrier, type RetryOptions } from "@/ipc/retry";
 import { isNewer } from "@/ipc/sequence";
 
@@ -19,10 +19,12 @@ interface ControlState {
   displays: DisplayInfo[];
   displaysSeq: number | null;
   output: OutputStateChangedPayload | null;
+  /** Estado de la base de datos (aviso si su inicialización falló). */
+  database: DatabaseStatusPayload | null;
   failure: CommandFailure | null;
 }
 
-export const useControlStore = create<ControlState>(() => ({ connected: false, displays: [], displaysSeq: null, output: null, failure: null }));
+export const useControlStore = create<ControlState>(() => ({ connected: false, displays: [], displaysSeq: null, output: null, database: null, failure: null }));
 
 /** Aplica solo si la secuencia es estrictamente mayor que la última (un snapshot viejo o repetido nunca pisa a uno nuevo). */
 function applyDisplays(payload: DisplayListPayload): void {
@@ -33,6 +35,11 @@ function applyDisplays(payload: DisplayListPayload): void {
 function applyOutput(payload: OutputStateChangedPayload): void {
   if (!isNewer(useControlStore.getState().output?.seq ?? null, payload.seq)) return;
   useControlStore.setState({ output: payload });
+}
+
+function applyDatabase(payload: DatabaseStatusPayload): void {
+  if (!isNewer(useControlStore.getState().database?.seq ?? null, payload.seq)) return;
+  useControlStore.setState({ database: payload });
 }
 
 export function dismissFailure(): void {
@@ -53,12 +60,14 @@ export function reconnectControl(): void {
 }
 
 async function load(requestTimeoutMs: number): Promise<void> {
-  const [displays, output] = await Promise.all([
+  const [displays, output, database] = await Promise.all([
     ipc.request("display.list", {}, requestTimeoutMs),
     ipc.request("output.getState", {}, requestTimeoutMs),
+    ipc.request("database.getStatus", {}, requestTimeoutMs),
   ]);
   applyDisplays(displays);
   applyOutput(output);
+  applyDatabase(database);
 }
 
 /**
@@ -69,6 +78,7 @@ export function connectControlStore(options?: { retry?: RetryOptions; requestTim
   const offs = [
     ipc.subscribe("display.changed", applyDisplays),
     ipc.subscribe("output.stateChanged", applyOutput),
+    ipc.subscribe("database.statusChanged", applyDatabase),
     ipc.subscribe("command.failed", ({ commandId, commandType, error }) => {
       useControlStore.setState({ failure: { commandId, commandType, code: error.code, message: error.message } });
     }),

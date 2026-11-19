@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging.Abstractions;
+using OakProyektor.App;
 using OakProyektor.App.Handlers;
 using OakProyektor.Core.Display;
 using OakProyektor.Core.Output;
@@ -25,6 +26,7 @@ public class HandlerTests
             new OutputSetMasterHandler(output),
             new OutputRecoverHandler(output),
             new SettingsSetAutoRestoreHandler(new InMemorySettings(), output),
+            new DatabaseGetStatusHandler(new DatabaseStatusReporter(new FakeReadiness(), new Outbox(NullLogger<Outbox>.Instance))),
         ];
         return (new IpcDispatcher(handlers, NullLogger<IpcDispatcher>.Instance), output);
     }
@@ -33,6 +35,7 @@ public class HandlerTests
     public async Task Every_inbound_message_in_the_catalog_has_a_handler()
     {
         var (d, output) = Create();
+        var unhandled = new List<string>();
         foreach (var m in IpcCatalog.Messages.Where(m => m.Kind is IpcKind.Command or IpcKind.Query))
         {
             var payload = m.Type switch
@@ -41,8 +44,14 @@ public class HandlerTests
                 IpcTypes.SettingsSetAutoRestore => """{"enabled":false}""",
                 _ => "{}",
             };
-            await d.DispatchAsync(Msg(m.Kind, m.Type, payload), CancellationToken.None);
+            var response = await d.DispatchAsync(Msg(m.Kind, m.Type, payload), CancellationToken.None);
+            // Un mensaje sin handler ya no se pierde en silencio: el despachador responde unknown_message. Eso es lo que se vigila aquí.
+            var error = response is null ? null
+                : response.Type == IpcTypes.CommandFailed ? response.GetPayload<CommandFailedPayload>().Error.Code
+                : response.GetPayload<IpcReply>().Ok ? null : response.ReplyError().Code;
+            if (error == "unknown_message") unhandled.Add($"{m.Kind} {m.Type}");
         }
+        Assert.True(unhandled.Count == 0, "Mensajes del catálogo sin handler: " + string.Join(", ", unhandled));
         // Los comandos llegaron a su handler (si faltara uno, el despachador solo lo registraría y no quedaría la llamada).
         Assert.Equal(["open:auto", "close", "master:Live", "pause:Manual", "settingsChanged"], output.Calls);
     }

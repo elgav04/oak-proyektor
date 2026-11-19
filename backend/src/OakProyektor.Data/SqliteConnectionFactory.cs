@@ -1,4 +1,4 @@
-﻿using Microsoft.Data.Sqlite;
+using Microsoft.Data.Sqlite;
 
 namespace OakProyektor.Data;
 
@@ -18,6 +18,12 @@ public sealed class SqliteConnectionFactory(DatabaseOptions options) : ISqliteCo
         try
         {
             await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+
+            // recursive_triggers es un ajuste POR CONEXIÓN (no se guarda en el archivo). Con él activo, los borrados que hace
+            // internamente INSERT OR REPLACE disparan los triggers DELETE; sin él, el índice FTS queda desincronizado (hallazgo I2).
+            await using var command = connection.CreateCommand();
+            command.CommandText = "PRAGMA recursive_triggers = ON;";
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             return connection;
         }
         catch

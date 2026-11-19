@@ -81,3 +81,11 @@ internal sealed class SettingsSetAutoRestoreHandler(ISettingsStore settings, IOu
         return null;
     }
 }
+
+internal sealed class DatabaseGetStatusHandler(DatabaseStatusReporter reporter) : IIpcHandler
+{
+    public string Kind => IpcKind.Query;
+    public string Type => IpcTypes.DatabaseGetStatus;
+    public Task<object?> HandleAsync(IpcEnvelope request, CancellationToken cancellationToken) =>
+        Task.FromResult<object?>(reporter.Snapshot());
+}

@@ -1,47 +1,53 @@
-﻿using Dapper;
+using Dapper;
 using Microsoft.Extensions.Logging;
 using OakProyektor.Data.Migrations;
 
 namespace OakProyektor.Data;
 
-public sealed class DatabaseInitializer(
-    DatabaseOptions options,
-    ISqliteConnectionFactory connections,
-    ILogger<DatabaseInitializer> logger) : IDatabaseInitializer
+/// <summary>La inicialización de la BD falló. <c>Message</c> es apto para mostrarlo al operador.</summary>
+public sealed class DatabaseInitializationException(string message, string? backupPath, Exception? inner = null) : InvalidOperationException(message, inner)
+{
+    /// <summary>Copia previa a la migración, si llegó a hacerse (los datos originales están ahí).</summary>
+    public string? BackupPath { get; } = backupPath;
+}
+
+public sealed class DatabaseInitializer : IDatabaseInitializer
 {
     private static readonly IReadOnlyList<Migration> AllMigrations = Migration.LoadEmbedded(typeof(DatabaseInitializer).Assembly);
+
+    private readonly DatabaseOptions _options;
+    private readonly ISqliteConnectionFactory _connections;
+    private readonly ILogger<DatabaseInitializer> _logger;
+    private readonly MigrationRunner _runner;
+
+    public DatabaseInitializer(DatabaseOptions options, ISqliteConnectionFactory connections, ILogger<DatabaseInitializer> logger, ILoggerFactory? loggerFactory = null)
+    {
+        _options = options; _connections = connections; _logger = logger;
+        _runner = new MigrationRunner(AllMigrations, options, (loggerFactory ?? Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance).CreateLogger<MigrationRunner>());
+    }
 
     /// <summary>Versión de esquema más reciente que conoce este ensamblado.</summary>
     public static int LatestSchemaVersion => AllMigrations[^1].Version;
 
-    public async Task InitializeAsync(CancellationToken cancellationToken)
+    public async Task<MigrationRunResult> InitializeAsync(CancellationToken cancellationToken)
     {
-        var directory = Path.GetDirectoryName(Path.GetFullPath(options.DatabasePath));
-        if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
-
-        await using var connection = await connections.OpenAsync(cancellationToken).ConfigureAwait(false);
-
-        var mode = await connection.ExecuteScalarAsync<string>(
-            new CommandDefinition("PRAGMA journal_mode = WAL;", cancellationToken: cancellationToken)).ConfigureAwait(false);
-        if (!string.Equals(mode, "wal", StringComparison.OrdinalIgnoreCase))
-            logger.LogWarning("No se pudo activar el modo WAL; modo actual: {Mode}", mode);
-
-        var current = (int)await connection.ExecuteScalarAsync<long>(
-            new CommandDefinition("PRAGMA user_version;", cancellationToken: cancellationToken)).ConfigureAwait(false);
-
-        if (current > LatestSchemaVersion)
-            throw new InvalidOperationException(
-                $"La base de datos tiene esquema v{current}, más nuevo que esta versión de la aplicación (v{LatestSchemaVersion}). Actualiza la aplicación.");
-
-        foreach (var migration in AllMigrations.Where(m => m.Version > current))
+        try
         {
-            // Cada migración y su cambio de user_version van en una sola transacción: o se aplica completa o nada.
-            await using var transaction = (Microsoft.Data.Sqlite.SqliteTransaction)
-                await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-            await connection.ExecuteAsync(new CommandDefinition(migration.Sql, transaction: transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
-            await connection.ExecuteAsync(new CommandDefinition($"PRAGMA user_version = {migration.Version};", transaction: transaction, cancellationToken: cancellationToken)).ConfigureAwait(false);
-            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-            logger.LogInformation("Migración {Version} ({Name}) aplicada", migration.Version, migration.Name);
+            var directory = Path.GetDirectoryName(Path.GetFullPath(_options.DatabasePath));
+            if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+
+            await using var connection = await _connections.OpenAsync(cancellationToken).ConfigureAwait(false);
+
+            var mode = await connection.ExecuteScalarAsync<string>(
+                new CommandDefinition("PRAGMA journal_mode = WAL;", cancellationToken: cancellationToken)).ConfigureAwait(false);
+            if (!string.Equals(mode, "wal", StringComparison.OrdinalIgnoreCase))
+                _logger.LogWarning("No se pudo activar el modo WAL; modo actual: {Mode}", mode);
+
+            return await _runner.RunAsync(connection, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            throw new DatabaseInitializationException(ex.Message, (ex as MigrationException)?.BackupPath, ex);
         }
     }
 }

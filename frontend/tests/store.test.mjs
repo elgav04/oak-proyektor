@@ -30,13 +30,14 @@ const outputPayload = (seq, master = "black", win = {}) => ({ seq, state: { revi
 let connection = null;
 beforeEach(() => {
   sent.length = 0;
-  useControlStore.setState({ connected: false, displays: [], displaysSeq: null, output: null, failure: null });
+  useControlStore.setState({ connected: false, displays: [], displaysSeq: null, output: null, database: null, failure: null });
 });
 afterEach(() => { connection?.dispose(); connection = null; });
 
 const answerInitialQueries = (displaysSeq = 1, outputSeq = 1) => {
   send(msg("reply", "display.list", ok({ seq: displaysSeq, displays: [{ id: "0,0,1920x1080" }] }), queries("display.list").at(-1).id));
   send(msg("reply", "output.getState", ok(outputPayload(outputSeq)), queries("output.getState").at(-1).id));
+  send(msg("reply", "database.getStatus", ok({ seq: 1, state: "ready", message: null, backupPath: null }), queries("database.getStatus").at(-1).id));
 };
 
 test("la carga inicial deja el estado y marca conectado", async () => {
@@ -151,4 +152,41 @@ test("dispose() detiene los reintentos y las suscripciones", async () => {
   send(msg("event", "output.stateChanged", outputPayload(99)));
   assert.equal(useControlStore.getState().output, null);       // ya no escucha
   connection = null;
+});
+const dbStatus = (seq, state, message = null, backupPath = null) => ({ seq, state, message, backupPath });
+
+test("la carga inicial también trae el estado de la base de datos", async () => {
+  connection = connectControlStore({ retry: { baseMs: 5, maxMs: 10 }, requestTimeoutMs: 200 });
+  await tick();
+  assert.equal(queries("database.getStatus").length, 1);
+  answerInitialQueries();
+  await tick();
+  assert.equal(useControlStore.getState().database.state, "ready");
+});
+
+test("un fallo de la base de datos llega por evento con el mensaje y la copia de seguridad", async () => {
+  connection = connectControlStore({ retry: { baseMs: 5000 }, requestTimeoutMs: 1000 });
+  send(msg("event", "database.statusChanged", dbStatus(2, "failed", "Falló la migración 3", "C:/data/backups/oak.v2.db")));
+  const db = useControlStore.getState().database;
+  assert.deepEqual([db.state, db.message, db.backupPath], ["failed", "Falló la migración 3", "C:/data/backups/oak.v2.db"]);
+});
+
+test("un panel que carga DESPUÉS del fallo lo ve igualmente (por la query)", async () => {
+  connection = connectControlStore({ retry: { baseMs: 5, maxMs: 10 }, requestTimeoutMs: 200 });
+  await tick();
+  send(msg("reply", "display.list", ok({ seq: 1, displays: [] }), queries("display.list").at(-1).id));
+  send(msg("reply", "output.getState", ok(outputPayload(1)), queries("output.getState").at(-1).id));
+  send(msg("reply", "database.getStatus", ok(dbStatus(1, "failed", "disco lleno")), queries("database.getStatus").at(-1).id));
+  await tick();
+  assert.equal(useControlStore.getState().database.state, "failed");
+});
+
+test("el estado de la base de datos también descarta secuencias viejas o repetidas", async () => {
+  connection = connectControlStore({ retry: { baseMs: 5000 }, requestTimeoutMs: 1000 });
+  send(msg("event", "database.statusChanged", dbStatus(5, "failed", "grave")));
+  send(msg("event", "database.statusChanged", dbStatus(4, "ready")));      // viejo: no debe «curar» el fallo
+  send(msg("event", "database.statusChanged", dbStatus(5, "ready")));      // repetido
+  assert.equal(useControlStore.getState().database.state, "failed");
+  send(msg("event", "database.statusChanged", dbStatus(6, "ready")));
+  assert.equal(useControlStore.getState().database.state, "ready");
 });

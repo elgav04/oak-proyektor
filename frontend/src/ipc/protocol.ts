@@ -24,10 +24,16 @@ export const MESSAGE_CATALOG = [
   { type: "display.changed", kind: "event" },
   { type: "output.stateChanged", kind: "event" },
   { type: "command.failed", kind: "event" },
+  { type: "database.getStatus", kind: "query" },
+  { type: "database.getStatus", kind: "reply" },
+  { type: "database.statusChanged", kind: "event" },
 ] as const;
 
 export const MASTER_MODES = ["live", "clearText", "black", "logo", "freeze"] as const;
 export type MasterMode = (typeof MASTER_MODES)[number];
+
+export const DATABASE_STATES = ["initializing", "ready", "failed"] as const;
+export type DatabaseState = (typeof DATABASE_STATES)[number];
 
 export const PAUSE_REASONS = ["displayLost", "panelCrossed", "manual", "emergency"] as const;
 export type OutputPauseReason = (typeof PAUSE_REASONS)[number];
@@ -101,6 +107,14 @@ export interface IpcReplyFields {
 /** Payload de un reply, discriminado por `ok`. */
 export type ReplyPayload<T> = { ok: true; result: T; error: null } | { ok: false; result: null; error: IpcErrorPayload };
 
+/** Si `state` es `failed`, `message` explica qué pasó y `backupPath` (si lo hay) es la copia previa a la migración, con los datos originales. */
+export interface DatabaseStatusPayload {
+  seq: number;
+  state: DatabaseState;
+  message: string | null;
+  backupPath: string | null;
+}
+
 export interface CommandFailedPayload {
   commandId: string;
   commandType: string;
@@ -121,12 +135,14 @@ export interface EventPayloads {
   "display.changed": DisplayListPayload;
   "output.stateChanged": OutputStateChangedPayload;
   "command.failed": CommandFailedPayload;
+  "database.statusChanged": DatabaseStatusPayload;
 }
 
 /** Payload de cada query y de su reply. */
 export interface QueryPayloads {
   "display.list": { request: EmptyPayload; reply: DisplayListPayload };
   "output.getState": { request: EmptyPayload; reply: OutputStateChangedPayload };
+  "database.getStatus": { request: EmptyPayload; reply: DatabaseStatusPayload };
 }
 
 export type CommandType = keyof CommandPayloads;

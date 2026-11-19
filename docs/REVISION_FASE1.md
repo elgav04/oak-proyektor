@@ -33,12 +33,14 @@
 
 ## Importante
 
-### I1. Las migraciones futuras pueden borrar datos en cascada
+### I1. Las migraciones futuras pueden borrar datos en cascada — **CORREGIDO**
+> `MigrationRunner`: `foreign_keys = OFF` antes del `BEGIN`, `foreign_key_check` antes del `COMMIT`, reactivación siempre al terminar y copia previa con `VACUUM INTO` (`data/backups/`; sin copia no se migra). Un test reconstruye una tabla padre sin perder las hijas y un control demuestra que sin esto sí se perderían.
 - **Dónde:** `backend/src/OakProyektor.Data/DatabaseInitializer.cs:36-45` y `SqliteConnectionFactory.cs:12`.
 - **Problema:** las migraciones corren con `foreign_keys = ON` y dentro de una transacción, donde `PRAGMA foreign_keys = OFF` no tiene efecto. Una migración que reconstruya una tabla (el patrón habitual en SQLite: crear nueva, copiar, `DROP` de la vieja) borraría en cascada sus hijas; por ejemplo, `DROP TABLE Songs` borra todas las `SongSlides`.
 - **Corrección:** en el runner, poner `foreign_keys = OFF` antes del `BEGIN`, ejecutar `PRAGMA foreign_key_check` antes del `COMMIT` y reactivarlo después. Además, hacer una copia de la BD (`VACUUM INTO`) antes de aplicar cualquier migración.
 
-### I2. `INSERT OR REPLACE` desincroniza el índice FTS y puede corromperlo
+### I2. `INSERT OR REPLACE` desincroniza el índice FTS y puede corromperlo — **CORREGIDO**
+> `PRAGMA recursive_triggers = ON` en cada conexión (la fábrica) y `INSERT OR REPLACE` / `REPLACE INTO` prohibidos (`SourceRulesTests`; usar `ON CONFLICT DO UPDATE`). Un test demuestra el peligro sin el pragma (entrada fantasma y `integrity-check` fallido) y otro que con él el FTS queda consistente. Hallazgo adicional: `REPLACE` sobre un padre borra sus hijas en cascada (también cubierto por un test).
 - **Dónde:** `backend/src/OakProyektor.Data/Migrations/0001_Initial.sql:80-91` y `:101-136`.
 - **Problema:** cuando `REPLACE` borra una fila para resolver un conflicto, SQLite **no dispara los triggers DELETE** salvo que `recursive_triggers` esté activado. En `VersesFts`, que usa contenido externo, eso deja entradas fantasma. Los `delete` posteriores con valores que no coinciden pueden dejar el índice inconsistente o corrupto. Un importador de Biblias es justo el código que tendería a usar `REPLACE`.
 - **Corrección:** `PRAGMA recursive_triggers = ON` en cada conexión, o prohibir `REPLACE` y usar `ON CONFLICT DO UPDATE`. Ejecutar el `integrity-check` de FTS tras cada importación.
@@ -80,7 +82,8 @@
 - **Problema:** las dos ventanas usan la misma carpeta de datos de WebView2, es decir, el mismo entorno. No se verificó si comparten proceso de navegador o de renderizado. Si lo comparten, un bucle infinito o un fallo del JS del panel podría congelar la salida.
 - **Corrección:** probarlo forzando un bucle en el panel. Si se confirma, dar a cada ventana su propio entorno con `SetTemporaryFilesPath`.
 
-### I9. La BD se inicializa en segundo plano sin señal de "lista"
+### I9. La BD se inicializa en segundo plano sin señal de "lista" — **CORREGIDO**
+> `IDatabaseReadiness` / `DatabaseReadiness`: los repositorios abren sus conexiones con `OpenWhenReadyAsync` (esperan; si falló, `DatabaseUnavailableException`). El fallo llega al panel como `database.statusChanged` (con mensaje y ruta de la copia previa) y también por la query `database.getStatus` para un panel que cargue después. Verificado con la app real; la proyección sigue funcionando con la BD caída.
 - **Dónde:** `ApplicationHost.cs:99-104`.
 - **Problema:** los futuros repositorios podrían consultar antes de que termine la migración. Si la inicialización falla, solo queda en el log y el operador no se entera.
 - **Corrección:** exponer la tarea de inicialización para que los repositorios la esperen, y avisar al panel si falla.
@@ -101,7 +104,8 @@
 - **Problema:** una query que falla obliga al cliente a esperar 5 s de timeout. Un comando que falla (por ejemplo, falta `output.html`) no da ninguna señal al panel. Esto pesará cuando crezca el protocolo.
 - **Corrección:** respuestas `reply` con `ok`/`error`, o un kind `error` correlacionado por `id`.
 
-### I13. `Playlists.ItemsJson` sin integridad referencial
+### I13. `Playlists.ItemsJson` sin integridad referencial — **CORREGIDO**
+> Migración 3: tabla `PlaylistItems` con claves foráneas reales (`SongId`, `PresentationId`, `BookId`), `ItemType`, `Title` (instantánea) y columnas calculadas `ItemRefId` e `IsMissing`. **Decisión:** al borrar un registro incluido en un servicio NO se bloquea el borrado (una canción usada una vez en un servicio pasado sería imborrable para siempre) y NO queda una referencia rota: la clave pasa a NULL (`ON DELETE SET NULL`) y el elemento se conserva marcado como faltante; quien abra el servicio debe avisar. La migración aborta (y revierte) si `ItemsJson` tuviera datos, en vez de perderlos. **Pendiente (no hay aún función de abrir servicio):** el aviso «Falta: …» en la interfaz.
 - **Dónde:** `0001_Initial.sql:48-53`.
 - **Problema:** borrar una canción deja un servicio con una referencia rota, que puede aparecer en pleno culto. Fue un requisito literal del usuario, así que es una decisión de diseño.
 - **Corrección:** una tabla `PlaylistItems` con claves foráneas, o validar las referencias al cargar el servicio.
@@ -119,8 +123,8 @@
 | M2 | `ApplicationHost.cs:126` | `Task.WaitAll` contradice `CLAUDE.md:70`. Está acotado a 3 s. | Apagado asíncrono, o documentar la excepción. |
 | M3 | `IpcSerializer.cs:11` | Opciones estáticas públicas que se pueden modificar hasta su primer uso (contradice `CLAUDE.md:72`). | Llamar a `MakeReadOnly()`. |
 | M4 | `MessageQueues.cs:14,33` | Con la cola llena, comandos y eventos se descartan solo con un log. **CORREGIDO** (`Outbox` compacta: solo el último snapshot por tipo y destino). | En la salida, conservar solo el último snapshot de cada tipo. |
-| M5 | `0001_Initial.sql:88,105` | `Verses_au` se dispara con cualquier `UPDATE`. `Songs_au` no cubre un cambio de `Id`. | `AFTER UPDATE OF Text`, y prohibir cambiar `Id`. |
-| M6 | `Migrations/Migration.cs` | No se guarda un hash de las migraciones aplicadas: editar la 0001 tras publicarla pasa desapercibido. | Un test que fije el hash de cada migración ya publicada. |
+| M5 | `0001_Initial.sql:88,105` | `Verses_au` se dispara con cualquier `UPDATE`. `Songs_au` no cubre un cambio de `Id`. **CORREGIDO** (migración 2; la 0001 no se editó). | `AFTER UPDATE OF Text`, y prohibir cambiar `Id`. |
+| M6 | `Migrations/Migration.cs` | No se guarda un hash de las migraciones aplicadas: editar la 0001 tras publicarla pasa desapercibido. **CORREGIDO** (`MigrationHashTests`). | Un test que fije el hash de cada migración ya publicada. |
 | M7 | `CLAUDE.md:48` | Dice que `wwwroot` está «pendiente», pero ya existe (`OakProyektor.App.csproj:23`). | Actualizar el texto. |
 | M8 | `OakProyektor.App.csproj:23` | Sin `npm run build` se empaqueta un `dist` viejo. El test de contrato compara las fuentes, no el `dist`. | Un target de MSBuild que lo compruebe, o un handshake con hash de build. |
 | M9 | `ApplicationHost.cs:71` y `OutputController.cs:92` | La navegación del WebView no está restringida: cualquier página que se cargue tendría `window.external`. | Bloquear la navegación fuera de las páginas propias. |
@@ -153,4 +157,10 @@
 | I12 | Corregido (replies ok/error, `command.failed`) | 227366a |
 | M4 | Corregido (`Outbox` compacta snapshots) | 227366a |
 | M12 | Corregido (`InboundProcessor`) | 227366a |
+| I1 | Corregido (`MigrationRunner`) | HASH |
+| I2 | Corregido (`recursive_triggers` + `REPLACE` prohibido) | HASH |
+| I9 | Corregido (`IDatabaseReadiness`, `database.statusChanged`) | HASH |
+| I13 | Corregido (migración 3, `PlaylistItems`; falta el aviso en la UI al abrir un servicio) | HASH |
+| M5 | Corregido (migración 2) | HASH |
+| M6 | Corregido (`MigrationHashTests`) | HASH |
 | resto | Pendiente | — |

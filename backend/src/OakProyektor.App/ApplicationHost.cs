@@ -63,12 +63,16 @@ internal sealed class ApplicationHost : IDisposable
         services.AddSingleton<IIpcHandler, Handlers.OutputSetMasterHandler>();
         services.AddSingleton<IIpcHandler, Handlers.OutputRecoverHandler>();
         services.AddSingleton<IIpcHandler, Handlers.SettingsSetAutoRestoreHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.DatabaseGetStatusHandler>();
         services.AddSingleton<IpcDispatcher>();
         services.AddSingleton<InboundProcessor>();
         services.AddSingleton<IpcPump>();
         services.AddSingleton(new DatabaseOptions(Path.Combine(paths.DataDirectory, DatabaseOptions.FileName)));
         services.AddSingleton<ISqliteConnectionFactory, SqliteConnectionFactory>();
         services.AddSingleton<IDatabaseInitializer, DatabaseInitializer>();
+        services.AddSingleton<DatabaseReadiness>();
+        services.AddSingleton<IDatabaseReadiness>(sp => sp.GetRequiredService<DatabaseReadiness>());
+        services.AddSingleton<DatabaseStatusReporter>();
         configureServices?.Invoke(services);
         _services = services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
         _logger = _services.GetRequiredService<ILogger<ApplicationHost>>();
@@ -131,12 +135,10 @@ internal sealed class ApplicationHost : IDisposable
             catch (OperationCanceledException) { /* apagado */ }
             catch (Exception ex) { _logger.LogError(ex, "Falló el arranque de los servicios de fondo"); }
         }, CancellationToken.None);
-        var db = Task.Run(async () =>
-        {
-            try { await _services.GetRequiredService<IDatabaseInitializer>().InitializeAsync(ct).ConfigureAwait(false); }
-            catch (OperationCanceledException) { /* apagado */ }
-            catch (Exception ex) { _logger.LogError(ex, "No se pudo inicializar la base de datos"); }   // el panel y la salida no dependen de la BD todavía
-        }, CancellationToken.None);
+        // La BD se inicializa en segundo plano, pero su resultado es una SEÑAL (IDatabaseReadiness): los repositorios la esperan y un
+        // fallo llega al panel como evento (DatabaseStatusReporter). StartAsync no lanza: el fallo queda en el estado.
+        _ = _services.GetRequiredService<DatabaseStatusReporter>();   // se suscribe antes de que cambie el estado
+        var db = _services.GetRequiredService<DatabaseReadiness>().StartAsync(_services.GetRequiredService<IDatabaseInitializer>(), ct);
         _background = [.. pump, startup, db];
     }
 

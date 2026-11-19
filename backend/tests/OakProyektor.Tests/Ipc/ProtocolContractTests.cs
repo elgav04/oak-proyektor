@@ -31,6 +31,9 @@ public partial class ProtocolContractTests
     [GeneratedRegex(@"MASTER_MODES\s*=\s*\[([^\]]*)\]")]
     private static partial Regex MasterModesRegex();
 
+    [GeneratedRegex(@"DATABASE_STATES\s*=\s*\[([^\]]*)\]")]
+    private static partial Regex DatabaseStatesRegex();
+
     [GeneratedRegex(@"PAUSE_REASONS\s*=\s*\[([^\]]*)\]")]
     private static partial Regex PauseReasonsRegex();
 
@@ -86,6 +89,14 @@ public partial class ProtocolContractTests
     }
 
     [Fact]
+    public void Database_states_match_in_name_and_order()
+    {
+        var ts = Regex.Matches(DatabaseStatesRegex().Match(TsSource).Groups[1].Value, "\"([^\"]+)\"").Select(m => m.Groups[1].Value).ToArray();
+        var cs = Enum.GetNames<OakProyektor.Core.Database.DatabaseState>().Select(n => JsonNamingPolicy.CamelCase.ConvertName(n)).ToArray();
+        Assert.Equal(cs, ts);
+    }
+
+    [Fact]
     public void Pause_reasons_match_in_name_and_order()
     {
         var ts = Regex.Matches(PauseReasonsRegex().Match(TsSource).Groups[1].Value, "\"([^\"]+)\"").Select(m => m.Groups[1].Value).ToArray();
@@ -107,6 +118,7 @@ public partial class ProtocolContractTests
         Assert.Equal(JsonKeys(new DisplayListPayload(1, [display])), TsFields("DisplayListPayload"));
         Assert.Equal(JsonKeys(window), TsFields("OutputWindowStatus"));
         Assert.Equal(JsonKeys(new SetAutoRestorePayload(true)), TsFields("SetAutoRestorePayload"));
+        Assert.Equal(JsonKeys(new DatabaseStatusPayload(1, OakProyektor.Core.Database.DatabaseState.Failed, "m", "b")), TsFields("DatabaseStatusPayload"));
         Assert.Equal(JsonKeys(new OutputStateChangedPayload(1, state, window)), TsFields("OutputStateChangedPayload"));
         Assert.Equal(JsonKeys(new IpcError("c", "m")), TsFields("IpcErrorPayload"));
         Assert.Equal(JsonKeys(new IpcReply(true, null, null)), TsFields("IpcReplyFields"));

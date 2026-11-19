@@ -13,6 +13,7 @@ public static class IpcTypes
 {
     public const string DisplayList = "display.list";
     public const string OutputGetState = "output.getState";
+    public const string DatabaseGetStatus = "database.getStatus";
     public const string OutputOpen = "output.open";
     public const string OutputClose = "output.close";
     public const string OutputSetMaster = "output.setMaster";
@@ -21,6 +22,7 @@ public static class IpcTypes
     public const string DisplayChanged = "display.changed";
     public const string OutputStateChanged = "output.stateChanged";
     public const string CommandFailed = "command.failed";
+    public const string DatabaseStatusChanged = "database.statusChanged";
 }
 
 public sealed record MessageDescriptor(string Type, string Kind);
@@ -47,6 +49,9 @@ public static class IpcCatalog
         new(IpcTypes.DisplayChanged, IpcKind.Event),
         new(IpcTypes.OutputStateChanged, IpcKind.Event),
         new(IpcTypes.CommandFailed, IpcKind.Event),
+        new(IpcTypes.DatabaseGetStatus, IpcKind.Query),
+        new(IpcTypes.DatabaseGetStatus, IpcKind.Reply),
+        new(IpcTypes.DatabaseStatusChanged, IpcKind.Event),
     ];
 }
 

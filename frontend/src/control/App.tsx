@@ -30,6 +30,7 @@ export function App() {
   const displays = useControlStore((s) => s.displays);
   const output = useControlStore((s) => s.output);
   const failure = useControlStore((s) => s.failure);
+  const database = useControlStore((s) => s.database);
   // Elección del operador antes de abrir: ID del monitor, o null = automático. Es estado de la vista, no de negocio.
   const [selected, setSelected] = useState<string | null>(null);
 
@@ -56,6 +57,7 @@ export function App() {
               Reconectar
             </Button>
           )}
+          {connected && database?.state === "initializing" && <span className="text-sm text-neutral-500">Preparando la base de datos…</span>}
           <span
             className={`rounded-full px-3 py-1 text-sm font-semibold ${isPaused ? "bg-red-600 text-white" : isOpen ? "bg-green-600 text-white" : "bg-neutral-200 text-neutral-700"}`}
           >
@@ -63,6 +65,15 @@ export function App() {
           </span>
         </div>
       </header>
+
+      {database?.state === "failed" && (
+        <div role="alert" className="flex flex-col gap-2 rounded-lg border-2 border-red-700 bg-red-600 p-5 text-white">
+          <p className="text-xl font-bold">No se pudo abrir la base de datos</p>
+          <p>{database.message ?? "Error desconocido."}</p>
+          <p>Las canciones, biblias y servicios no estarán disponibles. La proyección de la salida no depende de la base de datos.</p>
+          {database.backupPath && <p className="text-sm">Tus datos originales están a salvo en la copia de seguridad: {database.backupPath}</p>}
+        </div>
+      )}
 
       {failure && (
         <div role="alert" className="flex items-start justify-between gap-4 rounded-lg border-2 border-amber-600 bg-amber-100 p-4 text-amber-950">

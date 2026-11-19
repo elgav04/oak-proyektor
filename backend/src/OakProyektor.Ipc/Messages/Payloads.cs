@@ -1,4 +1,5 @@
-﻿using OakProyektor.Core.Display;
+using OakProyektor.Core.Database;
+using OakProyektor.Core.Display;
 using OakProyektor.Core.Output;
 
 namespace OakProyektor.Ipc.Messages;
@@ -45,3 +46,9 @@ public sealed record OutputWindowStatus(
 /// <c>Seq</c> cambia con CUALQUIER cambio del estado (incluido el de la ventana de salida); las réplicas descartan <c>seq</c> menor o igual.
 /// </summary>
 public sealed record OutputStateChangedPayload(long Seq, OutputState State, OutputWindowStatus Window);
+
+/// <summary>
+/// Reply de <c>database.getStatus</c> y evento <c>database.statusChanged</c>. Si <c>State</c> es <c>failed</c>, <c>Message</c> explica
+/// qué pasó y <c>BackupPath</c> (si lo hay) es la copia previa a la migración, con los datos originales.
+/// </summary>
+public sealed record DatabaseStatusPayload(long Seq, DatabaseState State, string? Message, string? BackupPath);
