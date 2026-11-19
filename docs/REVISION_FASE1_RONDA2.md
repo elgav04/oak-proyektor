@@ -3,7 +3,7 @@
 - **Rango revisado:** `3d776be..HEAD` (HEAD = `13e0635`).
 - **Fecha:** 2026-11-19.
 - **Origen:** revisión hecha con el modelo Opus 5.5 en modo solo lectura; no se modificó nada.
-- **Estado:** ningún hallazgo de esta ronda está corregido todavía. Al corregir uno, anota aquí su estado y el commit.
+- **Estado:** corregidos K1, I-A y varios menores (ver el registro al final); el resto sigue pendiente. Al corregir uno, anota aquí su estado y el commit.
 - **Marcas:** [VERIFICADO] = comprobado leyendo código o ejecutando; [A PROBAR] = no se puede confirmar sin hardware real.
 
 **Resumen:** hay un problema crítico, pero es de entrega, no de estabilidad en vivo: los tests de la base de datos no están en el repositorio. En la salida, la mensajería y la base de datos no se encontró nada crítico.
@@ -91,3 +91,15 @@
 7. **Tres monitores**, si es posible.
 8. **Bloqueo de apagado:** dejar la salida abierta más allá del tiempo de apagado de pantalla. `powercfg /requests` debe mostrar el bloqueo y dejar de mostrarlo al cerrar la salida.
 9. **Bucle infinito en el panel (I8):** repetirlo con el perfil de WebView2 nuevo, que `CLAUDE.md` deja pendiente.
+
+## Registro de correcciones
+
+| Hallazgo | Estado | Commit |
+|---|---|---|
+| K1 | Corregido (`/data/` en `.gitignore`; los 11 archivos de `Data/` versionados; verificado en una copia limpia) | 08abc97 |
+| I-A | Corregido: `OutputPauseState` (máquina de estados pura), numeración de órdenes (`OrderClock`), pausa y lectura del handle bajo el mismo candado, comparar antes de escribir. **Falta la prueba con el proyector real** | 8f70942 |
+| Menor: atajo de emergencia puede bloquearse | Corregido (`ShowWindowAsync` + `SWP_ASYNCWINDOWPOS`); no puede probarse sin colgar el hilo de UI a propósito | 8f70942 |
+| Menor: panel tapado hasta ~1 s al desconectar | Corregido (pausa inmediata si la salida ya cruza el monitor del panel); falta probar con el cable real | 8f70942 |
+| Menor: salida en pausa restaurada desde la barra de tareas | Corregido (el sondeo vuelve a minimizarla); falta probar a mano | 8f70942 |
+| Menor: atajo de respaldo mostraba «recuperación manual» | Corregido (protocolo v3: `output.recover` con `reason`) | 8f70942 |
+| I-B, I-C y el resto de menores | Pendiente | — |
