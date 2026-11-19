@@ -18,7 +18,9 @@ internal interface IDisplayManager
     /// Monitor elegido (<see cref="DisplayResolver"/>): solo <c>null</c> significa «automático» (el primero que no aloja el panel); un ID explícito
     /// que no está conectado da <see cref="DisplayResolutionKind.NotFound"/>, NUNCA otro monitor.
     /// </summary>
-    DisplayResolution Resolve(string? requestedId);
+    DisplayResolution Resolve(string? requestedId, string? preferredId = null);
+    /// <summary>Windows está en modo «Duplicar» (Win+P): un solo monitor lógico. Valor de la última lectura.</summary>
+    bool DuplicateMode { get; }
 }
 
 /// <summary>
@@ -41,6 +43,7 @@ internal sealed class DisplayManager : IDisplayManager
     private readonly SequencedSnapshotPublisher<IReadOnlyList<DisplayInfo>> _publisher;
     private volatile IReadOnlyList<DisplayInfo> _current = [];
     private bool _firstRefreshDone;
+    private volatile bool _duplicate;
 
     public DisplayManager(IMonitorProvider provider, IUiDispatcher ui, IOutbox outbox, ILogger<DisplayManager> logger)
     {
@@ -66,6 +69,11 @@ internal sealed class DisplayManager : IDisplayManager
             .ToList();
 
         _current = result;
+        if (_duplicate != snapshot.Duplicated)
+        {
+            _duplicate = snapshot.Duplicated;
+            _logger.LogWarning(_duplicate ? "Windows pasó a modo Duplicar: un solo monitor lógico" : "Windows salió del modo Duplicar");
+        }
         if (_publisher.Publish(() => result) && _firstRefreshDone)
             _logger.LogInformation("Cambio de monitores: {Displays}", Describe(result));
         _firstRefreshDone = true;
@@ -74,7 +82,9 @@ internal sealed class DisplayManager : IDisplayManager
 
     public DisplayListPayload Snapshot() => _publisher.Read(() => _current, (seq, list) => new DisplayListPayload(seq, list));
 
-    public DisplayResolution Resolve(string? requestedId) => DisplayResolver.Resolve(_current, requestedId);
+    public DisplayResolution Resolve(string? requestedId, string? preferredId = null) => DisplayResolver.Resolve(_current, requestedId, preferredId);
+
+    public bool DuplicateMode => _duplicate;
 
     /// <summary>Arranca el sondeo. Llamar solo después de que la ventana principal esté creada.</summary>
     public Task StartPolling(CancellationToken ct) => Task.Run(async () =>
@@ -82,7 +92,8 @@ internal sealed class DisplayManager : IDisplayManager
         try
         {
             Refresh();
-            _logger.LogInformation("Monitores detectados: {Displays}", Describe(_current));
+            _logger.LogInformation("Monitores detectados: {Displays}. Caminos de pantalla activos: {Paths}; modo Duplicar: {Duplicate}",
+                Describe(_current), MonitorDevices.ReadActiveSourceKeys().Count, _duplicate);
             using var timer = new PeriodicTimer(PollInterval);
             while (await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
             {

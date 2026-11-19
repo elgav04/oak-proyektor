@@ -14,7 +14,12 @@ internal interface ISettingsStore
 /// <summary>Configuración en <c>data/settings.json</c>. Un archivo ausente o corrupto no impide arrancar: se usan los valores por defecto.</summary>
 internal sealed class SettingsStore(ApplicationPaths paths, ILogger<SettingsStore> logger) : ISettingsStore
 {
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    // Los enums se guardan como texto en camelCase (igual que en el protocolo IPC): «moveToBest», no un número que cambia si se reordena el enum.
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
+    {
+        WriteIndented = true,
+        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
+    };
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private volatile AppSettings _current = new();
 

@@ -109,7 +109,7 @@ public partial class ProtocolContractTests
     {
         var display = new DisplayInfo("0,0,1x1", 0, 0, 1, 1, 1, true, true);
         var state = OutputState.Initial;
-        var window = new OutputWindowStatus(true, "0,0,1x1", false, false, null, true, null);
+        var window = new OutputWindowStatus(true, "0,0,1x1", false, false, null, true, null, "0,0,1x1", DisplayLostPolicy.MoveToBest);
 
         Assert.Equal(JsonKeys(display), TsFields("DisplayInfo"));
         Assert.Equal(JsonKeys(state), TsFields("OutputState"));

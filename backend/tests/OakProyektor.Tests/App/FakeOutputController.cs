@@ -8,7 +8,7 @@ namespace OakProyektor.Tests.App;
 internal sealed class FakeOutputController : IOutputController
 {
     public List<string> Calls { get; } = [];
-    public OutputStateChangedPayload Snapshot() => new(1, OutputState.Initial, new OutputWindowStatus(false, null, false, false, null, true, null));
+    public OutputStateChangedPayload Snapshot() => new(1, OutputState.Initial, new OutputWindowStatus(false, null, false, false, null, true, null, null, DisplayLostPolicy.WarnAndWait));
     /// <summary>El número de llegada recibido en cada llamada a <c>Open</c> / <c>EmergencyPause</c>, en orden.</summary>
     public List<long> Orders { get; } = [];
     public void Open(string? displayId, long order = 0) { Calls.Add($"open:{displayId ?? "auto"}"); Orders.Add(order); }
@@ -26,7 +26,8 @@ internal sealed class FakeDisplayManager(params DisplayInfo[] displays) : IDispl
     public event Action<IReadOnlyList<DisplayInfo>>? Polled { add { } remove { } }
     public IReadOnlyList<DisplayInfo> Refresh() => displays;
     public DisplayListPayload Snapshot() => new(1, displays);
-    public DisplayResolution Resolve(string? requestedId) => DisplayResolver.Resolve(displays, requestedId);
+    public DisplayResolution Resolve(string? requestedId, string? preferredId = null) => DisplayResolver.Resolve(displays, requestedId, preferredId);
+    public bool DuplicateMode => false;
 }
 
 

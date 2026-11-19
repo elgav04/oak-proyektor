@@ -36,7 +36,7 @@ public class MessageQueueTests
     public async Task Outbox_is_fifo_and_keeps_targets()
     {
         var box = new Outbox(NullLogger<Outbox>.Instance);
-        box.Publish(IpcEnvelope.Create(IpcKind.Event, IpcTypes.OutputStateChanged, new OutputStateChangedPayload(1, OutputState.Initial, new OutputWindowStatus(false, null, false, false, null, true, null))), Targets.All);
+        box.Publish(IpcEnvelope.Create(IpcKind.Event, IpcTypes.OutputStateChanged, new OutputStateChangedPayload(1, OutputState.Initial, new OutputWindowStatus(false, null, false, false, null, true, null, null, DisplayLostPolicy.WarnAndWait))), Targets.All);
         box.Publish(IpcEnvelope.Create(IpcKind.Event, IpcTypes.DisplayChanged, new DisplayListPayload(1, [])), Targets.Control);
         box.Complete();
 
@@ -61,7 +61,7 @@ public class MessageQueueTests
 public class OutboxCoalescingTests
 {
     private static IpcEnvelope State(long seq) =>
-        IpcEnvelope.Create(IpcKind.Event, IpcTypes.OutputStateChanged, new OutputStateChangedPayload(seq, OutputState.Initial, new OutputWindowStatus(false, null, false, false, null, true, null)));
+        IpcEnvelope.Create(IpcKind.Event, IpcTypes.OutputStateChanged, new OutputStateChangedPayload(seq, OutputState.Initial, new OutputWindowStatus(false, null, false, false, null, true, null, null, DisplayLostPolicy.WarnAndWait)));
 
     private static IpcEnvelope Displays(long seq) => IpcEnvelope.Create(IpcKind.Event, IpcTypes.DisplayChanged, new DisplayListPayload(seq, []));
     private static IpcEnvelope Reply(string id) => IpcEnvelope.Create(IpcKind.Reply, IpcTypes.DisplayList, new IpcReply(true, new DisplayListPayload(1, []), null), id);

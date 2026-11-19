@@ -9,7 +9,7 @@ const display = (id, over = {}) => ({ id, x: 0, y: 0, width: 1920, height: 1080,
 const PANEL = display("0,0,1920x1080", { isPrimary: true, hostsPanel: true });
 const PROJECTOR = display("1920,0,1920x1080");
 const OTHER = display("3840,0,1280x720", { width: 1280, height: 720 });
-const win = (over = {}) => ({ isOpen: true, displayId: PROJECTOR.id, isWindowed: false, isPaused: true, pauseReason: "displayLost", autoRestore: true, emergencyHotkey: null, ...over });
+const win = (over = {}) => ({ isOpen: true, displayId: PROJECTOR.id, isWindowed: false, isPaused: true, pauseReason: "displayLost", autoRestore: true, emergencyHotkey: null, preferredDisplayId: null, onDisplayLost: "warnAndWait", ...over });
 
 test("sin salida abierta o sin pausa no hay aviso", () => {
   assert.equal(describeOutput([PANEL, PROJECTOR], null).notice.kind, "none");
@@ -77,12 +77,33 @@ test("salida en ventana normal (sin monitor asignado) se reanuda en el sitio", (
   assert.equal(d.canResumeInPlace, true);
 });
 
-test("pausa porque el panel se arrastró al monitor de la salida: «Reanudar» no se ofrece (taparía al operador); en ventana normal sí", () => {
+test("el panel está sobre el monitor de la salida: aviso «Muévelo para reanudar», sin botón de reanudar (se reanuda sola al salir)", () => {
   const panelOnProjector = [display(PANEL.id, { isPrimary: true }), { ...PROJECTOR, hostsPanel: true }];
   const d = describeOutput(panelOnProjector, win({ pauseReason: "panelCrossed" }));
-  assert.deepEqual(d.notice, { kind: "paused", reason: "panelCrossed" });
+  assert.deepEqual(d.notice, { kind: "panelOnOutput" });
   assert.equal(d.canResumeInPlace, false);
-  assert.equal(describeOutput(panelOnProjector, win({ pauseReason: "manual", isWindowed: true })).canResumeInPlace, true);
+  assert.equal(describeOutput(panelOnProjector, win({ pauseReason: "manual", isWindowed: true })).canResumeInPlace, true);   // en ventana normal sí se reanuda
+});
+
+test("pausa por arrastrar la VENTANA de salida sobre el panel (el panel no está sobre el monitor de la salida): aviso genérico", () => {
+  const d = describeOutput([PANEL, PROJECTOR], win({ pauseReason: "panelCrossed" }));
+  assert.deepEqual(d.notice, { kind: "paused", reason: "panelCrossed" });
+  assert.equal(d.canResumeInPlace, true);
+});
+
+test("modo Duplicar: aviso propio y nada que reanudar a mano, con o sin lista de monitores", () => {
+  for (const displays of [[PANEL], [], [PANEL, PROJECTOR]]) {
+    const d = describeOutput(displays, win({ pauseReason: "duplicateMode" }));
+    assert.deepEqual(d.notice, { kind: "duplicate" });
+    assert.equal(d.canResumeInPlace, false);
+  }
+});
+
+test("pausa inestable (tope de oscilaciones): aviso con su motivo y se puede reanudar a mano si el monitor está", () => {
+  const d = describeOutput([PANEL, PROJECTOR], win({ pauseReason: "unstable" }));
+  assert.deepEqual(d.notice, { kind: "paused", reason: "unstable" });
+  assert.equal(d.canResumeInPlace, true);
+  assert.equal(describeOutput([PANEL], win({ pauseReason: "unstable" })).canResumeInPlace, false);
 });
 
 test("sin lista de monitores todavía no se afirma nada sobre el monitor", () => {

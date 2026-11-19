@@ -14,7 +14,7 @@ globalThis.window = {
 const { useControlStore, connectControlStore, reconnectControl, dismissFailure } = await loadTs("/src/control/store.ts");
 after(closeServer);
 
-const msg = (kind, type, payload, id = "x") => ({ v: 3, id, kind, type, payload });
+const msg = (kind, type, payload, id = "x") => ({ v: 4, id, kind, type, payload });
 const send = (o) => deliver(typeof o === "string" ? o : JSON.stringify(o));
 const ok = (result) => ({ ok: true, result, error: null });
 const tick = (ms = 20) => new Promise((r) => setTimeout(r, ms));
@@ -24,7 +24,7 @@ const nextAttempt = async (type, from) => {
   for (let i = 0; i < 200 && queries(type).length <= from; i++) await tick(5);
   return queries(type).length;
 };
-const window_ = (over = {}) => ({ isOpen: false, displayId: null, isWindowed: false, isPaused: false, pauseReason: null, autoRestore: true, emergencyHotkey: null, ...over });
+const window_ = (over = {}) => ({ isOpen: false, displayId: null, isWindowed: false, isPaused: false, pauseReason: null, autoRestore: true, emergencyHotkey: null, preferredDisplayId: null, onDisplayLost: "warnAndWait", ...over });
 const outputPayload = (seq, master = "black", win = {}) => ({ seq, state: { revision: seq, master, backgroundColor: "#000", text: null }, window: window_(win) });
 
 let connection = null;

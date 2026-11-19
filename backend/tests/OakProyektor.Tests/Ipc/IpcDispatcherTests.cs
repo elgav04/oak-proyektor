@@ -15,7 +15,7 @@ public class IpcDispatcherTests
     }
 
     private static string Msg(string kind, string type, string id = "id-1", string payload = "{}") =>
-        $$"""{"v":3,"id":"{{id}}","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
+        $$"""{"v":4,"id":"{{id}}","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
 
     private static (IpcDispatcher Dispatcher, ListLogger<IpcDispatcher> Log) Create(params IIpcHandler[] handlers)
     {

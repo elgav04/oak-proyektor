@@ -51,6 +51,47 @@ public sealed class SettingsStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Preferred_display_policy_and_recent_displays_persist_by_stable_id_and_the_enum_is_written_as_text()
+    {
+        var a = Create();
+        await a.UpdateAsync(s => s with { PreferredDisplayId = @"dev:\\?\display#vtk2150#4&1331027&2&uid4145#{x}", OnDisplayLost = OakProyektor.Core.Output.DisplayLostPolicy.MoveToBest, RecentDisplayIds = ["B", "A"] }, CancellationToken.None);
+
+        Assert.Contains("\"moveToBest\"", await File.ReadAllTextAsync(Path.Combine(_dir, "settings.json")));
+        var b = Create();
+        await b.LoadAsync(CancellationToken.None);
+        Assert.Equal(@"dev:\\?\display#vtk2150#4&1331027&2&uid4145#{x}", b.Current.PreferredDisplayId);
+        Assert.Equal(OakProyektor.Core.Output.DisplayLostPolicy.MoveToBest, b.Current.OnDisplayLost);
+        Assert.Equal(["B", "A"], b.Current.RecentDisplayIds);
+    }
+
+    [Fact]
+    public async Task A_settings_file_from_before_these_options_keeps_working_with_the_safe_defaults()
+    {
+        Directory.CreateDirectory(_dir);
+        await File.WriteAllTextAsync(Path.Combine(_dir, "settings.json"), """{ "autoRestoreOutput": false }""");
+        var store = Create();
+
+        await store.LoadAsync(CancellationToken.None);
+
+        Assert.False(store.Current.AutoRestoreOutput);
+        Assert.Null(store.Current.PreferredDisplayId);
+        Assert.Equal(OakProyektor.Core.Output.DisplayLostPolicy.WarnAndWait, store.Current.OnDisplayLost);   // por defecto: avisar y esperar
+        Assert.Null(store.Current.RecentDisplayIds);
+    }
+
+    [Fact]
+    public async Task An_unknown_policy_value_in_the_file_does_not_stop_the_app_and_falls_back_to_warn_and_wait()
+    {
+        Directory.CreateDirectory(_dir);
+        await File.WriteAllTextAsync(Path.Combine(_dir, "settings.json"), """{ "onDisplayLost": "explotar" }""");
+        var store = Create();
+
+        await store.LoadAsync(CancellationToken.None);
+
+        Assert.Equal(OakProyektor.Core.Output.DisplayLostPolicy.WarnAndWait, store.Current.OnDisplayLost);
+    }
+
+    [Fact]
     public async Task A_failing_disk_write_still_applies_the_setting_in_memory()
     {
         Directory.CreateDirectory(_dir);

@@ -47,7 +47,7 @@ internal interface IOutputController
 internal sealed class OutputController : IOutputController
 {
     private static readonly Size WindowedSize = new(960, 540);
-    private const int LostTicksBeforePause = 2;   // ~1 s: un parpadeo de enumeración no debe dejar la proyección en negro
+    private const int MaxRecentDisplays = 8;
 
     private sealed record OutputSnapshot(OutputState State, OutputWindowStatus Window);
 
@@ -74,8 +74,9 @@ internal sealed class OutputController : IOutputController
     private readonly OutputPauseState _pause = new();   // solo bajo _gate
     private ScreenRect? _appliedArea;    // rectángulo del monitor al que se ajustó la ventana a pantalla completa (solo bajo _gate); null en ventana normal
     private string? _hotkey;
-    private int _lostTicks;              // solo bajo _lifecycle
-    private readonly RefitDebouncer _refit = new();   // solo bajo _lifecycle
+    // Antirrebote y tope de oscilaciones de la política (función pura con estado mínimo). Solo bajo _lifecycle.
+    private readonly OutputSafetyEngine _engine = new();
+    private readonly List<PausedRestoreGuard> _restoreGuards = [];   // referencias fuertes: el delegado nativo no puede recolectarse mientras exista la ventana
 
     public OutputController(
         PhotinoWindow main, WindowRegistry windows, IUiDispatcher ui, IDisplayManager displays, InboundQueue inbound,
@@ -97,7 +98,8 @@ internal sealed class OutputController : IOutputController
             // La pausa solo se informa si hay ventana: una pausa pedida sin ventana queda registrada (por si hay una apertura en curso) pero no se muestra.
             var paused = _window is not null && _pause.IsPaused;
             return new OutputSnapshot(_state,
-                new OutputWindowStatus(_window is not null, _window is null ? null : _displayId, _windowed, paused, paused ? _pause.Reason : null, _settings.Current.AutoRestoreOutput, _hotkey));
+                new OutputWindowStatus(_window is not null, _window is null ? null : _displayId, _windowed, paused, paused ? _pause.Reason : null, _settings.Current.AutoRestoreOutput, _hotkey,
+                    _settings.Current.PreferredDisplayId, _settings.Current.OnDisplayLost));
         }
     }
 
@@ -136,7 +138,8 @@ internal sealed class OutputController : IOutputController
     private void OpenLocked(string? displayId, long order)
     {
         _displays.Refresh();   // la UI puede tener una lista vieja
-        var resolution = _displays.Resolve(displayId);
+        _engine.Reset();       // una orden del operador empieza de cero el antirrebote y el conteo de oscilaciones
+        var resolution = _displays.Resolve(displayId, _settings.Current.PreferredDisplayId);
 
         // I-B: un ID explícito que no está conectado NO se sustituye por otro monitor. Se falla ANTES de tocar nada: la ventana que ya exista
         // (por ejemplo la que está en pausa porque el proyector se desconectó) se conserva tal cual, no se cierra para abrir otra encima del panel.
@@ -150,6 +153,10 @@ internal sealed class OutputController : IOutputController
         var target = resolution.Display;
         // Pantalla completa solo en un monitor que NO aloja el panel; en cualquier otro caso, ventana normal que no lo tape.
         var windowed = target is null || target.HostsPanel;
+
+        // El operador eligió este monitor (explícitamente o por el automático): se recuerda como «último usado»; si fue una elección explícita, además
+        // pasa a ser el PREFERIDO, al que la salida siempre intenta volver. Un monitor que aloja el panel (ventana normal) no se guarda.
+        if (target is not null && !target.HostsPanel) RememberDisplay(target.Id, makePreferred: displayId is not null);
 
         PhotinoWindow? existing; string? currentId; bool currentWindowed, paused;
         lock (_gate) { existing = _window; currentId = _displayId; currentWindowed = _windowed; paused = _pause.IsPaused; }
@@ -189,7 +196,6 @@ internal sealed class OutputController : IOutputController
             throw new IpcException("output.openFailed", $"No se pudo abrir la ventana de salida: {ex.Message}", ex);
         }
 
-        _lostTicks = 0;
         _wakeLock.Acquire();
         _logger.LogInformation("Salida abierta: monitor {Display}, {Mode}", target?.Id, windowed ? "ventana" : "pantalla completa");
         Publish();
@@ -248,6 +254,13 @@ internal sealed class OutputController : IOutputController
             nint hwnd = 0;
             try { hwnd = w.WindowHandle; }
             catch (Exception ex) { _logger.LogError(ex, "No se pudo obtener el handle de la salida: la política de seguridad no podrá actuar sobre ella"); }
+            // Ya en el hilo de UI (dueño de la ventana): se traga la restauración desde la barra de tareas mientras esté en pausa (evita el parpadeo).
+            if (hwnd != 0)
+            {
+                var guard = new PausedRestoreGuard(() => { lock (_gate) return _pause.IsPaused; }, m => _logger.LogWarning("{Message}", m));
+                lock (_restoreGuards) _restoreGuards.Add(guard);   // el delegado nativo debe vivir más que la ventana (DestroyWindow aún lo invoca); es un objeto diminuto por apertura
+                if (!guard.Install(hwnd)) _logger.LogWarning("Guardia de restauración no instalado: la salida en pausa se re-minimizará por sondeo (≤ 500 ms)");
+            }
             // La ventana ya existe. Asignar el handle y leer la pausa va en el MISMO bloque bajo candado, y EmergencyPause pide la pausa y lee el
             // handle en otro bloque igual: o la pausa ve el handle y minimiza ella misma, o aquí se ve la pausa y se minimiza. Nunca ninguna de las dos.
             bool minimizeNow;
@@ -410,24 +423,21 @@ internal sealed class OutputController : IOutputController
             var rect = paused ? default : NativeMethods.GetRect(hwnd);
             if (paused || rect is not null)
             {
-                var decision = OutputSafetyPolicy.Evaluate(new OutputSafetyInput(
-                    rect ?? default, !paused && NativeMethods.IsTopmost(hwnd), displays, targetId, paused, reason, _settings.Current.AutoRestoreOutput, applied));
-
-                // Antirrebote del reajuste: un cambio de resolución pasa por rectángulos intermedios; solo se reajusta con el MISMO rectángulo nuevo en 2 sondeos seguidos.
-                var refitReady = _refit.Observe(decision.Kind == SafetyActionKind.Refit ? decision.Area : null);
-                if (decision.Kind == SafetyActionKind.Refit && !refitReady) decision = OutputSafetyDecision.None;
-
-                // Antirrebote solo para «monitor desaparecido» a secas: si la ventana YA cruza el monitor del panel (Immediate) tapa al operador y no se espera.
-                if (decision is { Kind: SafetyActionKind.Pause, Reason: OutputPauseReason.DisplayLost, Immediate: false })
-                {
-                    if (++_lostTicks < LostTicksBeforePause) decision = OutputSafetyDecision.None;
-                }
-                else _lostTicks = 0;
+                var settings = _settings.Current;
+                // La decisión final: política + antirrebote (reajuste, monitor perdido, reanudar/mover estables ~500 ms) + tope de oscilaciones.
+                var decision = _engine.Step(new OutputSafetyInput(
+                    rect ?? default, !paused && NativeMethods.IsTopmost(hwnd), displays, targetId, paused, reason, settings.AutoRestoreOutput, applied,
+                    settings.PreferredDisplayId, settings.OnDisplayLost, settings.RecentDisplayIds, _displays.DuplicateMode), DateTimeOffset.UtcNow);
 
                 switch (decision.Kind)
                 {
                     case SafetyActionKind.Pause:
+                        if (decision.Reason == OutputPauseReason.Unstable)
+                            _logger.LogError("La salida cambiaba de pausa a reanudación sin parar (posible fallo de pantalla): se queda en pausa hasta que el operador la reanude");
                         PauseLocked(decision.Reason ?? OutputPauseReason.PanelCrossed);
+                        break;
+                    case SafetyActionKind.Move:
+                        MoveLocked(hwnd, decision, paused, reason);
                         break;
                     case SafetyActionKind.Resume:
                         if (reason is { } evaluated && displays.FirstOrDefault(d => d.Id == targetId) is { } display)
@@ -465,6 +475,57 @@ internal sealed class OutputController : IOutputController
             lock (_gate) _appliedArea = area;   // solo si funcionó: si falla se reintenta en el próximo sondeo
         }
         catch (Exception ex) { _logger.LogError(ex, "Falló el reajuste de la salida"); }
+    }
+
+    /// <summary>
+    /// La salida pasa a OTRO monitor (nunca el del panel): su monitor desapareció y la política es «mover», o el monitor preferido volvió. Si estaba en pausa
+    /// automática, además se reanuda en él. Se hace solo si el estado sigue siendo el evaluado (una pausa del operador que llegue entre medias gana).
+    /// </summary>
+    private void MoveLocked(nint hwnd, OutputSafetyDecision decision, bool wasPaused, OutputPauseReason? evaluatedReason)
+    {
+        if (decision.DisplayId is not { } id || decision.Area is not { } area) return;
+        lock (_gate)
+        {
+            if (wasPaused)
+            {
+                if (evaluatedReason is not { } r || !_pause.TryAutoResume(r))
+                {
+                    _logger.LogInformation("Movimiento automático cancelado: el estado de pausa cambió desde que se evaluó");
+                    return;
+                }
+            }
+            else if (_pause.IsPaused) return;   // una pausa llegó entre medias
+            _displayId = id;
+            _appliedArea = area;
+        }
+        _logger.LogWarning("La salida pasa al monitor {Display} ({Reason})", id, wasPaused ? "reanudación" : "monitor anterior no disponible o monitor preferido de vuelta");
+        RememberDisplay(id, makePreferred: false);
+
+        if (wasPaused) RestoreWindow(hwnd, area);   // restaura, la coloca y comprueba que no llegó otra pausa
+        else
+        {
+            try { _ui.Invoke(() => NativeMethods.MoveTopmostTo(hwnd, area)); }
+            catch (Exception ex) { _logger.LogError(ex, "Falló el movimiento de la salida"); }
+        }
+        Publish();
+    }
+
+    /// <summary>Guarda en la configuración local (no en la BD de contenido) el monitor usado y, si <paramref name="makePreferred"/>, lo marca como preferido.</summary>
+    private void RememberDisplay(string id, bool makePreferred)
+    {
+        var current = _settings.Current;
+        var recentNow = current.RecentDisplayIds ?? [];
+        if ((!makePreferred || current.PreferredDisplayId == id) && recentNow.Count > 0 && recentNow[0] == id) return;   // nada que cambiar: sin escribir el disco
+
+        _settings.UpdateAsync(s => s with
+        {
+            PreferredDisplayId = makePreferred ? id : s.PreferredDisplayId,
+            RecentDisplayIds = [.. (s.RecentDisplayIds ?? []).Where(x => x != id).Prepend(id).Take(MaxRecentDisplays)],
+        }, CancellationToken.None).ContinueWith(_ =>
+        {
+            try { Publish(); }   // el panel muestra cuál es el monitor preferido
+            catch (Exception ex) { _logger.LogWarning(ex, "No se pudo publicar el cambio de monitor preferido"); }
+        }, TaskScheduler.Default);
     }
 
     /// <summary>Pausa automática (monitor perdido / cruce con el panel). No rebaja una pausa más fuerte: si ya estaba en pausa por Manual o Emergency, no hace nada.</summary>
@@ -508,7 +569,6 @@ internal sealed class OutputController : IOutputController
             });
         }
         catch (Exception ex) { _logger.LogError(ex, "Falló la restauración de la salida"); }
-        _lostTicks = 0;
 
         // La reanudación escribió «corriendo» ANTES de restaurar. Si el atajo de emergencia llegó justo entonces, su minimización pudo ejecutarse
         // ANTES que esta restauración y quedar deshecha: se comprueba el estado DESPUÉS y, si hay pausa, se minimiza otra vez.

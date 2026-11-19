@@ -19,6 +19,7 @@ public static class IpcTypes
     public const string OutputSetMaster = "output.setMaster";
     public const string OutputRecover = "output.recover";
     public const string SettingsSetAutoRestore = "settings.setAutoRestore";
+    public const string SettingsSetDisplayLostPolicy = "settings.setDisplayLostPolicy";
     public const string DisplayChanged = "display.changed";
     public const string OutputStateChanged = "output.stateChanged";
     public const string CommandFailed = "command.failed";
@@ -33,8 +34,10 @@ public static class IpcCatalog
     /// v2: snapshots con <c>seq</c> global creciente; monitores por ID (no por índice); replies con <c>{ ok, result, error }</c>;
     /// evento <c>command.failed</c>; <c>output.setMaster</c> y <c>output.recover</c> van por un carril de prioridad (ver <see cref="IpcPriority"/>).
     /// v3: <c>output.recover</c> lleva <c>{ reason: "manual" | "emergency" }</c> (el atajo de respaldo de la salida se distingue del botón del panel).
+    /// v4: <c>OutputWindowStatus</c> lleva <c>preferredDisplayId</c> y <c>onDisplayLost</c>; nuevo comando <c>settings.setDisplayLostPolicy</c>;
+    /// motivos de pausa nuevos <c>duplicateMode</c> y <c>unstable</c>.
     /// </summary>
-    public const int ProtocolVersion = 3;
+    public const int ProtocolVersion = 4;
 
     public static IReadOnlyList<MessageDescriptor> Messages { get; } =
     [
@@ -43,6 +46,7 @@ public static class IpcCatalog
         new(IpcTypes.OutputSetMaster, IpcKind.Command),
         new(IpcTypes.OutputRecover, IpcKind.Command),
         new(IpcTypes.SettingsSetAutoRestore, IpcKind.Command),
+        new(IpcTypes.SettingsSetDisplayLostPolicy, IpcKind.Command),
         new(IpcTypes.DisplayList, IpcKind.Query),
         new(IpcTypes.DisplayList, IpcKind.Reply),
         new(IpcTypes.OutputGetState, IpcKind.Query),

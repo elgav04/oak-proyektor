@@ -20,10 +20,14 @@ public readonly record struct DisplayResolution(DisplayResolutionKind Kind, Disp
 /// </summary>
 public static class DisplayResolver
 {
-    public static DisplayResolution Resolve(IReadOnlyList<DisplayInfo> displays, string? requestedId)
+    /// <param name="preferredId">Monitor preferido del operador: en modo automático (<c>null</c>) se usa si está conectado y no aloja el panel; si no, el primero que no aloja el panel.</param>
+    public static DisplayResolution Resolve(IReadOnlyList<DisplayInfo> displays, string? requestedId, string? preferredId = null)
     {
         if (requestedId is null)
-            return new DisplayResolution(DisplayResolutionKind.Automatic, displays.FirstOrDefault(d => !d.HostsPanel));
+        {
+            var preferred = preferredId is null ? null : displays.FirstOrDefault(d => d.Id == preferredId && !d.HostsPanel);
+            return new DisplayResolution(DisplayResolutionKind.Automatic, preferred ?? displays.FirstOrDefault(d => !d.HostsPanel));
+        }
 
         return displays.FirstOrDefault(d => d.Id == requestedId) is { } found
             ? new DisplayResolution(DisplayResolutionKind.Chosen, found)

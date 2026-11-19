@@ -44,10 +44,10 @@ public class IpcSerializerTests
     [Fact]
     public void Numeric_or_unknown_enum_values_are_rejected()
     {
-        var env = Parse("""{"v":3,"id":"1","kind":"command","type":"output.setMaster","payload":{"master":2}}""");
+        var env = Parse("""{"v":4,"id":"1","kind":"command","type":"output.setMaster","payload":{"master":2}}""");
         Assert.Throws<JsonException>(() => env.GetPayload<OutputSetMasterPayload>());
 
-        var env2 = Parse("""{"v":3,"id":"1","kind":"command","type":"output.setMaster","payload":{"master":"bogus"}}""");
+        var env2 = Parse("""{"v":4,"id":"1","kind":"command","type":"output.setMaster","payload":{"master":"bogus"}}""");
         Assert.Throws<JsonException>(() => env2.GetPayload<OutputSetMasterPayload>());
     }
 
@@ -66,15 +66,22 @@ public class IpcSerializerTests
         Assert.Equal(displays.Displays, back.Displays);
         Assert.Equal(7, back.Seq);
 
-        var state = new OutputStateChangedPayload(42, OutputState.Initial.WithMaster(MasterMode.Live), new OutputWindowStatus(true, "1920,0,1920x1080", false, true, OutputPauseReason.DisplayLost, true, "Ctrl+Alt+Shift+M"));
+        var state = new OutputStateChangedPayload(42, OutputState.Initial.WithMaster(MasterMode.Live), new OutputWindowStatus(true, "1920,0,1920x1080", false, true, OutputPauseReason.DisplayLost, true, "Ctrl+Alt+Shift+M", "1920,0,1920x1080", DisplayLostPolicy.WarnAndWait));
         var back2 = Parse(IpcSerializer.Serialize(IpcEnvelope.Create(IpcKind.Event, IpcTypes.OutputStateChanged, state))).GetPayload<OutputStateChangedPayload>();
         Assert.Equal(state, back2);
+
+        // En el cable los enums nuevos van en camelCase, como los demás (el panel los compara con esos textos).
+        var json = IpcSerializer.Serialize(IpcEnvelope.Create(IpcKind.Event, IpcTypes.OutputStateChanged,
+            state with { Window = state.Window with { PauseReason = OutputPauseReason.DuplicateMode, OnDisplayLost = DisplayLostPolicy.MoveToBest } }));
+        Assert.Contains("\"pauseReason\":\"duplicateMode\"", json);
+        Assert.Contains("\"onDisplayLost\":\"moveToBest\"", json);
+        Assert.Contains("\"preferredDisplayId\":\"1920,0,1920x1080\"", json);
     }
 
     [Fact]
     public void Missing_payload_becomes_an_empty_object()
     {
-        var env = Parse("""{"v":3,"id":"1","kind":"command","type":"output.close"}""");
+        var env = Parse("""{"v":4,"id":"1","kind":"command","type":"output.close"}""");
         Assert.Equal(JsonValueKind.Object, env.Payload.ValueKind);
         Assert.Empty(env.Payload.EnumerateObject());
     }
@@ -82,7 +89,7 @@ public class IpcSerializerTests
     [Fact]
     public void Unknown_extra_fields_are_tolerated_for_forward_compatibility()
     {
-        var env = Parse("""{"v":3,"id":"1","kind":"command","type":"output.open","payload":{"displayId":"1920,0,1920x1080","future":true},"extra":5}""");
+        var env = Parse("""{"v":4,"id":"1","kind":"command","type":"output.open","payload":{"displayId":"1920,0,1920x1080","future":true},"extra":5}""");
         Assert.Equal("1920,0,1920x1080", env.GetPayload<OutputOpenPayload>().DisplayId);
     }
 
@@ -95,9 +102,9 @@ public class IpcSerializerTests
     [InlineData("[]")]
     [InlineData("42")]
     [InlineData("null")]
-    [InlineData("""{"v":3,"kind":"command","type":"x"}""")]                       // sin id
-    [InlineData("""{"v":3,"id":"1","type":"x"}""")]                               // sin kind
-    [InlineData("""{"v":3,"id":"1","kind":"command"}""")]                         // sin type
+    [InlineData("""{"v":4,"kind":"command","type":"x"}""")]                       // sin id
+    [InlineData("""{"v":4,"id":"1","type":"x"}""")]                               // sin kind
+    [InlineData("""{"v":4,"id":"1","kind":"command"}""")]                         // sin type
     [InlineData("""{"v":99,"id":"1","kind":"command","type":"x","payload":{}}""")] // versión futura
     [InlineData("""{"v":2,"id":"1","kind":"command","type":"x","payload":{}}""")] // versión anterior (v2)
     [InlineData("""{"v":1,"id":"1","kind":"command","type":"x","payload":{}}""")] // versión anterior (v1)

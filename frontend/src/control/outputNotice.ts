@@ -7,14 +7,18 @@ import type { DisplayInfo, OutputPauseReason, OutputWindowStatus } from "@/ipc/p
  */
 export type OutputNotice =
   | { kind: "none" }
-  /** Pausa «manual», «emergency» o «panelCrossed» (o `displayLost` cuando aún no hay lista de monitores para juzgarlo). */
+  /** Pausa «manual», «emergency», «unstable» o «panelCrossed» por arrastrar la ventana (o `displayLost` cuando aún no hay lista de monitores para juzgarlo). */
   | { kind: "paused"; reason: OutputPauseReason }
   /** El monitor de la salida no está conectado y no hay otro que se pueda usar (no aloja el panel): «Proyector desconectado». */
   | { kind: "displayLost" }
   /** El monitor de la salida no está conectado, pero hay OTRO monitor que se podría usar: «Apareció un monitor distinto al de la salida». */
   | { kind: "newDisplay"; alternatives: DisplayInfo[] }
   /** Pausa por `displayLost`, pero el monitor de la salida ya está conectado de nuevo: espera al operador (p. ej. «restaurar automáticamente» desactivado). */
-  | { kind: "displayBack" };
+  | { kind: "displayBack" }
+  /** El panel está sobre el monitor de la salida: se reanuda sola en cuanto el panel salga de él. Sin botones obligatorios. */
+  | { kind: "panelOnOutput" }
+  /** Windows está en modo «Duplicar» (Win+P): un solo monitor lógico. Se reanuda sola al volver a «Extender». */
+  | { kind: "duplicate" };
 
 export interface OutputDescription {
   notice: OutputNotice;
@@ -26,6 +30,9 @@ export function describeOutput(displays: readonly DisplayInfo[], window: OutputW
   if (!window?.isOpen || !window.isPaused) return { notice: { kind: "none" }, canResumeInPlace: window?.isOpen ?? false };
 
   const reason = window.pauseReason ?? "manual";
+  // Modo Duplicar: hay un solo monitor lógico; no hay nada que reanudar a mano hasta que vuelva «Extender» (entonces se reanuda sola).
+  if (reason === "duplicateMode") return { notice: { kind: "duplicate" }, canResumeInPlace: false };
+
   // Sin lista de monitores (aún no llegó) no se puede juzgar: se muestra el aviso genérico y no se afirma nada del monitor.
   if (displays.length === 0) return { notice: { kind: "paused", reason }, canResumeInPlace: true };
 
@@ -34,6 +41,10 @@ export function describeOutput(displays: readonly DisplayInfo[], window: OutputW
   // Una salida en ventana normal (`isWindowed`) sí se puede reanudar donde esté.
   const targetHostsPanel = !window.isWindowed && displays.some((d) => d.id === window.displayId && d.hostsPanel);
   const canResume = targetConnected && !targetHostsPanel;
+
+  // El panel está sobre el monitor de la salida: aviso propio («Muévelo para reanudar»), sin botones. Se reanuda sola cuando salga.
+  if (reason === "panelCrossed" && targetHostsPanel) return { notice: { kind: "panelOnOutput" }, canResumeInPlace: false };
+
   if (reason !== "displayLost") return { notice: { kind: "paused", reason }, canResumeInPlace: canResume };
 
   if (targetConnected) return { notice: { kind: "displayBack" }, canResumeInPlace: canResume };

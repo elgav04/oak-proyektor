@@ -18,6 +18,8 @@ const PAUSE_MESSAGES: Record<OutputPauseReason, string> = {
   panelCrossed: "La salida invadió el monitor del panel: salida en pausa",
   manual: "Salida en pausa (recuperación manual)",
   emergency: "Salida en pausa (atajo de emergencia)",
+  duplicateMode: "Modo Duplicar: cambia a Extender con Win+P para proyectar",
+  unstable: "Salida en pausa: los monitores cambiaban sin parar",
 };
 
 function noticeTitle(notice: OutputNotice): string {
@@ -30,6 +32,10 @@ function noticeTitle(notice: OutputNotice): string {
       return "Apareció un monitor distinto al de la salida";
     case "displayBack":
       return "El proyector volvió a conectarse, pero la salida sigue en pausa";
+    case "panelOnOutput":
+      return "El panel está sobre el monitor de la salida. Muévelo para reanudar";
+    case "duplicate":
+      return PAUSE_MESSAGES.duplicateMode;
     case "none":
       return "";
   }
@@ -62,6 +68,8 @@ export function App() {
   const isPaused = output?.window.isPaused ?? false;
   const outputDisplayId = output?.window.displayId ?? null;
   const autoRestore = output?.window.autoRestore ?? true;
+  const displayLostPolicy = output?.window.onDisplayLost ?? "warnAndWait";
+  const preferredDisplayId = output?.window.preferredDisplayId ?? null;
   // Qué aviso mostrar y si «Reanudar salida» puede funcionar (el monitor asignado sigue conectado). Solo presentación de lo que manda C#.
   const { notice, canResumeInPlace } = describeOutput(displays, output?.window ?? null);
   const master = output?.state.master;
@@ -150,6 +158,27 @@ export function App() {
 
           {notice.kind === "displayBack" && <p>Pulsa «Reanudar salida» para volver a proyectar en él.</p>}
 
+          {notice.kind === "panelOnOutput" && (
+            <p>
+              {autoRestore
+                ? "La salida se reanudará sola, a pantalla completa, en cuanto el panel salga de ese monitor. No necesitas pulsar nada."
+                : "Cuando el panel salga de ese monitor, pulsa «Reanudar salida» (la reanudación automática está desactivada)."}
+            </p>
+          )}
+
+          {notice.kind === "duplicate" && (
+            <p>
+              Con «Duplicar» hay un solo monitor y la salida taparía el panel. Pulsa Win+P y elige «Extender»: la salida se reanudará sola.
+            </p>
+          )}
+
+          {notice.kind === "paused" && notice.reason === "unstable" && (
+            <p>
+              La salida pasaba de pausa a reanudación una y otra vez (cable flojo, proyector que se reinicia o un monitor que parpadea). Se quedó en pausa por seguridad:
+              revisa los monitores y pulsa «Reanudar salida».
+            </p>
+          )}
+
           {canResumeInPlace && (
             <Button
               size="lg"
@@ -179,7 +208,8 @@ export function App() {
               <label className="flex cursor-pointer items-center gap-3 rounded-md border p-3">
                 <input type="radio" name="display" checked={selected === d.id} onChange={() => { setSelected(d.id); }} />
                 <span>{displayLabel(d, position)}</span>
-                {isOpen && outputDisplayId === d.id && <span className="ml-auto text-sm font-semibold text-green-700">salida aquí</span>}
+                {preferredDisplayId === d.id && <span className="ml-auto text-sm text-neutral-600">preferido</span>}
+                {isOpen && outputDisplayId === d.id && <span className={`${preferredDisplayId === d.id ? "" : "ml-auto "}text-sm font-semibold text-green-700`}>salida aquí</span>}
               </label>
             </li>
           ))}
@@ -219,8 +249,32 @@ export function App() {
             disabled={!connected}
             onChange={(e) => { ipc.send("settings.setAutoRestore", { enabled: e.target.checked }); }}
           />
-          <span>Restaurar la salida automáticamente cuando el proyector vuelva a conectarse</span>
+          <span>Reanudar la salida automáticamente (cuando el proyector vuelva a conectarse, el panel salga de su monitor o se vuelva a «Extender»)</span>
         </label>
+        <fieldset className="flex flex-col gap-2 rounded-md border p-3" disabled={!connected}>
+          <legend className="px-1 text-sm font-semibold">Si el monitor de la salida desaparece</legend>
+          <label className="flex cursor-pointer items-center gap-3 text-sm">
+            <input
+              type="radio"
+              name="display-lost-policy"
+              checked={displayLostPolicy === "warnAndWait"}
+              onChange={() => { ipc.send("settings.setDisplayLostPolicy", { policy: "warnAndWait" }); }}
+            />
+            <span>Avisar y esperar (por defecto): la salida se pausa y te ofrece un botón por cada monitor disponible</span>
+          </label>
+          <label className="flex cursor-pointer items-center gap-3 text-sm">
+            <input
+              type="radio"
+              name="display-lost-policy"
+              checked={displayLostPolicy === "moveToBest"}
+              onChange={() => { ipc.send("settings.setDisplayLostPolicy", { policy: "moveToBest" }); }}
+            />
+            <span>Mover automáticamente al mejor monitor sin el panel (el último usado; si no, uno no principal; si hay empate, el más a la derecha)</span>
+          </label>
+          <p className="text-xs text-neutral-600">
+            El monitor preferido es el último que elegiste al abrir la salida; la salida siempre intenta volver a él.
+          </p>
+        </fieldset>
         <p className="text-sm text-neutral-600">
           {output?.window.emergencyHotkey
             ? `Atajo de emergencia (minimiza la salida desde cualquier ventana): ${output.window.emergencyHotkey}`

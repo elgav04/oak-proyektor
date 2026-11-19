@@ -1,5 +1,14 @@
-﻿namespace OakProyektor.Core;
+﻿using OakProyektor.Core.Output;
 
-/// <summary>Configuración persistente (data/settings.json).</summary>
-/// <param name="AutoRestoreOutput">Restaurar la salida sola cuando reaparece su monitor.</param>
-public sealed record AppSettings(bool AutoRestoreOutput = true);
+namespace OakProyektor.Core;
+
+/// <summary>Configuración persistente (data/settings.json, NO la base de datos de contenido).</summary>
+/// <param name="AutoRestoreOutput">Reanudar la salida sola (sin clics) cuando reaparece su monitor o el panel sale de él.</param>
+/// <param name="PreferredDisplayId">Monitor preferido de la salida, por ID estable (<c>DisplayId</c>): el que el operador eligió al abrirla. Es al que la salida siempre intenta volver.</param>
+/// <param name="OnDisplayLost">Qué hacer si el monitor de la salida desaparece: avisar y esperar (por defecto) o mover sola al mejor monitor que no sea el del panel.</param>
+/// <param name="RecentDisplayIds">Monitores donde se ha mostrado la salida, el más reciente primero (máx. 8): criterio «el último usado» de <c>BestDisplayPicker</c>.</param>
+public sealed record AppSettings(
+    bool AutoRestoreOutput = true,
+    string? PreferredDisplayId = null,
+    DisplayLostPolicy OnDisplayLost = DisplayLostPolicy.WarnAndWait,
+    IReadOnlyList<string>? RecentDisplayIds = null);

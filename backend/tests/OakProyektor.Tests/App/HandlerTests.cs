@@ -12,7 +12,7 @@ namespace OakProyektor.Tests.App;
 public class HandlerTests
 {
     private static string Msg(string kind, string type, string payload = "{}") =>
-        $$"""{"v":3,"id":"q1","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
+        $$"""{"v":4,"id":"q1","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
 
     private static (IpcDispatcher Dispatcher, FakeOutputController Output) Create(params DisplayInfo[] displays)
     {
@@ -26,6 +26,7 @@ public class HandlerTests
             new OutputSetMasterHandler(output),
             new OutputRecoverHandler(output),
             new SettingsSetAutoRestoreHandler(new InMemorySettings(), output),
+            new SettingsSetDisplayLostPolicyHandler(new InMemorySettings(), output),
             new DatabaseGetStatusHandler(new DatabaseStatusReporter(new FakeReadiness(), new Outbox(NullLogger<Outbox>.Instance))),
         ];
         return (new IpcDispatcher(handlers, NullLogger<IpcDispatcher>.Instance), output);
@@ -42,6 +43,7 @@ public class HandlerTests
             {
                 IpcTypes.OutputSetMaster => """{"master":"live"}""",
                 IpcTypes.SettingsSetAutoRestore => """{"enabled":false}""",
+                IpcTypes.SettingsSetDisplayLostPolicy => """{"policy":"moveToBest"}""",
                 _ => "{}",
             };
             var response = await d.DispatchAsync(Msg(m.Kind, m.Type, payload), CancellationToken.None);
@@ -53,7 +55,34 @@ public class HandlerTests
         }
         Assert.True(unhandled.Count == 0, "Mensajes del catálogo sin handler: " + string.Join(", ", unhandled));
         // Los comandos llegaron a su handler (si faltara uno, el despachador solo lo registraría y no quedaría la llamada).
-        Assert.Equal(["open:auto", "close", "master:Live", "pause:Manual", "settingsChanged"], output.Calls);
+        Assert.Equal(["open:auto", "close", "master:Live", "pause:Manual", "settingsChanged", "settingsChanged"], output.Calls);
+    }
+
+    [Fact]
+    public async Task Display_lost_policy_is_persisted_then_the_output_is_notified()
+    {
+        var settings = new InMemorySettings();
+        var output = new FakeOutputController();
+        var d = new IpcDispatcher([new SettingsSetDisplayLostPolicyHandler(settings, output)], NullLogger<IpcDispatcher>.Instance);
+        Assert.Equal(DisplayLostPolicy.WarnAndWait, settings.Current.OnDisplayLost);   // por defecto: avisar y esperar
+
+        await d.DispatchAsync(Msg("command", "settings.setDisplayLostPolicy", """{"policy":"moveToBest"}"""), CancellationToken.None);
+
+        Assert.Equal(DisplayLostPolicy.MoveToBest, settings.Current.OnDisplayLost);
+        Assert.Equal(["settingsChanged"], output.Calls);
+    }
+
+    [Fact]
+    public async Task An_unknown_display_lost_policy_is_rejected_and_changes_nothing()
+    {
+        var settings = new InMemorySettings();
+        var output = new FakeOutputController();
+        var d = new IpcDispatcher([new SettingsSetDisplayLostPolicyHandler(settings, output)], NullLogger<IpcDispatcher>.Instance);
+
+        await d.DispatchAsync(Msg("command", "settings.setDisplayLostPolicy", """{"policy":"explotar"}"""), CancellationToken.None);
+
+        Assert.Equal(DisplayLostPolicy.WarnAndWait, settings.Current.OnDisplayLost);
+        Assert.Empty(output.Calls);
     }
 
     [Fact]

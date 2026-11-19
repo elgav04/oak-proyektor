@@ -86,6 +86,20 @@ internal sealed class SettingsSetAutoRestoreHandler(ISettingsStore settings, IOu
     }
 }
 
+internal sealed class SettingsSetDisplayLostPolicyHandler(ISettingsStore settings, IOutputController output) : IIpcHandler
+{
+    public string Kind => IpcKind.Command;
+    public string Type => IpcTypes.SettingsSetDisplayLostPolicy;
+    public async Task<object?> HandleAsync(IpcEnvelope request, CancellationToken cancellationToken)
+    {
+        var policy = request.GetPayload<SetDisplayLostPolicyPayload>().Policy;
+        if (!Enum.IsDefined(policy)) throw new IpcException("invalid", "Valor no válido para «Si el monitor de la salida desaparece».");
+        await settings.UpdateAsync(s => s with { OnDisplayLost = policy }, cancellationToken).ConfigureAwait(false);
+        output.SettingsChanged();
+        return null;
+    }
+}
+
 internal sealed class DatabaseGetStatusHandler(DatabaseStatusReporter reporter) : IIpcHandler
 {
     public string Kind => IpcKind.Query;

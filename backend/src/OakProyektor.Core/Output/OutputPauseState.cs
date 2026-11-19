@@ -44,12 +44,14 @@ public sealed class OutputPauseState
     public OutputPauseReason? Reason { get; private set; }
     public WindowPhase Phase { get; private set; } = WindowPhase.None;
 
-    public static bool IsAutomatic(OutputPauseReason reason) => reason is OutputPauseReason.DisplayLost or OutputPauseReason.PanelCrossed;
+    /// <summary>Motivos que se reanudan solos: <c>DisplayLost</c>, <c>PanelCrossed</c> y <c>DuplicateMode</c>. <c>Manual</c>, <c>Emergency</c> y <c>Unstable</c> esperan al operador.</summary>
+    public static bool IsAutomatic(OutputPauseReason reason) =>
+        reason is OutputPauseReason.DisplayLost or OutputPauseReason.PanelCrossed or OutputPauseReason.DuplicateMode;
 
     private static int Rank(OutputPauseReason reason) => reason switch
     {
         OutputPauseReason.Emergency => 3,
-        OutputPauseReason.Manual => 2,
+        OutputPauseReason.Manual or OutputPauseReason.Unstable => 2,
         _ => 1,
     };
 
@@ -59,7 +61,8 @@ public sealed class OutputPauseState
     /// </summary>
     public PauseRequestResult RequestPause(OutputPauseReason reason, long order = 0)
     {
-        if (!IsAutomatic(reason))
+        // Unstable la pide el propio sistema (tope de oscilaciones), no el operador: no cuenta como «pausa del operador» para las carreras de órdenes.
+        if (!IsAutomatic(reason) && reason != OutputPauseReason.Unstable)
         {
             _operatorPauseOrder = Math.Max(_operatorPauseOrder, order);
             if (_operatorPauseReason is not { } known || Rank(reason) > Rank(known)) _operatorPauseReason = reason;
@@ -72,9 +75,9 @@ public sealed class OutputPauseState
             Reason = reason;
             changed = true;
         }
-        else if (Rank(reason) > Rank(Reason!.Value))
+        else if (Rank(reason) > Rank(Reason!.Value) || (reason == OutputPauseReason.DuplicateMode && IsAutomatic(Reason.Value) && Reason != reason))
         {
-            Reason = reason;   // subir de nivel (p. ej. DisplayLost → Emergency); nunca bajar
+            Reason = reason;   // subir de nivel (p. ej. DisplayLost → Emergency); nunca bajar. Entre automáticos solo «Duplicar» sustituye (es la causa real)
             changed = true;
         }
         else changed = false;

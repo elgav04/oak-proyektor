@@ -44,8 +44,14 @@ public sealed record DisplayListPayload(long Seq, IReadOnlyList<DisplayInfo> Dis
 /// <param name="PauseReason">Motivo de la pausa; null si no está en pausa.</param>
 /// <param name="AutoRestore">Ajuste: reanudar sola al reaparecer el monitor.</param>
 /// <param name="EmergencyHotkey">Atajo de emergencia global registrado (p. ej. "Ctrl+Alt+Shift+M"); null si no se pudo registrar.</param>
+/// <param name="PreferredDisplayId">Monitor preferido del operador (al que la salida siempre intenta volver); null si no eligió ninguno.</param>
+/// <param name="OnDisplayLost">Ajuste: qué hacer si el monitor de la salida desaparece (<c>warnAndWait</c> | <c>moveToBest</c>).</param>
 public sealed record OutputWindowStatus(
-    bool IsOpen, string? DisplayId, bool IsWindowed, bool IsPaused, OutputPauseReason? PauseReason, bool AutoRestore, string? EmergencyHotkey);
+    bool IsOpen, string? DisplayId, bool IsWindowed, bool IsPaused, OutputPauseReason? PauseReason, bool AutoRestore, string? EmergencyHotkey,
+    string? PreferredDisplayId, DisplayLostPolicy OnDisplayLost);
+
+/// <summary><c>settings.setDisplayLostPolicy</c>: «Si el monitor de la salida desaparece».</summary>
+public sealed record SetDisplayLostPolicyPayload(DisplayLostPolicy Policy);
 
 /// <summary>
 /// Reply de <c>output.getState</c> y evento <c>output.stateChanged</c>: snapshot completo.

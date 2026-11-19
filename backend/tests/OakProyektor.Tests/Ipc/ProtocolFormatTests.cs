@@ -39,6 +39,7 @@ public partial class ProtocolFormatTests
         new(typeof(OutputSetMasterPayload), "OutputSetMasterPayload", Direction.ToBackend),
         new(typeof(OutputRecoverPayload), "OutputRecoverPayload", Direction.ToBackend),
         new(typeof(SetAutoRestorePayload), "SetAutoRestorePayload", Direction.ToBackend),
+        new(typeof(SetDisplayLostPolicyPayload), "SetDisplayLostPolicyPayload", Direction.ToBackend),
         new(typeof(DisplayInfo), "DisplayInfo", Direction.FromBackend),
         new(typeof(OutputState), "OutputState", Direction.FromBackend),
         new(typeof(DisplayListPayload), "DisplayListPayload", Direction.FromBackend),
@@ -57,9 +58,10 @@ public partial class ProtocolFormatTests
         ["DatabaseState"] = typeof(DatabaseState),
         ["OutputPauseReason"] = typeof(OutputPauseReason),
         ["RecoverReason"] = typeof(OutputPauseReason),
+        ["DisplayLostPolicy"] = typeof(DisplayLostPolicy),
     };
 
-    private static readonly Type[] WireEnums = [typeof(MasterMode), typeof(DatabaseState), typeof(OutputPauseReason)];
+    private static readonly Type[] WireEnums = [typeof(MasterMode), typeof(DatabaseState), typeof(OutputPauseReason), typeof(DisplayLostPolicy)];
 
     /// <summary>Nombre en protocol.ts de los tipos de C# cuyo nombre difiere.</summary>
     private static string TsNameOf(Type t) => t == typeof(IpcError) ? "IpcErrorPayload" : t.Name;
@@ -71,6 +73,7 @@ public partial class ProtocolFormatTests
     private static readonly Dictionary<int, string> PinnedFormat = new()
     {
         [3] = "efee82b9a3b116fe10d0d29f9bc49cc8e4b5c70be8636fbe26a5986846b94d0b",
+        [4] = "2acd299b86c38d491db90fe708f4ab670a8a583ba376229ceda88a8440ae8318",
     };
 
     // ───────────────────────────── lectura de C# ─────────────────────────────

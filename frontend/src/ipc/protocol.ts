@@ -8,7 +8,7 @@
  * prioridad en el backend (el orden entre carriles no está garantizado; dentro de cada uno sí).
  * v3: `output.recover` lleva `{ reason: "manual" | "emergency" }` (el atajo de respaldo de la salida se distingue del botón del panel).
  */
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 export type MessageKind = "command" | "event" | "query" | "reply";
 
@@ -18,6 +18,7 @@ export const MESSAGE_CATALOG = [
   { type: "output.setMaster", kind: "command" },
   { type: "output.recover", kind: "command" },
   { type: "settings.setAutoRestore", kind: "command" },
+  { type: "settings.setDisplayLostPolicy", kind: "command" },
   { type: "display.list", kind: "query" },
   { type: "display.list", kind: "reply" },
   { type: "output.getState", kind: "query" },
@@ -36,8 +37,12 @@ export type MasterMode = (typeof MASTER_MODES)[number];
 export const DATABASE_STATES = ["initializing", "ready", "failed"] as const;
 export type DatabaseState = (typeof DATABASE_STATES)[number];
 
-export const PAUSE_REASONS = ["displayLost", "panelCrossed", "manual", "emergency"] as const;
+export const PAUSE_REASONS = ["displayLost", "panelCrossed", "manual", "emergency", "duplicateMode", "unstable"] as const;
 export type OutputPauseReason = (typeof PAUSE_REASONS)[number];
+
+/** Qué hacer si el monitor de la salida desaparece: avisar y esperar (por defecto) o mover sola al mejor monitor que no sea el del panel. */
+export const DISPLAY_LOST_POLICIES = ["warnAndWait", "moveToBest"] as const;
+export type DisplayLostPolicy = (typeof DISPLAY_LOST_POLICIES)[number];
 
 export type EmptyPayload = Record<string, never>;
 
@@ -84,6 +89,10 @@ export interface SetAutoRestorePayload {
   enabled: boolean;
 }
 
+export interface SetDisplayLostPolicyPayload {
+  policy: DisplayLostPolicy;
+}
+
 export interface OutputWindowStatus {
   isOpen: boolean;
   displayId: string | null;
@@ -92,6 +101,9 @@ export interface OutputWindowStatus {
   pauseReason: OutputPauseReason | null;
   autoRestore: boolean;
   emergencyHotkey: string | null;
+  /** Monitor preferido del operador, al que la salida siempre intenta volver. */
+  preferredDisplayId: string | null;
+  onDisplayLost: DisplayLostPolicy;
 }
 
 export interface OutputStateChangedPayload {
@@ -136,6 +148,7 @@ export interface CommandPayloads {
   "output.setMaster": OutputSetMasterPayload;
   "output.recover": OutputRecoverPayload;
   "settings.setAutoRestore": SetAutoRestorePayload;
+  "settings.setDisplayLostPolicy": SetDisplayLostPolicyPayload;
 }
 
 /** Payload de cada evento (C# → UI). */

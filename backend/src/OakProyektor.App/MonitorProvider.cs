@@ -8,7 +8,8 @@ namespace OakProyektor.App;
 internal sealed record MonitorArea(ScreenRect Area, double Scale, string? DevicePath = null);
 
 /// <summary>Monitores y posición del panel en un instante. Coordenadas en píxeles físicos.</summary>
-internal sealed record MonitorSnapshot(IReadOnlyList<MonitorArea> Monitors, int PanelCenterX, int PanelCenterY);
+/// <param name="Duplicated">Windows está en modo «Duplicar» (varias salidas físicas comparten una fuente).</param>
+internal sealed record MonitorSnapshot(IReadOnlyList<MonitorArea> Monitors, int PanelCenterX, int PanelCenterY, bool Duplicated = false);
 
 /// <summary>Fuente de monitores. Existe para poder sustituirla en pruebas y simular un proyector desconectado.</summary>
 internal interface IMonitorProvider
@@ -63,7 +64,7 @@ internal sealed class PhotinoMonitorProvider(PhotinoWindow main) : IMonitorProvi
         // Si nunca se vio una posición real (arrancó minimizada), se asume el monitor principal: allí se crea la ventana (Center()).
         var center = _panel.Update(location.X, location.Y, size.Width, size.Height, minimized)
                      ?? PrimaryCenter(monitors);
-        return new MonitorSnapshot(monitors, center.X, center.Y);
+        return new MonitorSnapshot(monitors, center.X, center.Y, MonitorDevices.ReadDuplicateMode());
     }
 
     private static (int X, int Y) PrimaryCenter(IReadOnlyList<MonitorArea> monitors)

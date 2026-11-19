@@ -70,6 +70,7 @@ internal sealed class ApplicationHost : IAsyncDisposable
         services.AddSingleton<IIpcHandler, Handlers.OutputSetMasterHandler>();
         services.AddSingleton<IIpcHandler, Handlers.OutputRecoverHandler>();
         services.AddSingleton<IIpcHandler, Handlers.SettingsSetAutoRestoreHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.SettingsSetDisplayLostPolicyHandler>();
         services.AddSingleton<IIpcHandler, Handlers.DatabaseGetStatusHandler>();
         services.AddSingleton<IpcDispatcher>();
         services.AddSingleton<InboundProcessor>();
