@@ -1,4 +1,4 @@
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using OakProyektor.Data;
 using OakProyektor.Ipc;
@@ -72,6 +72,11 @@ internal sealed class ApplicationHost : IAsyncDisposable
         services.AddSingleton<IIpcHandler, Handlers.OutputCloseHandler>();
         services.AddSingleton<IIpcHandler, Handlers.OutputSetMasterHandler>();
         services.AddSingleton<IIpcHandler, Handlers.OutputRecoverHandler>();
+        services.AddSingleton<Core.Output.IMediaFileSystem, Core.Output.PhysicalMediaFileSystem>();
+        services.AddSingleton<IIpcHandler, Handlers.OutputSetBackgroundHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.OutputShowContentHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.OutputClearContentHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.OutputReportBackgroundFailureHandler>();
         services.AddSingleton<IIpcHandler, Handlers.SettingsSetAutoRestoreHandler>();
         services.AddSingleton<IIpcHandler, Handlers.SettingsSetDisplayLostPolicyHandler>();
         services.AddSingleton<IIpcHandler, Handlers.SettingsSetPanelAlertOnOutputHandler>();

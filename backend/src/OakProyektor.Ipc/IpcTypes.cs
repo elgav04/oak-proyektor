@@ -1,4 +1,4 @@
-namespace OakProyektor.Ipc;
+﻿namespace OakProyektor.Ipc;
 
 public static class IpcKind
 {
@@ -18,6 +18,11 @@ public static class IpcTypes
     public const string OutputClose = "output.close";
     public const string OutputSetMaster = "output.setMaster";
     public const string OutputRecover = "output.recover";
+    public const string OutputSetBackground = "output.setBackground";
+    public const string OutputShowContent = "output.showContent";
+    public const string OutputClearContent = "output.clearContent";
+    public const string OutputReportBackgroundFailure = "output.reportBackgroundFailure";
+    public const string OutputBackgroundFailed = "output.backgroundFailed";
     public const string SettingsSetAutoRestore = "settings.setAutoRestore";
     public const string SettingsSetDisplayLostPolicy = "settings.setDisplayLostPolicy";
     public const string SettingsSetPanelAlertOnOutput = "settings.setPanelAlertOnOutput";
@@ -51,8 +56,11 @@ public static class IpcCatalog
     /// nuevo comando <c>settings.setPanelAlertOnOutput</c>.
     /// v6: módulo de Biblias: comandos <c>bible.import</c> y <c>bible.setAttribution</c>; queries <c>bible.list</c>, <c>bible.lookup</c>, <c>bible.chapter</c>,
     /// <c>bible.search</c>, <c>bible.history</c> y <c>bible.suggest</c>; eventos <c>bible.importProgress</c> y <c>bible.importFinished</c> (sin texto bíblico).
+    /// v7: motor multimedia por capas: <c>OutputState</c> pasa a llevar <c>schemaVersion</c>, <c>background</c>, <c>content</c> y <c>overlays</c> (ya no <c>backgroundColor</c> ni <c>text</c>);
+    /// comandos <c>output.setBackground</c>, <c>output.showContent</c>, <c>output.clearContent</c> y <c>output.reportBackgroundFailure</c> (este último lo manda la salida);
+    /// evento <c>output.backgroundFailed</c>; errores <c>output.mediaRejected</c> y <c>output.invalidContent</c>.
     /// </summary>
-    public const int ProtocolVersion = 6;
+    public const int ProtocolVersion = 7;
 
     public static IReadOnlyList<MessageDescriptor> Messages { get; } =
     [
@@ -60,6 +68,11 @@ public static class IpcCatalog
         new(IpcTypes.OutputClose, IpcKind.Command),
         new(IpcTypes.OutputSetMaster, IpcKind.Command),
         new(IpcTypes.OutputRecover, IpcKind.Command),
+        new(IpcTypes.OutputSetBackground, IpcKind.Command),
+        new(IpcTypes.OutputShowContent, IpcKind.Command),
+        new(IpcTypes.OutputClearContent, IpcKind.Command),
+        new(IpcTypes.OutputReportBackgroundFailure, IpcKind.Command),
+        new(IpcTypes.OutputBackgroundFailed, IpcKind.Event),
         new(IpcTypes.SettingsSetAutoRestore, IpcKind.Command),
         new(IpcTypes.SettingsSetDisplayLostPolicy, IpcKind.Command),
         new(IpcTypes.SettingsSetPanelAlertOnOutput, IpcKind.Command),
@@ -91,5 +104,6 @@ public static class IpcCatalog
         new(IpcTypes.BibleImportFinished, IpcKind.Event),
     ];
 }
+
 
 

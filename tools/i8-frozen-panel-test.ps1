@@ -1,4 +1,4 @@
-# Prueba automatizada de I8 («el JS del panel se atasca»): arranca la aplicacion (compilacion Debug) con la depuracion remota de WebView2 SOLO para esta
+﻿# Prueba automatizada de I8 («el JS del panel se atasca»): arranca la aplicacion (compilacion Debug) con la depuracion remota de WebView2 SOLO para esta
 # prueba, abre la salida en una VENTANA NORMAL (en el monitor del panel; no toca el proyector), congela el panel con `while(true){}` y mide si la salida
 # sigue animandose. Repetir tras actualizar Photino.NET, Photino.Native o el runtime de WebView2 (ver CLAUDE.md).
 # -Full: ademas comprueba (con el panel congelado) el latido perdido en el log, el aviso opcional en la salida, los atajos globales de respaldo
@@ -88,7 +88,7 @@ try {
       const m = JSON.parse(raw);
       if (m.id === id) resolve(JSON.stringify(m.payload));
     });
-    send({ v: 5, id, kind: "query", type: "display.list", payload: {} });
+    send({ v:7, id, kind: "query", type: "display.list", payload: {} });
   });
 })()
 '@
@@ -96,7 +96,7 @@ try {
     $result.displayList = $list
     $panelId = ((($list | ConvertFrom-Json).result.displays) | Where-Object { $_.hostsPanel } | Select-Object -First 1).id
     if (-not $panelId) { throw "No se pudo leer el monitor del panel: $list" }
-    $cmd = "window.external.sendMessage(JSON.stringify({v:5,id:crypto.randomUUID(),kind:'command',type:'output.open',payload:{displayId:" + ($panelId | ConvertTo-Json -Compress) + "}}));true"
+    $cmd = "window.external.sendMessage(JSON.stringify({v:7,id:crypto.randomUUID(),kind:'command',type:'output.open',payload:{displayId:" + ($panelId | ConvertTo-Json -Compress) + "}}));true"
     [void](Eval $cws $cmd)
 
     $output = $null
@@ -187,18 +187,22 @@ new Promise((resolve) => {
             [Probe.Keys]::keybd_event($vk, 0, 0, [UIntPtr]::Zero); [Probe.Keys]::keybd_event($vk, 0, 2, [UIntPtr]::Zero)
             foreach ($m in 0x10, 0x12, 0x11) { [Probe.Keys]::keybd_event($m, 0, 2, [UIntPtr]::Zero) }
         }
-        $readOutput = 'JSON.stringify({ text: document.body.innerText.trim(), bg: [...document.querySelectorAll("div")].map((d) => getComputedStyle(d).backgroundColor).filter((c) => c !== "rgba(0, 0, 0, 0)")[0] })'
+        # La salida tiene capas (v7): se informa del texto visible del slide, de la cortina de Negro y de la de Logo.
+        $readOutput = 'JSON.stringify({ text: [...document.querySelectorAll(".content-text")].filter((n) => getComputedStyle(n.closest("[data-layer=content]")).visibility === "visible").map((n) => n.textContent).join("|"), black: getComputedStyle(document.querySelector("[data-layer=black]")).display, logo: getComputedStyle(document.querySelector("[data-layer=logo]")).display })'
 
         # a) Latido perdido: con el panel congelado, el backend lo registra a los ~10 s
         Start-Sleep -Seconds 13
         $result.watchdogLogged = ((Log-Text) -match "El panel dej.+ de responder")
         # b) Por defecto la proyeccion NO muestra nada; con el ajuste activado (enviado desde la pagina de salida, porque el panel esta congelado) aparece el aviso
         $result.alertShownByDefault = [bool]((Eval $ows 'document.body.innerText.includes("PANEL SIN RESPUESTA")'))
-        [void](Eval $ows "window.external.sendMessage(JSON.stringify({v:5,id:crypto.randomUUID(),kind:'command',type:'settings.setPanelAlertOnOutput',payload:{enabled:true}}));true")
+        [void](Eval $ows "window.external.sendMessage(JSON.stringify({v:7,id:crypto.randomUUID(),kind:'command',type:'settings.setPanelAlertOnOutput',payload:{enabled:true}}));true")
         Start-Sleep -Seconds 1
         $result.alertShownWhenEnabled = [bool]((Eval $ows 'document.body.innerText.includes("PANEL SIN RESPUESTA")'))
         $result.outputStillAnimating = (Eval $ows $measure)
         # c) Atajos globales de respaldo con el panel congelado: Negro (estado inicial = negro -> Live -> Negro), Logo, Limpiar texto
+        # Para que haya algo que ocultar: Live y un slide (la salida los manda como cualquier ventana; el panel esta congelado).
+        [void](Eval $ows "window.external.sendMessage(JSON.stringify({v:7,id:crypto.randomUUID(),kind:'command',type:'output.showContent',payload:{blocks:['Texto de prueba'],theme:{fontFamily:'Arial',fontSize:72,color:'#FFFFFF',outlineWidth:0,outlineColor:'#000000',shadowBlur:0,shadowOffset:0,shadowColor:'#000000',align:'center',verticalAlign:'middle',lineHeight:1.2,marginTop:50,marginRight:50,marginBottom:50,marginLeft:50,autoFit:true,minFontSize:24},transitionMs:0}}));window.external.sendMessage(JSON.stringify({v:7,id:crypto.randomUUID(),kind:'command',type:'output.setMaster',payload:{master:'live'}}));true")
+        Start-Sleep -Seconds 1
         $seq = @()
         $seq += "inicial=" + (Eval $ows $readOutput)
         Press-Hotkey 0x42; Start-Sleep -Milliseconds 800; $seq += "tras B=" + (Eval $ows $readOutput)

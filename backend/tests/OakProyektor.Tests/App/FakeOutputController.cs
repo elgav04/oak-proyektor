@@ -1,4 +1,4 @@
-using OakProyektor.App;
+﻿using OakProyektor.App;
 using OakProyektor.Core.Display;
 using OakProyektor.Core.Output;
 using OakProyektor.Ipc.Messages;
@@ -14,6 +14,11 @@ internal sealed class FakeOutputController : IOutputController
     public void Open(string? displayId, long order = 0) { Calls.Add($"open:{displayId ?? "auto"}"); Orders.Add(order); }
     public void Close() => Calls.Add("close");
     public void SetMaster(MasterMode master) => Calls.Add($"master:{master}");
+    public List<BackgroundLayer> Backgrounds { get; } = [];
+    public void SetBackground(BackgroundLayer background) { Calls.Add("background:" + background.Kind); Backgrounds.Add(background); }
+    public void ShowContent(IReadOnlyList<string> blocks, TextTheme theme, int transitionMs) => Calls.Add($"showContent:{blocks.Count}:{transitionMs}");
+    public void ClearContent(int transitionMs) => Calls.Add($"clearContent:{transitionMs}");
+    public void ReportBackgroundFailure(string mediaUrl, BackgroundFailureReason reason, string? detail) => Calls.Add($"backgroundFailure:{reason}:{mediaUrl}");
     public void CloseForShutdown() => Calls.Add("shutdown");
     public void EmergencyPause(OutputPauseReason reason, long order = 0) { Calls.Add($"pause:{reason}"); Orders.Add(order); }
     public void SettingsChanged() => Calls.Add("settingsChanged");

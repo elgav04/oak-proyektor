@@ -1,3 +1,4 @@
+﻿using OakProyektor.Core.Output;
 using OakProyektor.Ipc;
 using OakProyektor.Ipc.Messages;
 
@@ -54,6 +55,94 @@ internal sealed class OutputSetMasterHandler(IOutputController output) : IIpcHan
     public Task<object?> HandleAsync(IpcEnvelope request, CancellationToken cancellationToken)
     {
         output.SetMaster(request.GetPayload<OutputSetMasterPayload>().Master);
+        return Task.FromResult<object?>(null);
+    }
+}
+
+/// <summary>
+/// <c>output.setBackground</c>: valida ANTES de enviar nada a la salida (ruta canónica, existe, extensión permitida, sin rutas de red). La salida recibe solo la URL ya validada.
+/// La comprobación toca el disco (una unidad desconectada puede tardar): corre en el pool y con tope de tiempo, para no retener el carril de entrada indefinidamente.
+/// </summary>
+internal sealed class OutputSetBackgroundHandler(IOutputController output, IMediaFileSystem fileSystem, TimeSpan? validationTimeout = null) : IIpcHandler
+{
+    internal static readonly TimeSpan DefaultValidationTimeout = TimeSpan.FromSeconds(5);
+
+    public string Kind => IpcKind.Command;
+    public string Type => IpcTypes.OutputSetBackground;
+    public async Task<object?> HandleAsync(IpcEnvelope request, CancellationToken cancellationToken)
+    {
+        var p = request.GetPayload<OutputSetBackgroundPayload>();
+        if (!Enum.IsDefined(p.Kind)) throw new IpcException("output.invalidContent", "Tipo de fondo desconocido.");
+        if (ContentValidator.ValidateTransition(p.TransitionMs, "Fondo") is { } badTransition) throw new IpcException("output.invalidContent", badTransition);
+        var color = p.Color ?? BackgroundLayer.DefaultColor;
+        if (ContentValidator.ValidateColor(color, "Fondo") is { } badColor) throw new IpcException("output.invalidContent", badColor);
+
+        BackgroundLayer layer;
+        switch (p.Kind)
+        {
+            case BackgroundKind.None:
+                layer = BackgroundLayer.Empty with { TransitionMs = p.TransitionMs };
+                break;
+            case BackgroundKind.Color:
+                layer = BackgroundLayer.OfColor(color, p.TransitionMs);
+                break;
+            default:
+                var expected = p.Kind == BackgroundKind.Video ? MediaKind.Video : MediaKind.Image;
+                MediaValidation result;
+                try
+                {
+                    result = await Task.Run(() => MediaPathValidator.Validate(p.Path, fileSystem, expected), cancellationToken)
+                        .WaitAsync(validationTimeout ?? DefaultValidationTimeout, cancellationToken).ConfigureAwait(false);
+                }
+                catch (TimeoutException)
+                {
+                    throw new IpcException("output.mediaRejected", "No se pudo comprobar el archivo a tiempo (¿la unidad está desconectada o es muy lenta?).");
+                }
+                if (!result.IsValid) throw new IpcException("output.mediaRejected", result.Message ?? "Archivo rechazado.");
+                var media = result.Media!;
+                layer = new BackgroundLayer(p.Kind, color, media.Url, media.FileName, p.Muted, p.TransitionMs, media.Removable ? BackgroundLayer.RemovableDriveWarning : null);
+                break;
+        }
+        output.SetBackground(layer);
+        return null;
+    }
+}
+
+internal sealed class OutputShowContentHandler(IOutputController output) : IIpcHandler
+{
+    public string Kind => IpcKind.Command;
+    public string Type => IpcTypes.OutputShowContent;
+    public Task<object?> HandleAsync(IpcEnvelope request, CancellationToken cancellationToken)
+    {
+        var p = request.GetPayload<OutputShowContentPayload>();
+        if (ContentValidator.ValidateSlide(p.Blocks, p.Theme, p.TransitionMs) is { } problem) throw new IpcException("output.invalidContent", problem);
+        output.ShowContent(p.Blocks, p.Theme, p.TransitionMs);
+        return Task.FromResult<object?>(null);
+    }
+}
+
+internal sealed class OutputClearContentHandler(IOutputController output) : IIpcHandler
+{
+    public string Kind => IpcKind.Command;
+    public string Type => IpcTypes.OutputClearContent;
+    public Task<object?> HandleAsync(IpcEnvelope request, CancellationToken cancellationToken)
+    {
+        var p = request.GetPayload<OutputClearContentPayload>();
+        if (ContentValidator.ValidateTransition(p.TransitionMs, "Contenido") is { } problem) throw new IpcException("output.invalidContent", problem);
+        output.ClearContent(p.TransitionMs);
+        return Task.FromResult<object?>(null);
+    }
+}
+
+internal sealed class OutputReportBackgroundFailureHandler(IOutputController output) : IIpcHandler
+{
+    public string Kind => IpcKind.Command;
+    public string Type => IpcTypes.OutputReportBackgroundFailure;
+    public Task<object?> HandleAsync(IpcEnvelope request, CancellationToken cancellationToken)
+    {
+        var p = request.GetPayload<OutputReportBackgroundFailurePayload>();
+        if (!Enum.IsDefined(p.Reason)) throw new IpcException("invalid", "Motivo de fallo desconocido.");
+        output.ReportBackgroundFailure(p.MediaUrl, p.Reason, p.Detail);
         return Task.FromResult<object?>(null);
     }
 }

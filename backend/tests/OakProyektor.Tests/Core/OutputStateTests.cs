@@ -4,44 +4,32 @@ namespace OakProyektor.Tests.Core;
 
 public class OutputStateTests
 {
+    private static Slide SlideOf(string id, string text = "texto") => new(id, [new TextBlock(text)], TextTheme.Default);
+    private static BackgroundLayer Video(string url = "file:///C:/v/a.mp4") => new(BackgroundKind.Video, "#112233", url, "a.mp4", true, 600, null);
+
     [Fact]
-    public void Starts_black_with_no_text_at_revision_zero()
+    public void Starts_black_without_content_background_or_overlays_at_revision_zero_and_schema_one()
     {
         var s = OutputState.Initial;
-        Assert.Equal((0L, MasterMode.Black, "#000000", (string?)null), (s.Revision, s.Master, s.BackgroundColor, s.Text));
+        Assert.Equal((OutputState.CurrentSchemaVersion, 0L, MasterMode.Black), (s.SchemaVersion, s.Revision, s.Master));
+        Assert.Equal(1, s.SchemaVersion);
+        Assert.Equal(BackgroundKind.None, s.Background.Kind);
+        Assert.Null(s.Content.Slide);
+        Assert.Empty(s.Overlays.Items);
     }
 
     [Fact]
-    public void Live_shows_test_text_and_clear_text_keeps_only_the_background()
+    public void Master_modes_only_change_the_mode_and_keep_every_layer()
     {
-        var live = OutputState.Initial.WithMaster(MasterMode.Live);
-        Assert.Equal("Texto de prueba", live.Text);
-
-        var cleared = live.WithMaster(MasterMode.ClearText);
-        Assert.Null(cleared.Text);
-        Assert.Equal(live.BackgroundColor, cleared.BackgroundColor);
-    }
-
-    [Fact]
-    public void Black_and_logo_change_the_visuals()
-    {
-        var black = OutputState.Initial.WithMaster(MasterMode.Live).WithMaster(MasterMode.Black);
-        Assert.Equal(("#000000", (string?)null), (black.BackgroundColor, black.Text));
-
-        var logo = black.WithMaster(MasterMode.Logo);
-        Assert.Equal("LOGO", logo.Text);
-    }
-
-    [Fact]
-    public void Freeze_keeps_what_was_on_screen_but_is_a_new_revision()
-    {
-        var live = OutputState.Initial.WithMaster(MasterMode.Live);
-        var frozen = live.WithMaster(MasterMode.Freeze);
-
-        Assert.Equal(MasterMode.Freeze, frozen.Master);
-        Assert.Equal(live.BackgroundColor, frozen.BackgroundColor);
-        Assert.Equal(live.Text, frozen.Text);
-        Assert.Equal(live.Revision + 1, frozen.Revision);
+        var loaded = OutputState.Initial.WithBackground(Video()).WithSlide(SlideOf("s1"), 400);
+        foreach (var mode in Enum.GetValues<MasterMode>())
+        {
+            var s = loaded.WithMaster(mode);
+            Assert.Equal(mode, s.Master);
+            Assert.Equal(loaded.Background, s.Background);
+            Assert.Same(loaded.Content, s.Content);
+            Assert.Same(loaded.Overlays, s.Overlays);
+        }
     }
 
     [Fact]
@@ -52,7 +40,7 @@ public class OutputStateTests
     }
 
     [Fact]
-    public void Revision_only_grows()
+    public void Revision_only_grows_and_only_with_master_changes()
     {
         var s = OutputState.Initial;
         long last = s.Revision;
@@ -62,11 +50,71 @@ public class OutputStateTests
             Assert.True(s.Revision > last);
             last = s.Revision;
         }
+        var after = s.WithBackground(Video()).WithSlide(SlideOf("s1"), 400).WithoutSlide(400);
+        Assert.Equal(last, after.Revision);
     }
 
     [Fact]
     public void Unknown_master_is_rejected()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => OutputState.Initial.WithMaster((MasterMode)99));
+    }
+
+    [Fact]
+    public void Changing_the_content_never_touches_the_background_and_changing_the_background_never_touches_the_content()
+    {
+        // La garantía de «el video no se reinicia al cambiar el texto» empieza aquí: el fondo es el MISMO objeto.
+        var s = OutputState.Initial.WithMaster(MasterMode.Live).WithBackground(Video());
+        var bg = s.Background;
+        for (var i = 0; i < 50; i++) s = s.WithSlide(SlideOf($"s{i}", $"texto {i}"), 400);
+        Assert.Same(bg, s.Background);
+
+        var slide = s.Content.Slide;
+        s = s.WithBackground(BackgroundLayer.OfColor("#ff0000"));
+        Assert.Same(slide, s.Content.Slide);
+    }
+
+    [Fact]
+    public void The_same_background_is_not_a_change()
+    {
+        var s = OutputState.Initial.WithBackground(Video());
+        Assert.Same(s, s.WithBackground(Video()));   // iguales por valor: no se publica nada
+        Assert.NotSame(s, s.WithBackground(Video("file:///C:/v/b.mp4")));
+    }
+
+    [Fact]
+    public void A_new_slide_replaces_the_old_one_and_removing_it_is_not_the_clear_master()
+    {
+        var s = OutputState.Initial.WithSlide(SlideOf("s1"), 300);
+        Assert.Equal("s1", s.Content.Slide?.Id);
+        Assert.Equal(300, s.Content.TransitionMs);
+
+        s = s.WithSlide(SlideOf("s2"), 500);
+        Assert.Equal("s2", s.Content.Slide?.Id);
+
+        // Clear (maestro) OCULTA: el slide sigue en el estado y vuelve con Live. clearContent lo BORRA.
+        var cleared = s.WithMaster(MasterMode.ClearText);
+        Assert.Equal("s2", cleared.Content.Slide?.Id);
+        Assert.Null(s.WithoutSlide(200).Content.Slide);
+        Assert.Null(s.WithoutSlide(200).WithoutSlide(200).Content.Slide);   // sin slide, quitarlo de nuevo no cambia nada
+    }
+
+    [Fact]
+    public void Freeze_is_just_a_mode_in_the_state_which_keeps_accumulating_changes_for_the_output_to_hold_back()
+    {
+        // La salida es quien «no aplica» snapshots durante Freeze (frontend/src/output/freeze.ts); el estado sigue siendo la verdad y acumula.
+        var s = OutputState.Initial.WithMaster(MasterMode.Live).WithSlide(SlideOf("s1"), 400).WithMaster(MasterMode.Freeze).WithSlide(SlideOf("s2"), 400);
+        Assert.Equal(MasterMode.Freeze, s.Master);
+        Assert.Equal("s2", s.Content.Slide?.Id);
+    }
+
+    [Fact]
+    public void Every_layer_has_a_value_object_shape_for_the_wire()
+    {
+        // OutputState se serializa tal cual: todo debe ser un record con valores (sin referencias a servicios ni estados mutables).
+        var json = System.Text.Json.JsonSerializer.Serialize(OutputState.Initial.WithBackground(Video()).WithSlide(SlideOf("s1"), 400), OakProyektor.Ipc.IpcSerializer.Options);
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        var names = doc.RootElement.EnumerateObject().Select(p => p.Name).ToArray();
+        Assert.Equal(["schemaVersion", "revision", "master", "background", "content", "overlays"], names);
     }
 }

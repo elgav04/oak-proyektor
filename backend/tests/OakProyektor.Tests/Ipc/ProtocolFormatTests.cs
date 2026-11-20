@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -41,6 +41,19 @@ public partial class ProtocolFormatTests
         new(typeof(SetAutoRestorePayload), "SetAutoRestorePayload", Direction.ToBackend),
         new(typeof(SetDisplayLostPolicyPayload), "SetDisplayLostPolicyPayload", Direction.ToBackend),
         new(typeof(SetPanelAlertOnOutputPayload), "SetPanelAlertOnOutputPayload", Direction.ToBackend),
+        new(typeof(OutputSetBackgroundPayload), "OutputSetBackgroundPayload", Direction.ToBackend),
+        new(typeof(OutputShowContentPayload), "OutputShowContentPayload", Direction.ToBackend),
+        new(typeof(OutputClearContentPayload), "OutputClearContentPayload", Direction.ToBackend),
+        new(typeof(OutputReportBackgroundFailurePayload), "OutputReportBackgroundFailurePayload", Direction.ToBackend),
+        new(typeof(OutputBackgroundFailedPayload), "OutputBackgroundFailedPayload", Direction.FromBackend),
+        new(typeof(BackgroundLayer), "BackgroundLayer", Direction.FromBackend),
+        new(typeof(TextBlock), "TextBlock", Direction.FromBackend),
+        // El tema viaja en las dos direcciones (el panel lo manda en showContent y vuelve en el estado): se compara con la regla más estricta de cada dirección.
+        new(typeof(TextTheme), "TextTheme", Direction.FromBackend),
+        new(typeof(Slide), "Slide", Direction.FromBackend),
+        new(typeof(ContentLayer), "ContentLayer", Direction.FromBackend),
+        new(typeof(OverlayItem), "OverlayItem", Direction.FromBackend),
+        new(typeof(OverlayLayer), "OverlayLayer", Direction.FromBackend),
         new(typeof(HotkeyStatus), "HotkeyStatus", Direction.FromBackend),
         new(typeof(DisplayInfo), "DisplayInfo", Direction.FromBackend),
         new(typeof(OutputState), "OutputState", Direction.FromBackend),
@@ -83,9 +96,13 @@ public partial class ProtocolFormatTests
         ["OutputPauseReason"] = typeof(OutputPauseReason),
         ["RecoverReason"] = typeof(OutputPauseReason),
         ["DisplayLostPolicy"] = typeof(DisplayLostPolicy),
+        ["BackgroundKind"] = typeof(BackgroundKind),
+        ["TextAlign"] = typeof(TextAlign),
+        ["VerticalAlign"] = typeof(VerticalAlign),
+        ["BackgroundFailureReason"] = typeof(BackgroundFailureReason),
     };
 
-    private static readonly Type[] WireEnums = [typeof(MasterMode), typeof(DatabaseState), typeof(OutputPauseReason), typeof(DisplayLostPolicy)];
+    private static readonly Type[] WireEnums = [typeof(MasterMode), typeof(DatabaseState), typeof(OutputPauseReason), typeof(DisplayLostPolicy), typeof(BackgroundKind), typeof(TextAlign), typeof(VerticalAlign), typeof(BackgroundFailureReason)];
 
     /// <summary>Nombre en protocol.ts de los tipos de C# cuyo nombre difiere.</summary>
     private static string TsNameOf(Type t) => t == typeof(IpcError) ? "IpcErrorPayload" : t.Name;
@@ -100,6 +117,7 @@ public partial class ProtocolFormatTests
         [4] = "2acd299b86c38d491db90fe708f4ab670a8a583ba376229ceda88a8440ae8318",
         [5] = "23f336405eb149dc5492da3c76522deab42c4c39bc1db04863c4096c6201998e",
         [6] = "84d18f234430887ce27c5d69c230d34698fdae2f5129c98296299dbef2cdb44b",
+        [7] = "500376f2b5030c49250ad82c905d2fe55c31b76ebfd581b7209672802df93e25",
     };
 
     // ───────────────────────────── lectura de C# ─────────────────────────────
@@ -307,11 +325,14 @@ public partial class ProtocolFormatTests
     [InlineData("  width: number;", "  width: string;", "DisplayInfo.width: tipo distinto")]
     [InlineData("  seq: number;\n  displays:", "  seq: string;\n  displays:", "DisplayListPayload.seq: tipo distinto")]
     [InlineData("  displays: DisplayInfo[];", "  displays: DisplayInfo;", "DisplayListPayload.displays: tipo distinto")]
-    [InlineData("  master: MasterMode;\n  backgroundColor", "  master: string;\n  backgroundColor", "OutputState.master: tipo distinto")]
+    [InlineData("  master: MasterMode;\n  background: BackgroundLayer;", "  master: string;\n  background: BackgroundLayer;", "OutputState.master: tipo distinto")]
     // C# puede enviar null y TypeScript no lo admite
     [InlineData("  displayId: string | null;\n  isWindowed", "  displayId: string;\n  isWindowed", "OutputWindowStatus.displayId: C# puede enviar null y TypeScript no lo admite")]
     [InlineData("  pauseReason: OutputPauseReason | null;", "  pauseReason: OutputPauseReason;", "OutputWindowStatus.pauseReason: C# puede enviar null")]
-    [InlineData("  text: string | null;", "  text: string;", "OutputState.text: C# puede enviar null")]
+    [InlineData("  mediaUrl: string | null;", "  mediaUrl: string;", "BackgroundLayer.mediaUrl: C# puede enviar null")]
+    [InlineData("  slide: Slide | null;", "  slide: Slide;", "ContentLayer.slide: C# puede enviar null")]
+    [InlineData("  kind: BackgroundKind;\n  color: string;\n  mediaUrl", "  kind: string;\n  color: string;\n  mediaUrl", "BackgroundLayer.kind: tipo distinto")]
+    [InlineData("export type BackgroundFailureReason = \"unsupportedFormat\"", "export type BackgroundFailureReason = \"hevcRoto\" | \"unsupportedFormat\"", "«hevcRoto» no existe en BackgroundFailureReason")]
     // TypeScript admite null pero C# nunca lo envía
     [InlineData("  state: DatabaseState;", "  state: DatabaseState | null;", "DatabaseStatusPayload.state: TypeScript admite null pero C# nunca lo envía")]
     [InlineData("  id: string;\n  x: number;", "  id: string | null;\n  x: number;", "DisplayInfo.id: TypeScript admite null")]

@@ -1,4 +1,4 @@
-using OakProyektor.Core.Database;
+﻿using OakProyektor.Core.Database;
 using OakProyektor.Core.Display;
 using OakProyektor.Core.Output;
 
@@ -30,6 +30,27 @@ public sealed record OutputSetMasterPayload(MasterMode Master);
 /// emergencia del respaldo de la página de salida (<c>emergency</c>). Ausente, nulo o cualquier otro valor = <c>manual</c>.
 /// </summary>
 public sealed record OutputRecoverPayload(OutputPauseReason? Reason);
+
+/// <summary>
+/// <c>output.setBackground</c>. <c>Kind</c> none/color no usan <c>Path</c>; image/video exigen una ruta local que el backend valida (ver <c>MediaPathValidator</c>);
+/// su extensión debe corresponder al tipo. <c>Color</c> es el color del fondo (color) o el de reserva si el medio falla (null = el actual o #000000).
+/// </summary>
+public sealed record OutputSetBackgroundPayload(BackgroundKind Kind, string? Path, string? Color, bool Muted, int TransitionMs);
+
+/// <summary><c>output.showContent</c>: un slide (los textos de sus bloques) con su tema y la duración del crossfade.</summary>
+public sealed record OutputShowContentPayload(IReadOnlyList<string> Blocks, TextTheme Theme, int TransitionMs);
+
+/// <summary><c>output.clearContent</c>: quita el slide (queda solo el fondo). Distinto del control maestro Clear, que solo lo oculta.</summary>
+public sealed record OutputClearContentPayload(int TransitionMs);
+
+/// <summary>
+/// <c>output.reportBackgroundFailure</c>: la SALIDA informa de que no pudo reproducir su fondo (ya cayó al color de reserva). <c>MediaUrl</c> identifica
+/// de qué fondo habla: si ya no es el actual, el backend lo ignora. <c>Detail</c> es técnico (solo para el log).
+/// </summary>
+public sealed record OutputReportBackgroundFailurePayload(string MediaUrl, BackgroundFailureReason Reason, string? Detail);
+
+/// <summary>Evento <c>output.backgroundFailed</c> (al panel): el fondo actual no se pudo reproducir; <c>Message</c> explica el motivo.</summary>
+public sealed record OutputBackgroundFailedPayload(BackgroundFailureReason Reason, string Message, string? FileName);
 
 /// <summary>Reanudar/restaurar automáticamente al reaparecer el monitor (<c>settings.setAutoRestore</c>).</summary>
 public sealed record SetAutoRestorePayload(bool Enabled);
@@ -75,3 +96,4 @@ public sealed record OutputStateChangedPayload(long Seq, OutputState State, Outp
 /// qué pasó y <c>BackupPath</c> (si lo hay) es la copia previa a la migración, con los datos originales.
 /// </summary>
 public sealed record DatabaseStatusPayload(long Seq, DatabaseState State, string? Message, string? BackupPath);
+

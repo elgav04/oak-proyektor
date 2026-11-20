@@ -1,10 +1,11 @@
-using Microsoft.Extensions.Logging.Abstractions;
+﻿using Microsoft.Extensions.Logging.Abstractions;
 using OakProyektor.App;
 using OakProyektor.App.Handlers;
 using OakProyektor.Core.Display;
 using OakProyektor.Core.Output;
 using OakProyektor.Ipc;
 using OakProyektor.Ipc.Messages;
+using OakProyektor.Tests.Core;
 using OakProyektor.Tests.Ipc;
 
 namespace OakProyektor.Tests.App;
@@ -24,7 +25,7 @@ internal sealed class NoBibles : OakProyektor.Data.Scripture.IBibleQueryService
 public class HandlerTests
 {
     private static string Msg(string kind, string type, string payload = "{}") =>
-        $$"""{"v":6,"id":"q1","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
+        $$"""{"v":7,"id":"q1","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
 
     private static (IpcDispatcher Dispatcher, FakeOutputController Output) Create(params DisplayInfo[] displays)
     {
@@ -37,6 +38,10 @@ public class HandlerTests
             new OutputCloseHandler(output),
             new OutputSetMasterHandler(output),
             new OutputRecoverHandler(output),
+            new OutputSetBackgroundHandler(output, new FakeMediaFileSystem()),
+            new OutputShowContentHandler(output),
+            new OutputClearContentHandler(output),
+            new OutputReportBackgroundFailureHandler(output),
             new SettingsSetAutoRestoreHandler(new InMemorySettings(), output),
             new SettingsSetDisplayLostPolicyHandler(new InMemorySettings(), output),
             new SettingsSetPanelAlertOnOutputHandler(new InMemorySettings(), output),
@@ -68,6 +73,10 @@ public class HandlerTests
             var payload = m.Type switch
             {
                 IpcTypes.OutputSetMaster => """{"master":"live"}""",
+                IpcTypes.OutputSetBackground => """{"kind":"color","path":null,"color":"#112233","muted":true,"transitionMs":300}""",
+                IpcTypes.OutputShowContent => """{"blocks":["Hola"],"theme":{"fontFamily":"Arial","fontSize":72,"color":"#FFFFFF","outlineWidth":0,"outlineColor":"#000000","shadowBlur":0,"shadowOffset":0,"shadowColor":"#000000","align":"center","verticalAlign":"middle","lineHeight":1.2,"marginTop":50,"marginRight":50,"marginBottom":50,"marginLeft":50,"autoFit":true,"minFontSize":24},"transitionMs":400}""",
+                IpcTypes.OutputClearContent => """{"transitionMs":400}""",
+                IpcTypes.OutputReportBackgroundFailure => """{"mediaUrl":"file:///x","reason":"unsupportedFormat","detail":null}""",
                 IpcTypes.SettingsSetAutoRestore => """{"enabled":false}""",
                 IpcTypes.SettingsSetDisplayLostPolicy => """{"policy":"moveToBest"}""",
                 IpcTypes.SettingsSetPanelAlertOnOutput => """{"enabled":true}""",
@@ -82,7 +91,7 @@ public class HandlerTests
         }
         Assert.True(unhandled.Count == 0, "Mensajes del catálogo sin handler: " + string.Join(", ", unhandled));
         // Los comandos llegaron a su handler (si faltara uno, el despachador solo lo registraría y no quedaría la llamada).
-        Assert.Equal(["open:auto", "close", "master:Live", "pause:Manual", "settingsChanged", "settingsChanged", "settingsChanged"], output.Calls);
+        Assert.Equal(["open:auto", "close", "master:Live", "pause:Manual", "background:Color", "showContent:1:400", "clearContent:400", "backgroundFailure:UnsupportedFormat:file:///x", "settingsChanged", "settingsChanged", "settingsChanged"], output.Calls);
     }
 
     [Fact]

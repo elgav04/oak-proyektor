@@ -1,5 +1,5 @@
 ﻿import { useState } from "react";
-import type { OutputState } from "@/ipc/protocol";
+import type { BackgroundLayer, OutputState, Slide, TextTheme } from "@/ipc/protocol";
 import "../output.css";
 import { OutputScreen } from "../OutputScreen";
 
@@ -10,35 +10,41 @@ import { OutputScreen } from "../OutputScreen";
  * Esperado: «Snapshot que ROMPE» NO deja el recuadro en negro; conserva lo último pintado.
  * Un snapshot bueno posterior lo recupera.
  */
-const GOOD: Record<string, Omit<OutputState, "revision">> = {
-  live: { master: "live", backgroundColor: "#1e3a8a", text: "Texto de prueba" },
-  logo: { master: "logo", backgroundColor: "#111827", text: "LOGO" },
+const THEME: TextTheme = {
+  fontFamily: "Arial, sans-serif", fontSize: 72, color: "#FFFFFF", outlineWidth: 0, outlineColor: "#000000", shadowBlur: 8, shadowOffset: 3, shadowColor: "#000000",
+  align: "center", verticalAlign: "middle", lineHeight: 1.25, marginTop: 80, marginRight: 120, marginBottom: 80, marginLeft: 120, autoFit: true, minFontSize: 28,
 };
+const bg = (color: string): BackgroundLayer => ({ kind: "color", color, mediaUrl: null, fileName: null, muted: true, transitionMs: 300, warning: null });
+const slide = (id: string, text: unknown): Slide => ({ id, blocks: [{ text: text as string }], theme: THEME });
+
+function state(master: OutputState["master"], color: string, s: Slide | null, revision: number): OutputState {
+  return { schemaVersion: 1, revision, master, background: bg(color), content: { slide: s, transitionMs: 400 }, overlays: { items: [] } };
+}
 
 export function OutputProbe() {
   const [revision, setRevision] = useState(0);
-  const [state, setState] = useState<OutputState | null>(null);
+  const [current, setCurrent] = useState<OutputState | null>(null);
 
-  const push = (next: Omit<OutputState, "revision"> | { master: "live"; backgroundColor: string; text: unknown }): void => {
+  const push = (next: (revision: number) => OutputState): void => {
     const nextRevision = revision + 1;
     setRevision(nextRevision);
-    // El snapshot que rompe lleva `text` como objeto: React lanza «Objects are not valid as a React child» al renderizarlo.
-    setState({ ...next, revision: nextRevision } as unknown as OutputState);
+    setCurrent(next(nextRevision));
   };
 
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-4 p-6" style={{ fontFamily: "system-ui, sans-serif" }}>
       <h1>Prueba del ErrorBoundary de la salida</h1>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <button onClick={() => { push(GOOD.live ?? { master: "live", backgroundColor: "#000", text: null }); }}>Snapshot bueno 1 (Live)</button>
-        <button onClick={() => { push(GOOD.logo ?? { master: "live", backgroundColor: "#000", text: null }); }}>Snapshot bueno 2 (Logo)</button>
-        <button data-testid="break" onClick={() => { push({ master: "live", backgroundColor: "#7f1d1d", text: { boom: true } }); }}>Snapshot que ROMPE el render</button>
+        <button onClick={() => { push((r) => state("live", "#1e3a8a", slide(`s${String(r)}`, "Texto de prueba"), r)); }}>Snapshot bueno 1 (Live)</button>
+        <button onClick={() => { push((r) => state("logo", "#111827", null, r)); }}>Snapshot bueno 2 (Logo)</button>
+        {/* El texto de un bloque llega como objeto: React lanza «Objects are not valid as a React child» al renderizarlo. */}
+        <button data-testid="break" onClick={() => { push((r) => state("live", "#7f1d1d", slide(`s${String(r)}`, { boom: true }), r)); }}>Snapshot que ROMPE el render</button>
       </div>
       <p>Revisión actual: {revision}. Esperado: tras «ROMPE» el recuadro conserva lo último pintado (no negro).</p>
       <div style={{ width: "100%", aspectRatio: "16 / 9", border: "2px solid #444", position: "relative", overflow: "hidden" }}>
         <div style={{ position: "absolute", inset: 0 }}>
           {/* Igual que la salida real: el boundary se reinicia con la secuencia (aquí, el contador) y NO con `state.revision`. */}
-          <OutputScreen state={state} seq={state === null ? null : revision} />
+          <OutputScreen state={current} seq={current === null ? null : revision} />
         </div>
       </div>
     </main>

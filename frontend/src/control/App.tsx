@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ipc } from "@/ipc/instance";
 import { MASTER_MODES, type DisplayInfo, type MasterMode, type OutputPauseReason } from "@/ipc/protocol";
+import { MediaTest } from "./MediaTest";
 import { describeOutput, type OutputNotice } from "./outputNotice";
 import { connectControlStore, dismissFailure, reconnectControl, useControlStore } from "./store";
 
@@ -333,11 +334,12 @@ export function App() {
           ))}
         </div>
         {output && (
-          <div className="mt-2 flex h-32 items-center justify-center rounded-md border text-2xl font-semibold text-white" style={{ backgroundColor: output.state.backgroundColor }}>
-            {output.state.text ?? ""}
+          <div className="mt-2 flex h-32 items-center justify-center rounded-md border text-2xl font-semibold text-white" style={{ backgroundColor: output.state.background.color }}>
+            {output.state.content.slide?.blocks[0]?.text ?? ""}
           </div>
         )}
       </section>
+      <MediaTest />
     </main>
   );
 }

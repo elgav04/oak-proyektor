@@ -1,26 +1,20 @@
-import { useEffect, useState } from "react";
+﻿import { useCallback, useEffect, useState } from "react";
 import { ipc } from "@/ipc/instance";
-import type { OutputState, OutputStateChangedPayload } from "@/ipc/protocol";
+import type { OutputStateChangedPayload } from "@/ipc/protocol";
 import { createRetrier } from "@/ipc/retry";
-import { isNewer } from "@/ipc/sequence";
+import type { BackgroundFailure } from "./background/engine";
 import { isEmergencyKey } from "./emergency";
+import { nextView, type OutputView as View } from "./freeze";
 import { OutputScreen } from "./OutputScreen";
-
-interface Applied {
-  seq: number;
-  state: OutputState;
-  /** El backend dice que el panel está sin respuesta Y el operador pidió verlo en la salida (por defecto NO: la proyección no muestra nada). */
-  panelAlert: boolean;
-}
 
 /** La salida es "tonta": recibe snapshots por IPC y los pinta; nada más. */
 export function OutputView() {
-  const [applied, setApplied] = useState<Applied | null>(null);
+  const [view, setView] = useState<View | null>(null);
 
   useEffect(() => {
-    // Un snapshot se aplica solo si su secuencia es estrictamente mayor que la última (descarta viejos y repetidos).
+    // Un snapshot se aplica solo si su secuencia es estrictamente mayor que la última (descarta viejos y repetidos). Con Freeze, `nextView` retiene lo pintado (ver freeze.ts).
     const apply = (next: OutputStateChangedPayload): void => {
-      setApplied((current) => (isNewer(current?.seq ?? null, next.seq) ? { seq: next.seq, state: next.state, panelAlert: next.window.panelUnresponsive && next.window.panelAlertOnOutput } : current));
+      setView((current) => nextView(current, next));
     };
     const off = ipc.subscribe("output.stateChanged", apply);
 
@@ -45,10 +39,15 @@ export function OutputView() {
     };
   }, []);
 
+  // El fondo no pudo reproducirse (ya cayó al color de reserva): la salida solo avisa al backend; este decide qué le dice al panel.
+  const reportFailure = useCallback((failure: BackgroundFailure): void => {
+    ipc.send("output.reportBackgroundFailure", { mediaUrl: failure.mediaUrl, reason: failure.reason, detail: failure.detail });
+  }, []);
+
   return (
     <>
-      <OutputScreen state={applied?.state ?? null} seq={applied?.seq ?? null} />
-      {applied?.panelAlert === true && (
+      <OutputScreen state={view?.shown ?? null} seq={view?.seq ?? null} onBackgroundFailure={reportFailure} />
+      {view?.panelAlert === true && (
         // Aviso discreto, solo si el operador lo configuró: el panel está atascado pero la salida sigue proyectando.
         <div
           role="status"

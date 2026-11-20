@@ -1,4 +1,4 @@
-using System.Drawing;
+﻿using System.Drawing;
 using Microsoft.Extensions.Logging;
 using OakProyektor.Core.Display;
 using OakProyektor.Core.Output;
@@ -21,6 +21,14 @@ internal interface IOutputController
     /// <summary>Cierra la salida. Lanza <see cref="IpcException"/> si la ventana no se pudo cerrar.</summary>
     void Close();
     void SetMaster(MasterMode master);
+    /// <summary>Cambia el fondo (ya validado por el handler). No toca el contenido, el modo maestro ni la ventana: sigue igual aunque la salida esté en pausa.</summary>
+    void SetBackground(BackgroundLayer background);
+    /// <summary>Muestra un slide (ya validado). No cambia el modo maestro: si está en Black/Clear/Logo no se ve hasta volver a Live.</summary>
+    void ShowContent(IReadOnlyList<string> blocks, TextTheme theme, int transitionMs);
+    /// <summary>Quita el slide del estado (queda solo el fondo).</summary>
+    void ClearContent(int transitionMs);
+    /// <summary>La salida informa de que no pudo reproducir su fondo. Si <paramref name="mediaUrl"/> ya no es el fondo actual se ignora; si lo es, se avisa al panel.</summary>
+    void ReportBackgroundFailure(string mediaUrl, BackgroundFailureReason reason, string? detail);
     /// <summary>
     /// Minimiza la salida y le quita topmost, sin cerrarla ni perder su estado. Pensado para emergencias: NO espera a ninguna
     /// operación en curso (p. ej. una apertura lenta) y actúa por Win32 directamente sobre la ventana, sin esperar al hilo de UI.
@@ -71,6 +79,8 @@ internal sealed class OutputController : IOutputController
     private readonly OrderClock _clock;
     private readonly ILogger<OutputController> _logger;
     private readonly SequencedSnapshotPublisher<OutputSnapshot> _publisher;
+    private readonly IOutbox _outbox;
+    private long _slideCounter;
 
     private readonly object _gate = new();
     private readonly object _lifecycle = new();
@@ -93,7 +103,7 @@ internal sealed class OutputController : IOutputController
         IOutbox outbox, ApplicationPaths paths, WebViewProfile profile, ISettingsStore settings, ScreenWakeLock wakeLock, OrderClock clock, ILogger<OutputController> logger)
     {
         _main = main; _windows = windows; _ui = ui; _displays = displays; _inbound = inbound;
-        _paths = paths; _profile = profile; _settings = settings; _wakeLock = wakeLock; _clock = clock; _logger = logger;
+        _outbox = outbox; _paths = paths; _profile = profile; _settings = settings; _wakeLock = wakeLock; _clock = clock; _logger = logger;
         _publisher = new SequencedSnapshotPublisher<OutputSnapshot>(
             outbox, IpcTypes.OutputStateChanged, Targets.All, (seq, s) => new OutputStateChangedPayload(seq, s.State, s.Window));
         _displays.Polled += OnPolled;
@@ -123,6 +133,40 @@ internal sealed class OutputController : IOutputController
     {
         lock (_gate) _state = _state.WithMaster(master);
         Publish();
+    }
+
+    public void SetBackground(BackgroundLayer background)
+    {
+        lock (_gate) _state = _state.WithBackground(background);
+        Publish();
+    }
+
+    public void ShowContent(IReadOnlyList<string> blocks, TextTheme theme, int transitionMs)
+    {
+        var slide = new Slide($"s{Interlocked.Increment(ref _slideCounter)}", [.. blocks.Select(b => new TextBlock(b))], theme);
+        lock (_gate) _state = _state.WithSlide(slide, transitionMs);
+        Publish();
+    }
+
+    public void ClearContent(int transitionMs)
+    {
+        lock (_gate) _state = _state.WithoutSlide(transitionMs);
+        Publish();
+    }
+
+    public void ReportBackgroundFailure(string mediaUrl, BackgroundFailureReason reason, string? detail)
+    {
+        string? fileName;
+        lock (_gate)
+        {
+            // Un informe de un fondo que ya no es el actual (el operador cambió mientras tanto) no debe asustar al panel.
+            if (_state.Background.MediaUrl is null || !string.Equals(_state.Background.MediaUrl, mediaUrl, StringComparison.Ordinal)) return;
+            fileName = _state.Background.FileName;
+        }
+        var safeDetail = detail is null ? null : detail.Length > 200 ? detail[..200] : detail;
+        _logger.LogWarning("La salida no pudo reproducir el fondo {FileName}: {Reason} ({Detail})", fileName, reason, safeDetail);
+        _outbox.Publish(IpcEnvelope.Create(IpcKind.Event, IpcTypes.OutputBackgroundFailed,
+            new OutputBackgroundFailedPayload(reason, BackgroundFailures.Describe(reason, fileName), fileName)), Targets.Control);
     }
 
     public void SettingsChanged() => Publish();

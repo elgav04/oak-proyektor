@@ -8,8 +8,11 @@
  * prioridad en el backend (el orden entre carriles no está garantizado; dentro de cada uno sí).
  * v3: `output.recover` lleva `{ reason: "manual" | "emergency" }` (el atajo de respaldo de la salida se distingue del botón del panel).
  * v6: módulo de Biblias (`bible.*`). Los mensajes de importación nunca llevan texto bíblico, solo conteos y referencias.
+ * v7: motor multimedia por capas: `OutputState` lleva `schemaVersion`, `background`, `content` y `overlays` (ya no `backgroundColor` ni `text`);
+ * comandos `output.setBackground`, `output.showContent`, `output.clearContent` y `output.reportBackgroundFailure` (este lo manda la salida);
+ * evento `output.backgroundFailed`; errores `output.mediaRejected` y `output.invalidContent`.
  */
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 
 export type MessageKind = "command" | "event" | "query" | "reply";
 
@@ -18,6 +21,11 @@ export const MESSAGE_CATALOG = [
   { type: "output.close", kind: "command" },
   { type: "output.setMaster", kind: "command" },
   { type: "output.recover", kind: "command" },
+  { type: "output.setBackground", kind: "command" },
+  { type: "output.showContent", kind: "command" },
+  { type: "output.clearContent", kind: "command" },
+  { type: "output.reportBackgroundFailure", kind: "command" },
+  { type: "output.backgroundFailed", kind: "event" },
   { type: "settings.setAutoRestore", kind: "command" },
   { type: "settings.setDisplayLostPolicy", kind: "command" },
   { type: "settings.setPanelAlertOnOutput", kind: "command" },
@@ -76,11 +84,110 @@ export interface DisplayInfo {
   hostsPanel: boolean;
 }
 
+/** Tipo de fondo (capa 1). */
+export type BackgroundKind = "none" | "color" | "image" | "video";
+export type TextAlign = "left" | "center" | "right";
+export type VerticalAlign = "top" | "middle" | "bottom";
+/** Por qué la salida no pudo reproducir el fondo (el texto para el operador lo pone el backend). */
+export type BackgroundFailureReason = "unsupportedFormat" | "decodeError" | "readError" | "stalled" | "imageError";
+
+/**
+ * Capa 1. `color` es siempre un color válido: el fondo de tipo color y el color de reserva si el medio falla. `mediaUrl` es una URL `file:///` ya VALIDADA
+ * por el backend. `warning`: `removableDrive` = el archivo está en una unidad extraíble (solo informativo para el panel).
+ */
+export interface BackgroundLayer {
+  kind: BackgroundKind;
+  color: string;
+  mediaUrl: string | null;
+  fileName: string | null;
+  muted: boolean;
+  transitionMs: number;
+  warning: string | null;
+}
+
+export interface TextBlock {
+  text: string;
+}
+
+/** Medidas en píxeles del lienzo virtual de 1920×1080. */
+export interface TextTheme {
+  fontFamily: string;
+  fontSize: number;
+  color: string;
+  outlineWidth: number;
+  outlineColor: string;
+  shadowBlur: number;
+  shadowOffset: number;
+  shadowColor: string;
+  align: TextAlign;
+  verticalAlign: VerticalAlign;
+  lineHeight: number;
+  marginTop: number;
+  marginRight: number;
+  marginBottom: number;
+  marginLeft: number;
+  autoFit: boolean;
+  minFontSize: number;
+}
+
+export interface Slide {
+  id: string;
+  blocks: TextBlock[];
+  theme: TextTheme;
+}
+
+export interface ContentLayer {
+  slide: Slide | null;
+  transitionMs: number;
+}
+
+export interface OverlayItem {
+  id: string;
+  kind: string;
+}
+
+/** Capa 3: solo la estructura; todavía no hay alertas ni ticker. */
+export interface OverlayLayer {
+  items: OverlayItem[];
+}
+
 export interface OutputState {
+  schemaVersion: number;
   revision: number;
   master: MasterMode;
-  backgroundColor: string;
-  text: string | null;
+  background: BackgroundLayer;
+  content: ContentLayer;
+  overlays: OverlayLayer;
+}
+
+export interface OutputSetBackgroundPayload {
+  kind: BackgroundKind;
+  path: string | null;
+  color: string | null;
+  muted: boolean;
+  transitionMs: number;
+}
+
+export interface OutputShowContentPayload {
+  blocks: string[];
+  theme: TextTheme;
+  transitionMs: number;
+}
+
+export interface OutputClearContentPayload {
+  transitionMs: number;
+}
+
+export interface OutputReportBackgroundFailurePayload {
+  mediaUrl: string;
+  reason: BackgroundFailureReason;
+  detail: string | null;
+}
+
+export interface OutputBackgroundFailedPayload {
+  reason: BackgroundFailureReason;
+  message: string;
+  fileName: string | null;
 }
 
 export interface OutputOpenPayload {
@@ -352,6 +459,10 @@ export interface CommandPayloads {
   "output.close": EmptyPayload;
   "output.setMaster": OutputSetMasterPayload;
   "output.recover": OutputRecoverPayload;
+  "output.setBackground": OutputSetBackgroundPayload;
+  "output.showContent": OutputShowContentPayload;
+  "output.clearContent": OutputClearContentPayload;
+  "output.reportBackgroundFailure": OutputReportBackgroundFailurePayload;
   "settings.setAutoRestore": SetAutoRestorePayload;
   "settings.setDisplayLostPolicy": SetDisplayLostPolicyPayload;
   "settings.setPanelAlertOnOutput": SetPanelAlertOnOutputPayload;
@@ -364,6 +475,7 @@ export interface EventPayloads {
   "display.changed": DisplayListPayload;
   "output.stateChanged": OutputStateChangedPayload;
   "command.failed": CommandFailedPayload;
+  "output.backgroundFailed": OutputBackgroundFailedPayload;
   "database.statusChanged": DatabaseStatusPayload;
   "bible.importProgress": BibleImportProgressPayload;
   "bible.importFinished": BibleImportFinishedPayload;

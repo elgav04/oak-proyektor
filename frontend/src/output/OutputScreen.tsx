@@ -1,5 +1,6 @@
 ﻿import { useCallback, useRef } from "react";
 import type { OutputState } from "@/ipc/protocol";
+import type { BackgroundFailure } from "./background/engine";
 import { OutputErrorBoundary } from "./OutputErrorBoundary";
 import { OutputStage } from "./OutputStage";
 
@@ -9,15 +10,15 @@ import { OutputStage } from "./OutputStage";
  * falló. NO se usa `state.revision`: desde el protocolo v2 solo cuenta cambios de los controles maestros, así que un snapshot con otro
  * texto (misma revisión) nunca provocaría el reintento y la salida se quedaría fija en lo último pintado (hallazgo I-C).
  */
-export function OutputScreen({ state, seq }: { state: OutputState | null; seq: number | null }) {
+export function OutputScreen({ state, seq, onBackgroundFailure }: { state: OutputState | null; seq: number | null; onBackgroundFailure?: (failure: BackgroundFailure) => void }) {
   const lastPainted = useRef<OutputState | null>(null);
   const remember = useCallback((painted: OutputState | null) => {
     lastPainted.current = painted;
   }, []);
 
   return (
-    <OutputErrorBoundary resetKey={seq} fallback={() => <OutputStage state={lastPainted.current} />}>
-      <OutputStage state={state} onPainted={remember} />
+    <OutputErrorBoundary resetKey={seq} fallback={() => <OutputStage state={lastPainted.current} onBackgroundFailure={onBackgroundFailure} />}>
+      <OutputStage state={state} onPainted={remember} onBackgroundFailure={onBackgroundFailure} />
     </OutputErrorBoundary>
   );
 }

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { ipc } from "@/ipc/instance";
-import type { DatabaseStatusPayload, DisplayInfo, DisplayListPayload, OutputStateChangedPayload } from "@/ipc/protocol";
+import type { DatabaseStatusPayload, DisplayInfo, DisplayListPayload, OutputBackgroundFailedPayload, OutputStateChangedPayload } from "@/ipc/protocol";
 import { createRetrier, type RetryOptions } from "@/ipc/retry";
 import { isNewer } from "@/ipc/sequence";
 import { createTicker } from "@/ipc/ticker";
@@ -28,6 +28,8 @@ interface ControlState {
   /** Estado de la base de datos (aviso si su inicialización falló). */
   database: DatabaseStatusPayload | null;
   failure: CommandFailure | null;
+  /** El fondo actual no se pudo reproducir (la salida cayó al color de reserva). Se limpia al cambiar de archivo de fondo o al cerrarlo el operador. */
+  backgroundFailure: OutputBackgroundFailedPayload | null;
 }
 
 export const useControlStore = create<ControlState>(() => ({
@@ -38,6 +40,7 @@ export const useControlStore = create<ControlState>(() => ({
   output: null,
   database: null,
   failure: null,
+  backgroundFailure: null,
 }));
 
 /** Cada cuánto el panel pide algo barato al backend para comprobar que sigue vivo. */
@@ -57,8 +60,11 @@ function applyDisplays(payload: DisplayListPayload): void {
 }
 
 function applyOutput(payload: OutputStateChangedPayload): void {
-  if (!isNewer(useControlStore.getState().output?.seq ?? null, payload.seq)) return;
-  useControlStore.setState({ output: payload });
+  const state = useControlStore.getState();
+  if (!isNewer(state.output?.seq ?? null, payload.seq)) return;
+  // Otro fondo (u ninguno) ya no es el que falló: el aviso deja de valer.
+  const stale = state.backgroundFailure !== null && payload.state.background.fileName !== state.backgroundFailure.fileName;
+  useControlStore.setState(stale ? { output: payload, backgroundFailure: null } : { output: payload });
 }
 
 function applyDatabase(payload: DatabaseStatusPayload): void {
@@ -68,6 +74,10 @@ function applyDatabase(payload: DatabaseStatusPayload): void {
 
 export function dismissFailure(): void {
   useControlStore.setState({ failure: null });
+}
+
+export function dismissBackgroundFailure(): void {
+  useControlStore.setState({ backgroundFailure: null });
 }
 
 export interface ControlConnection {
@@ -109,6 +119,9 @@ export function connectControlStore(options?: { retry?: RetryOptions; requestTim
     ipc.subscribe("display.changed", applyDisplays),
     ipc.subscribe("output.stateChanged", applyOutput),
     ipc.subscribe("database.statusChanged", applyDatabase),
+    ipc.subscribe("output.backgroundFailed", (failure) => {
+      useControlStore.setState({ backgroundFailure: failure });
+    }),
     ipc.subscribe("command.failed", ({ commandId, commandType, error }) => {
       useControlStore.setState({ failure: { commandId, commandType, code: error.code, message: error.message } });
     }),
