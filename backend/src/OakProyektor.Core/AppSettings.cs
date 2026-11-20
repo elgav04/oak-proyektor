@@ -8,9 +8,16 @@ namespace OakProyektor.Core;
 /// <param name="OnDisplayLost">Qué hacer si el monitor de la salida desaparece: avisar y esperar (por defecto) o mover sola al mejor monitor que no sea el del panel.</param>
 /// <param name="ShowPanelAlertOnOutput">Mostrar «PANEL SIN RESPUESTA» en la propia salida cuando el JS del panel se atasca. Por defecto NO: la proyección no muestra nada.</param>
 /// <param name="RecentDisplayIds">Monitores donde se ha mostrado la salida, el más reciente primero (máx. 8): criterio «el último usado» de <c>BestDisplayPicker</c>.</param>
+/// <param name="DefaultBible">Abreviatura de la Biblia que se usa si una consulta no indica ninguna; nulo = la primera instalada.</param>
+/// <param name="CitationHistoryLimit">Cuántas citas conserva el historial (0 = no guardar historial; máximo 1000). Se edita en <c>settings.json</c>.</param>
 public sealed record AppSettings(
     bool AutoRestoreOutput = true,
     string? PreferredDisplayId = null,
     DisplayLostPolicy OnDisplayLost = DisplayLostPolicy.WarnAndWait,
     IReadOnlyList<string>? RecentDisplayIds = null,
-    bool ShowPanelAlertOnOutput = false);
+    bool ShowPanelAlertOnOutput = false,
+    string? DefaultBible = null,
+    int CitationHistoryLimit = AppSettings.DefaultCitationHistoryLimit)
+{
+    public const int DefaultCitationHistoryLimit = 100;
+}

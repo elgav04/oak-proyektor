@@ -51,6 +51,28 @@ public partial class ProtocolFormatTests
         new(typeof(CommandFailedPayload), "CommandFailedPayload", Direction.FromBackend),
         new(typeof(IpcError), "IpcErrorPayload", Direction.FromBackend),
         new(typeof(IpcReply), "IpcReplyFields", Direction.FromBackend),
+        // Biblias (v6)
+        new(typeof(BibleLookupRequest), "BibleLookupRequest", Direction.ToBackend),
+        new(typeof(BibleChapterRequest), "BibleChapterRequest", Direction.ToBackend),
+        new(typeof(BibleSearchRequest), "BibleSearchRequest", Direction.ToBackend),
+        new(typeof(BibleHistoryRequest), "BibleHistoryRequest", Direction.ToBackend),
+        new(typeof(BibleSuggestRequest), "BibleSuggestRequest", Direction.ToBackend),
+        new(typeof(BibleSetAttributionPayload), "BibleSetAttributionPayload", Direction.ToBackend),
+        new(typeof(BibleImportPayload), "BibleImportPayload", Direction.ToBackend),
+        new(typeof(BibleDto), "BibleDto", Direction.FromBackend),
+        new(typeof(BibleListPayload), "BibleListPayload", Direction.FromBackend),
+        new(typeof(BibleVerseDto), "BibleVerseDto", Direction.FromBackend),
+        new(typeof(BiblePassagePayload), "BiblePassagePayload", Direction.FromBackend),
+        new(typeof(BibleSearchHitDto), "BibleSearchHitDto", Direction.FromBackend),
+        new(typeof(BibleSearchPayload), "BibleSearchPayload", Direction.FromBackend),
+        new(typeof(CitationDto), "CitationDto", Direction.FromBackend),
+        new(typeof(BibleHistoryPayload), "BibleHistoryPayload", Direction.FromBackend),
+        new(typeof(BibleSuggestionDto), "BibleSuggestionDto", Direction.FromBackend),
+        new(typeof(BibleSuggestPayload), "BibleSuggestPayload", Direction.FromBackend),
+        new(typeof(BibleImportProgressPayload), "BibleImportProgressPayload", Direction.FromBackend),
+        new(typeof(AffectedItemDto), "AffectedItemDto", Direction.FromBackend),
+        new(typeof(BibleImportReportDto), "BibleImportReportDto", Direction.FromBackend),
+        new(typeof(BibleImportFinishedPayload), "BibleImportFinishedPayload", Direction.FromBackend),
     ];
 
     /// <summary>Alias de tipo de protocol.ts → enum de C# que representa. <c>RecoverReason</c> es un SUBCONJUNTO de <c>OutputPauseReason</c> a propósito.</summary>
@@ -77,6 +99,7 @@ public partial class ProtocolFormatTests
         [3] = "efee82b9a3b116fe10d0d29f9bc49cc8e4b5c70be8636fbe26a5986846b94d0b",
         [4] = "2acd299b86c38d491db90fe708f4ab670a8a583ba376229ceda88a8440ae8318",
         [5] = "23f336405eb149dc5492da3c76522deab42c4c39bc1db04863c4096c6201998e",
+        [6] = "84d18f234430887ce27c5d69c230d34698fdae2f5129c98296299dbef2cdb44b",
     };
 
     // ───────────────────────────── lectura de C# ─────────────────────────────

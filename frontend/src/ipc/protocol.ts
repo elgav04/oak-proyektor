@@ -7,8 +7,9 @@
  * replies `{ ok, result, error }`; evento `command.failed`; `output.setMaster` y `output.recover` van por un carril de
  * prioridad en el backend (el orden entre carriles no está garantizado; dentro de cada uno sí).
  * v3: `output.recover` lleva `{ reason: "manual" | "emergency" }` (el atajo de respaldo de la salida se distingue del botón del panel).
+ * v6: módulo de Biblias (`bible.*`). Los mensajes de importación nunca llevan texto bíblico, solo conteos y referencias.
  */
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 
 export type MessageKind = "command" | "event" | "query" | "reply";
 
@@ -30,6 +31,22 @@ export const MESSAGE_CATALOG = [
   { type: "database.getStatus", kind: "query" },
   { type: "database.getStatus", kind: "reply" },
   { type: "database.statusChanged", kind: "event" },
+  { type: "bible.import", kind: "command" },
+  { type: "bible.setAttribution", kind: "command" },
+  { type: "bible.list", kind: "query" },
+  { type: "bible.list", kind: "reply" },
+  { type: "bible.lookup", kind: "query" },
+  { type: "bible.lookup", kind: "reply" },
+  { type: "bible.chapter", kind: "query" },
+  { type: "bible.chapter", kind: "reply" },
+  { type: "bible.search", kind: "query" },
+  { type: "bible.search", kind: "reply" },
+  { type: "bible.history", kind: "query" },
+  { type: "bible.history", kind: "reply" },
+  { type: "bible.suggest", kind: "query" },
+  { type: "bible.suggest", kind: "reply" },
+  { type: "bible.importProgress", kind: "event" },
+  { type: "bible.importFinished", kind: "event" },
 ] as const;
 
 export const MASTER_MODES = ["live", "clearText", "black", "logo", "freeze"] as const;
@@ -158,6 +175,177 @@ export interface CommandFailedPayload {
   error: IpcErrorPayload;
 }
 
+// ───────────── Biblias (v6) ─────────────
+
+/** Una Biblia instalada. `attribution` es su aviso de derechos (vacío si no tiene); `numberingProfile`, el perfil de numeración con que se importó (null = ninguno). */
+export interface BibleDto {
+  id: number;
+  abbreviation: string;
+  name: string;
+  language: string;
+  attribution: string;
+  numberingProfile: string | null;
+  books: number;
+  verses: number;
+}
+
+export interface BibleListPayload {
+  bibles: BibleDto[];
+}
+
+/** `reference` es lo que escribió el operador («Jn 3:16»); `bible` null = la predeterminada; `record` = anotarla en el historial. */
+export interface BibleLookupRequest {
+  reference: string;
+  bible: string | null;
+  record: boolean;
+}
+
+/** Un capítulo completo por número de libro canónico (1 a 66). */
+export interface BibleChapterRequest {
+  bible: string | null;
+  bookNumber: number;
+  chapter: number;
+}
+
+export interface BibleVerseDto {
+  bookNumber: number;
+  bookName: string;
+  chapter: number;
+  verseNumber: number;
+  text: string;
+}
+
+/** Reply de `bible.lookup` y `bible.chapter`. `attribution` es el aviso de derechos de la Biblia. */
+export interface BiblePassagePayload {
+  bible: string;
+  attribution: string;
+  reference: string;
+  verses: BibleVerseDto[];
+}
+
+/** `limit` <= 0 = el predeterminado (50); máximo 200. Palabras sueltas = todas; entre comillas = frase. */
+export interface BibleSearchRequest {
+  query: string;
+  bible: string | null;
+  limit: number;
+}
+
+/** `fragment` lleva las coincidencias entre « y ». */
+export interface BibleSearchHitDto {
+  bible: string;
+  bookNumber: number;
+  bookName: string;
+  chapter: number;
+  verseNumber: number;
+  fragment: string;
+}
+
+export interface BibleSearchPayload {
+  query: string;
+  truncated: boolean;
+  hits: BibleSearchHitDto[];
+}
+
+/** `limit` <= 0 = todo el historial guardado. */
+export interface BibleHistoryRequest {
+  limit: number;
+}
+
+export interface CitationDto {
+  id: number;
+  bible: string;
+  bookNumber: number;
+  bookName: string;
+  chapter: number;
+  verseStart: number | null;
+  verseEnd: number | null;
+  label: string;
+  citedAt: string;
+}
+
+export interface BibleHistoryPayload {
+  entries: CitationDto[];
+}
+
+export interface BibleSuggestRequest {
+  prefix: string;
+  limit: number;
+}
+
+export interface BibleSuggestionDto {
+  bookNumber: number;
+  name: string;
+  shortName: string;
+  matchedAlias: string;
+}
+
+export interface BibleSuggestPayload {
+  suggestions: BibleSuggestionDto[];
+}
+
+/** Edita el aviso de derechos de una Biblia (vacío = quitarlo). */
+export interface BibleSetAttributionPayload {
+  bible: string;
+  attribution: string;
+}
+
+/** Importa en segundo plano: el comando vuelve al instante; avance en `bible.importProgress`, resultado en `bible.importFinished`. */
+export interface BibleImportPayload {
+  path: string;
+  abbreviation: string;
+  name: string;
+  language: string;
+  numberingProfile: string | null;
+  attribution: string | null;
+}
+
+/** `phase`: reading | cleaning | saving | validating. */
+export interface BibleImportProgressPayload {
+  abbreviation: string;
+  phase: string;
+  done: number;
+  total: number;
+}
+
+/** `kind` = `playlist` (elemento de un servicio) o `history`: apuntaba a un versículo que la reimportación eliminó. */
+export interface AffectedItemDto {
+  kind: string;
+  id: number;
+  playlistId: number | null;
+  reference: string;
+}
+
+/** Solo conteos y referencias: nunca texto bíblico. */
+export interface BibleImportReportDto {
+  bibleId: number;
+  created: boolean;
+  numberingProfile: string;
+  sourceVerses: number;
+  inserted: number;
+  updated: number;
+  unchanged: number;
+  deleted: number;
+  cleanedVerses: number;
+  joinedVerses: number;
+  books: number;
+  chapters: number;
+  verses: number;
+  emptyVerses: number;
+  verseTotalDifference: number;
+  ftsIntegrityOk: boolean;
+  affectedItems: AffectedItemDto[];
+  warnings: string[];
+  elapsedMs: number;
+}
+
+export interface BibleImportFinishedPayload {
+  abbreviation: string;
+  ok: boolean;
+  errorCode: string | null;
+  errorMessage: string | null;
+  report: BibleImportReportDto | null;
+}
+
 /** Payload de cada comando (UI → C#). */
 export interface CommandPayloads {
   "output.open": OutputOpenPayload;
@@ -167,6 +355,8 @@ export interface CommandPayloads {
   "settings.setAutoRestore": SetAutoRestorePayload;
   "settings.setDisplayLostPolicy": SetDisplayLostPolicyPayload;
   "settings.setPanelAlertOnOutput": SetPanelAlertOnOutputPayload;
+  "bible.import": BibleImportPayload;
+  "bible.setAttribution": BibleSetAttributionPayload;
 }
 
 /** Payload de cada evento (C# → UI). */
@@ -175,6 +365,8 @@ export interface EventPayloads {
   "output.stateChanged": OutputStateChangedPayload;
   "command.failed": CommandFailedPayload;
   "database.statusChanged": DatabaseStatusPayload;
+  "bible.importProgress": BibleImportProgressPayload;
+  "bible.importFinished": BibleImportFinishedPayload;
 }
 
 /** Payload de cada query y de su reply. */
@@ -182,6 +374,12 @@ export interface QueryPayloads {
   "display.list": { request: EmptyPayload; reply: DisplayListPayload };
   "output.getState": { request: EmptyPayload; reply: OutputStateChangedPayload };
   "database.getStatus": { request: EmptyPayload; reply: DatabaseStatusPayload };
+  "bible.list": { request: EmptyPayload; reply: BibleListPayload };
+  "bible.lookup": { request: BibleLookupRequest; reply: BiblePassagePayload };
+  "bible.chapter": { request: BibleChapterRequest; reply: BiblePassagePayload };
+  "bible.search": { request: BibleSearchRequest; reply: BibleSearchPayload };
+  "bible.history": { request: BibleHistoryRequest; reply: BibleHistoryPayload };
+  "bible.suggest": { request: BibleSuggestRequest; reply: BibleSuggestPayload };
 }
 
 export type CommandType = keyof CommandPayloads;

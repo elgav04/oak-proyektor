@@ -85,6 +85,24 @@ internal sealed class ApplicationHost : IAsyncDisposable
         services.AddSingleton<DatabaseReadiness>();
         services.AddSingleton<IDatabaseReadiness>(sp => sp.GetRequiredService<DatabaseReadiness>());
         services.AddSingleton<DatabaseStatusReporter>();
+
+        // Biblias (protocolo v6). Los límites y la Biblia predeterminada se leen de settings.json en cada consulta.
+        services.AddSingleton(sp =>
+        {
+            var settings = sp.GetRequiredService<ISettingsStore>();
+            return new Data.Scripture.BibleQueryOptions(() => settings.Current.DefaultBible, () => settings.Current.CitationHistoryLimit);
+        });
+        services.AddSingleton<Data.Scripture.IBibleQueryService, Data.Scripture.BibleQueryService>();
+        services.AddSingleton<Data.Scripture.BibleImporter>();
+        services.AddSingleton<BibleImportService>();
+        services.AddSingleton<IIpcHandler, Handlers.BibleListHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.BibleLookupHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.BibleChapterHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.BibleSearchHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.BibleHistoryHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.BibleSuggestHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.BibleSetAttributionHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.BibleImportHandler>();
         configureServices?.Invoke(services);
         _services = services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
         _logger = _services.GetRequiredService<ILogger<ApplicationHost>>();

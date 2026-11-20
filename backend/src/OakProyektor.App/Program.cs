@@ -6,8 +6,11 @@ internal static class Program
     // Main NO puede ser `async`: Roslyn no copia [STAThread] al punto de entrada sintetizado y el hilo quedaría MTA.
     // Por eso este es el ÚNICO punto bloqueante del programa (GetResult); todo lo demás es asíncrono. La parte síncrona de
     // RunAsync (hasta su primer await) sigue en el hilo STA, que es donde corre el bucle de ventanas.
+    // Las órdenes de consola (--import-bible, --show-verse…) no abren ventanas: se atienden ANTES de nada y no pasan por RunAsync, así que
+    // no añaden ningún await a la ruta de arranque de la interfaz (ver CLAUDE.md).
     [STAThread]
-    private static int Main() => RunAsync().GetAwaiter().GetResult();
+    private static int Main(string[] args) =>
+        Cli.CliArguments.IsCliInvocation(args) ? Cli.CliHost.Run(args) : RunAsync().GetAwaiter().GetResult();
 
     private static async Task<int> RunAsync()
     {

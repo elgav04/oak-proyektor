@@ -25,6 +25,16 @@ public static class IpcTypes
     public const string OutputStateChanged = "output.stateChanged";
     public const string CommandFailed = "command.failed";
     public const string DatabaseStatusChanged = "database.statusChanged";
+    public const string BibleImport = "bible.import";
+    public const string BibleSetAttribution = "bible.setAttribution";
+    public const string BibleList = "bible.list";
+    public const string BibleLookup = "bible.lookup";
+    public const string BibleChapter = "bible.chapter";
+    public const string BibleSearch = "bible.search";
+    public const string BibleHistory = "bible.history";
+    public const string BibleSuggest = "bible.suggest";
+    public const string BibleImportProgress = "bible.importProgress";
+    public const string BibleImportFinished = "bible.importFinished";
 }
 
 public sealed record MessageDescriptor(string Type, string Kind);
@@ -39,8 +49,10 @@ public static class IpcCatalog
     /// motivos de pausa nuevos <c>duplicateMode</c> y <c>unstable</c>.
     /// v5: <c>OutputWindowStatus</c> lleva <c>panelUnresponsive</c>, <c>panelAlertOnOutput</c> y <c>hotkeys</c> (atajos globales de respaldo y si se pudieron registrar);
     /// nuevo comando <c>settings.setPanelAlertOnOutput</c>.
+    /// v6: módulo de Biblias: comandos <c>bible.import</c> y <c>bible.setAttribution</c>; queries <c>bible.list</c>, <c>bible.lookup</c>, <c>bible.chapter</c>,
+    /// <c>bible.search</c>, <c>bible.history</c> y <c>bible.suggest</c>; eventos <c>bible.importProgress</c> y <c>bible.importFinished</c> (sin texto bíblico).
     /// </summary>
-    public const int ProtocolVersion = 5;
+    public const int ProtocolVersion = 6;
 
     public static IReadOnlyList<MessageDescriptor> Messages { get; } =
     [
@@ -61,6 +73,22 @@ public static class IpcCatalog
         new(IpcTypes.DatabaseGetStatus, IpcKind.Query),
         new(IpcTypes.DatabaseGetStatus, IpcKind.Reply),
         new(IpcTypes.DatabaseStatusChanged, IpcKind.Event),
+        new(IpcTypes.BibleImport, IpcKind.Command),
+        new(IpcTypes.BibleSetAttribution, IpcKind.Command),
+        new(IpcTypes.BibleList, IpcKind.Query),
+        new(IpcTypes.BibleList, IpcKind.Reply),
+        new(IpcTypes.BibleLookup, IpcKind.Query),
+        new(IpcTypes.BibleLookup, IpcKind.Reply),
+        new(IpcTypes.BibleChapter, IpcKind.Query),
+        new(IpcTypes.BibleChapter, IpcKind.Reply),
+        new(IpcTypes.BibleSearch, IpcKind.Query),
+        new(IpcTypes.BibleSearch, IpcKind.Reply),
+        new(IpcTypes.BibleHistory, IpcKind.Query),
+        new(IpcTypes.BibleHistory, IpcKind.Reply),
+        new(IpcTypes.BibleSuggest, IpcKind.Query),
+        new(IpcTypes.BibleSuggest, IpcKind.Reply),
+        new(IpcTypes.BibleImportProgress, IpcKind.Event),
+        new(IpcTypes.BibleImportFinished, IpcKind.Event),
     ];
 }
 

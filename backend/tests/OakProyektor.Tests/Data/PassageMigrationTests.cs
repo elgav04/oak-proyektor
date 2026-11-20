@@ -46,8 +46,8 @@ public sealed class PassageMigrationTests : IDisposable
 
         var result = await _db.Initializer.InitializeAsync(CancellationToken.None);
 
-        Assert.Equal((3, 4), (result.FromVersion, result.ToVersion));
-        Assert.Equal([4], result.Applied);
+        Assert.Equal((3, OakProyektor.Data.DatabaseInitializer.LatestSchemaVersion), (result.FromVersion, result.ToVersion));
+        Assert.Equal([4, 5, 6, 7], result.Applied);
         Assert.NotNull(result.BackupPath);
         await using var c = await _db.OpenAsync();
         var rows = (await c.QueryAsync<(long Id, long SequenceIndex, string ItemType, string Title, long? SongId, long? BookNumber, long? Chapter, long? VerseStart, long? VerseEnd, string? Abbr, long IsMissing)>(
@@ -62,7 +62,7 @@ public sealed class PassageMigrationTests : IDisposable
         Assert.DoesNotContain("BookId", await c.QueryAsync<string>("SELECT name FROM pragma_table_info('PlaylistItems')"));
         Assert.Empty(await c.QueryAsync("PRAGMA foreign_key_check"));
         Assert.Equal(1L, await c.ExecuteScalarAsync<long>("PRAGMA foreign_keys"));
-        Assert.Equal(4L, await c.ExecuteScalarAsync<long>("PRAGMA user_version"));
+        Assert.Equal((long)OakProyektor.Data.DatabaseInitializer.LatestSchemaVersion, await c.ExecuteScalarAsync<long>("PRAGMA user_version"));
         // Índices y triggers que el DROP se llevó: recreados.
         Assert.Equal(["PlaylistItems_bi", "PlaylistItems_bu"], await c.QueryAsync<string>("SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'PlaylistItems' ORDER BY name"));
         Assert.Equal(["IX_PlaylistItems_PlaylistId_SequenceIndex", "IX_PlaylistItems_PresentationId", "IX_PlaylistItems_SongId"],
@@ -114,7 +114,7 @@ public sealed class PassageMigrationTests : IDisposable
 
         var result = await _db.Initializer.InitializeAsync(CancellationToken.None);
 
-        Assert.Equal(4, result.ToVersion);
+        Assert.Equal(OakProyektor.Data.DatabaseInitializer.LatestSchemaVersion, result.ToVersion);
     }
 
     // ───────── datos que NO se pueden convertir sin adivinar: se aborta y no se pierde nada ─────────

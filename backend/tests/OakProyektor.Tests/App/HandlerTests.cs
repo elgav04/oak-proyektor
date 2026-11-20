@@ -9,10 +9,22 @@ using OakProyektor.Tests.Ipc;
 
 namespace OakProyektor.Tests.App;
 
+/// <summary>Servicio de consultas sin Biblias instaladas: todo lo que busca devuelve el error «no está instalada».</summary>
+internal sealed class NoBibles : OakProyektor.Data.Scripture.IBibleQueryService
+{
+    private static OakProyektor.Data.Scripture.BibleException None() => new(OakProyektor.Data.Scripture.BibleErrorCodes.NotFound, "No hay ninguna Biblia instalada.");
+    public Task<IReadOnlyList<OakProyektor.Data.Scripture.BibleInfo>> ListBiblesAsync(CancellationToken ct) => Task.FromResult<IReadOnlyList<OakProyektor.Data.Scripture.BibleInfo>>([]);
+    public Task<OakProyektor.Data.Scripture.BiblePassage> LookupAsync(string reference, string? bible, bool recordHistory, CancellationToken ct) => throw None();
+    public Task<OakProyektor.Data.Scripture.BiblePassage> GetChapterAsync(string? bible, int bookNumber, int chapter, CancellationToken ct) => throw None();
+    public Task<OakProyektor.Data.Scripture.BibleSearchResult> SearchAsync(string query, string? bible, int limit, CancellationToken ct) => throw None();
+    public Task<IReadOnlyList<OakProyektor.Data.Scripture.CitationEntry>> GetHistoryAsync(int limit, CancellationToken ct) => Task.FromResult<IReadOnlyList<OakProyektor.Data.Scripture.CitationEntry>>([]);
+    public Task SetAttributionAsync(string bible, string attribution, CancellationToken ct) => throw None();
+}
+
 public class HandlerTests
 {
     private static string Msg(string kind, string type, string payload = "{}") =>
-        $$"""{"v":5,"id":"q1","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
+        $$"""{"v":6,"id":"q1","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
 
     private static (IpcDispatcher Dispatcher, FakeOutputController Output) Create(params DisplayInfo[] displays)
     {
@@ -29,6 +41,19 @@ public class HandlerTests
             new SettingsSetDisplayLostPolicyHandler(new InMemorySettings(), output),
             new SettingsSetPanelAlertOnOutputHandler(new InMemorySettings(), output),
             new DatabaseGetStatusHandler(new DatabaseStatusReporter(new FakeReadiness(), new Outbox(NullLogger<Outbox>.Instance))),
+            // Biblias (v6): consultas contra un servicio que no tiene ninguna Biblia; la importación falla en su validación sin abrir la BD.
+            new BibleListHandler(new NoBibles()),
+            new BibleLookupHandler(new NoBibles()),
+            new BibleChapterHandler(new NoBibles()),
+            new BibleSearchHandler(new NoBibles()),
+            new BibleHistoryHandler(new NoBibles()),
+            new BibleSuggestHandler(),
+            new BibleSetAttributionHandler(new NoBibles()),
+            new BibleImportHandler(new BibleImportService(
+                new OakProyektor.Data.Scripture.BibleImporter(
+                    new OakProyektor.Data.SqliteConnectionFactory(new OakProyektor.Data.DatabaseOptions(Path.Combine(Path.GetTempPath(), "oak-handler-test-never-opened.db"))),
+                    new FakeReadiness(), NullLogger<OakProyektor.Data.Scripture.BibleImporter>.Instance),
+                new Outbox(NullLogger<Outbox>.Instance), NullLogger<BibleImportService>.Instance)),
         ];
         return (new IpcDispatcher(handlers, NullLogger<IpcDispatcher>.Instance), output);
     }
