@@ -25,7 +25,7 @@ internal sealed class NoBibles : OakProyektor.Data.Scripture.IBibleQueryService
 public class HandlerTests
 {
     private static string Msg(string kind, string type, string payload = "{}") =>
-        $$"""{"v":7,"id":"q1","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
+        $$"""{"v":8,"id":"q1","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
 
     private static (IpcDispatcher Dispatcher, FakeOutputController Output) Create(params DisplayInfo[] displays)
     {
@@ -54,6 +54,8 @@ public class HandlerTests
             new BibleHistoryHandler(new NoBibles()),
             new BibleSuggestHandler(),
             new BibleSetAttributionHandler(new NoBibles()),
+            new BibleGetSettingsHandler(new InMemorySettings()),
+            new BibleSetSettingsHandler(new InMemorySettings(), new NoBibles()),
             new BibleImportHandler(new BibleImportService(
                 new OakProyektor.Data.Scripture.BibleImporter(
                     new OakProyektor.Data.SqliteConnectionFactory(new OakProyektor.Data.DatabaseOptions(Path.Combine(Path.GetTempPath(), "oak-handler-test-never-opened.db"))),

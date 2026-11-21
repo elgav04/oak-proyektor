@@ -1,4 +1,5 @@
 using OakProyektor.Core.Output;
+using OakProyektor.Core.Scripture;
 
 namespace OakProyektor.Core;
 
@@ -10,6 +11,7 @@ namespace OakProyektor.Core;
 /// <param name="RecentDisplayIds">Monitores donde se ha mostrado la salida, el más reciente primero (máx. 8): criterio «el último usado» de <c>BestDisplayPicker</c>.</param>
 /// <param name="DefaultBible">Abreviatura de la Biblia que se usa si una consulta no indica ninguna; nulo = la primera instalada.</param>
 /// <param name="CitationHistoryLimit">Cuántas citas conserva el historial (0 = no guardar historial; máximo 1000). Se edita en <c>settings.json</c>.</param>
+/// <param name="BibleDisplay">Tema, opciones y nombres cortos de la proyección de Biblia (v8).</param>
 public sealed record AppSettings(
     bool AutoRestoreOutput = true,
     string? PreferredDisplayId = null,
@@ -17,7 +19,12 @@ public sealed record AppSettings(
     IReadOnlyList<string>? RecentDisplayIds = null,
     bool ShowPanelAlertOnOutput = false,
     string? DefaultBible = null,
-    int CitationHistoryLimit = AppSettings.DefaultCitationHistoryLimit)
+    int CitationHistoryLimit = AppSettings.DefaultCitationHistoryLimit,
+    BibleDisplaySettings? BibleDisplay = null)
 {
     public const int DefaultCitationHistoryLimit = 100;
+
+    /// <summary>Cómo se proyecta la Biblia (v8); un <c>settings.json</c> anterior sin este bloque usa los valores por defecto.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public BibleDisplaySettings Bible => BibleDisplay ?? new BibleDisplaySettings();
 }

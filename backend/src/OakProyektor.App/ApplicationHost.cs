@@ -108,6 +108,8 @@ internal sealed class ApplicationHost : IAsyncDisposable
         services.AddSingleton<IIpcHandler, Handlers.BibleSuggestHandler>();
         services.AddSingleton<IIpcHandler, Handlers.BibleSetAttributionHandler>();
         services.AddSingleton<IIpcHandler, Handlers.BibleImportHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.BibleGetSettingsHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.BibleSetSettingsHandler>();
         configureServices?.Invoke(services);
         _services = services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
         _logger = _services.GetRequiredService<ILogger<ApplicationHost>>();

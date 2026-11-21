@@ -86,6 +86,10 @@ public partial class ProtocolFormatTests
         new(typeof(AffectedItemDto), "AffectedItemDto", Direction.FromBackend),
         new(typeof(BibleImportReportDto), "BibleImportReportDto", Direction.FromBackend),
         new(typeof(BibleImportFinishedPayload), "BibleImportFinishedPayload", Direction.FromBackend),
+        // Configuración de la proyección de Biblia (v8)
+        new(typeof(BibleShortNameDto), "BibleShortNameDto", Direction.FromBackend),
+        new(typeof(BibleSettingsPayload), "BibleSettingsPayload", Direction.FromBackend),
+        new(typeof(BibleSetSettingsPayload), "BibleSetSettingsPayload", Direction.ToBackend),
     ];
 
     /// <summary>Alias de tipo de protocol.ts → enum de C# que representa. <c>RecoverReason</c> es un SUBCONJUNTO de <c>OutputPauseReason</c> a propósito.</summary>
@@ -118,6 +122,7 @@ public partial class ProtocolFormatTests
         [5] = "23f336405eb149dc5492da3c76522deab42c4c39bc1db04863c4096c6201998e",
         [6] = "84d18f234430887ce27c5d69c230d34698fdae2f5129c98296299dbef2cdb44b",
         [7] = "500376f2b5030c49250ad82c905d2fe55c31b76ebfd581b7209672802df93e25",
+        [8] = "67f904ea172bc555de07b902918364eb616530849d797cf4f1e567436dd3e810",
     };
 
     // ───────────────────────────── lectura de C# ─────────────────────────────

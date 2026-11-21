@@ -40,6 +40,8 @@ public static class IpcTypes
     public const string BibleSuggest = "bible.suggest";
     public const string BibleImportProgress = "bible.importProgress";
     public const string BibleImportFinished = "bible.importFinished";
+    public const string BibleGetSettings = "bible.getSettings";
+    public const string BibleSetSettings = "bible.setSettings";
 }
 
 public sealed record MessageDescriptor(string Type, string Kind);
@@ -59,8 +61,10 @@ public static class IpcCatalog
     /// v7: motor multimedia por capas: <c>OutputState</c> pasa a llevar <c>schemaVersion</c>, <c>background</c>, <c>content</c> y <c>overlays</c> (ya no <c>backgroundColor</c> ni <c>text</c>);
     /// comandos <c>output.setBackground</c>, <c>output.showContent</c>, <c>output.clearContent</c> y <c>output.reportBackgroundFailure</c> (este último lo manda la salida);
     /// evento <c>output.backgroundFailed</c>; errores <c>output.mediaRejected</c> y <c>output.invalidContent</c>.
+    /// v8: configuración de la proyección de Biblia: query <c>bible.getSettings</c> y comando <c>bible.setSettings</c> (Biblia por defecto, nombres cortos, tema, opciones y crossfade; en <c>settings.json</c>);
+    /// error <c>bible.invalidSettings</c>.
     /// </summary>
-    public const int ProtocolVersion = 7;
+    public const int ProtocolVersion = 8;
 
     public static IReadOnlyList<MessageDescriptor> Messages { get; } =
     [
@@ -102,6 +106,9 @@ public static class IpcCatalog
         new(IpcTypes.BibleSuggest, IpcKind.Reply),
         new(IpcTypes.BibleImportProgress, IpcKind.Event),
         new(IpcTypes.BibleImportFinished, IpcKind.Event),
+        new(IpcTypes.BibleGetSettings, IpcKind.Query),
+        new(IpcTypes.BibleGetSettings, IpcKind.Reply),
+        new(IpcTypes.BibleSetSettings, IpcKind.Command),
     ];
 }
 

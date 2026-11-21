@@ -68,3 +68,20 @@ public sealed record BibleImportReportDto(
 
 /// <summary>Evento <c>bible.importFinished</c>: <c>Report</c> si salió bien; <c>ErrorCode</c> y <c>ErrorMessage</c> si falló.</summary>
 public sealed record BibleImportFinishedPayload(string Abbreviation, bool Ok, string? ErrorCode, string? ErrorMessage, BibleImportReportDto? Report);
+
+// ───────────── Configuración de la proyección de Biblia (v8) ─────────────
+
+public sealed record BibleShortNameDto(string Bible, string ShortName);
+
+/// <summary>
+/// Reply de <c>bible.getSettings</c>. <c>DefaultBible</c> nulo = la primera instalada. <c>TransitionMs</c> es el crossfade al cambiar de versículo.
+/// El aviso de derechos NO va aquí (es de cada Biblia: <c>bible.list</c> / <c>bible.setAttribution</c>).
+/// </summary>
+public sealed record BibleSettingsPayload(
+    string? DefaultBible, bool ProjectOnNavigate, bool SuperscriptNumbers, bool ShowAttribution, int TransitionMs,
+    OakProyektor.Core.Output.TextTheme Theme, IReadOnlyList<BibleShortNameDto> ShortNames);
+
+/// <summary><c>bible.setSettings</c>: sustituye TODA la configuración (el panel manda el conjunto completo). Un valor inválido falla con <c>bible.invalidSettings</c> y no cambia nada.</summary>
+public sealed record BibleSetSettingsPayload(
+    string? DefaultBible, bool ProjectOnNavigate, bool SuperscriptNumbers, bool ShowAttribution, int TransitionMs,
+    OakProyektor.Core.Output.TextTheme Theme, IReadOnlyList<BibleShortNameDto> ShortNames);

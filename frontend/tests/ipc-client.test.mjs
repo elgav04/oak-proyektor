@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import test, { after } from "node:test";
 import { closeServer, loadTs } from "./helper.mjs";
 
@@ -16,7 +16,7 @@ function make(transportOverrides = {}) {
   const client = new IpcClient(transport);
   return { client, sent, deliver: (o) => deliver(typeof o === "string" ? o : JSON.stringify(o)) };
 }
-const msg = (kind, type, payload, id = "x") => ({ v: 7, id, kind, type, payload });
+const msg = (kind, type, payload, id = "x") => ({ v: 8, id, kind, type, payload });
 const ok = (result) => ({ ok: true, result, error: null });
 const err = (code, message) => ({ ok: false, result: null, error: { code, message } });
 const settlesWithin = (promise, ms) => Promise.race([promise.then(() => "settled", () => "settled"), new Promise((r) => setTimeout(() => r("pending"), ms))]);
@@ -25,7 +25,7 @@ test("send envía un comando con el sobre v2", () => {
   const { client, sent } = make();
   client.send("output.setMaster", { master: "live" });
   assert.equal(sent.length, 1);
-  assert.deepEqual({ ...sent[0], id: "?" }, { v: 7, id: "?", kind: "command", type: "output.setMaster", payload: { master: "live" } });
+  assert.deepEqual({ ...sent[0], id: "?" }, { v: 8, id: "?", kind: "command", type: "output.setMaster", payload: { master: "live" } });
   assert.match(sent[0].id, /^[0-9a-f-]{36}$/);
 });
 
@@ -117,10 +117,10 @@ test("mensajes inválidos, de otra versión o desconocidos se ignoran sin lanzar
     { v: 1, id: "1", kind: "event", type: "display.changed", payload: {} },          // versión anterior
     { v: 2, id: "1", kind: "event", type: "display.changed", payload: {} },          // versión anterior (v2)
     { v: 99, id: "1", kind: "event", type: "display.changed", payload: {} },         // versión futura
-    { v: 7, kind: "event", type: "display.changed", payload: {} },                   // sin id
-    { v: 7, id: "1", kind: "command", type: "display.changed", payload: {} },        // un comando no entra
-    { v: 7, id: "1", kind: "event", type: "display.changed" },                       // sin payload
-    { v: 7, id: "1", kind: "event", type: "display.changed", payload: "x" },
+    { v: 8, kind: "event", type: "display.changed", payload: {} },                   // sin id
+    { v: 8, id: "1", kind: "command", type: "display.changed", payload: {} },        // un comando no entra
+    { v: 8, id: "1", kind: "event", type: "display.changed" },                       // sin payload
+    { v: 8, id: "1", kind: "event", type: "display.changed", payload: "x" },
     msg("event", "evento.desconocido", {})]) deliver(bad);
   assert.equal(calls, 0);
   deliver(msg("event", "display.changed", { seq: 1, displays: [] }));

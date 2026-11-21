@@ -11,8 +11,9 @@
  * v7: motor multimedia por capas: `OutputState` lleva `schemaVersion`, `background`, `content` y `overlays` (ya no `backgroundColor` ni `text`);
  * comandos `output.setBackground`, `output.showContent`, `output.clearContent` y `output.reportBackgroundFailure` (este lo manda la salida);
  * evento `output.backgroundFailed`; errores `output.mediaRejected` y `output.invalidContent`.
+ * v8: configuración de la proyección de Biblia: query `bible.getSettings` y comando `bible.setSettings` (en settings.json); error `bible.invalidSettings`.
  */
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 8;
 
 export type MessageKind = "command" | "event" | "query" | "reply";
 
@@ -55,6 +56,9 @@ export const MESSAGE_CATALOG = [
   { type: "bible.suggest", kind: "reply" },
   { type: "bible.importProgress", kind: "event" },
   { type: "bible.importFinished", kind: "event" },
+  { type: "bible.getSettings", kind: "query" },
+  { type: "bible.getSettings", kind: "reply" },
+  { type: "bible.setSettings", kind: "command" },
 ] as const;
 
 export const MASTER_MODES = ["live", "clearText", "black", "logo", "freeze"] as const;
@@ -453,6 +457,35 @@ export interface BibleImportFinishedPayload {
   report: BibleImportReportDto | null;
 }
 
+// ───────────── Configuración de la proyección de Biblia (v8) ─────────────
+
+export interface BibleShortNameDto {
+  bible: string;
+  shortName: string;
+}
+
+/** `defaultBible` null = la primera instalada. El aviso de derechos NO va aquí: es de cada Biblia (`bible.list` / `bible.setAttribution`). */
+export interface BibleSettingsPayload {
+  defaultBible: string | null;
+  projectOnNavigate: boolean;
+  superscriptNumbers: boolean;
+  showAttribution: boolean;
+  transitionMs: number;
+  theme: TextTheme;
+  shortNames: BibleShortNameDto[];
+}
+
+/** Sustituye TODA la configuración (se manda el conjunto completo). */
+export interface BibleSetSettingsPayload {
+  defaultBible: string | null;
+  projectOnNavigate: boolean;
+  superscriptNumbers: boolean;
+  showAttribution: boolean;
+  transitionMs: number;
+  theme: TextTheme;
+  shortNames: BibleShortNameDto[];
+}
+
 /** Payload de cada comando (UI → C#). */
 export interface CommandPayloads {
   "output.open": OutputOpenPayload;
@@ -468,6 +501,7 @@ export interface CommandPayloads {
   "settings.setPanelAlertOnOutput": SetPanelAlertOnOutputPayload;
   "bible.import": BibleImportPayload;
   "bible.setAttribution": BibleSetAttributionPayload;
+  "bible.setSettings": BibleSetSettingsPayload;
 }
 
 /** Payload de cada evento (C# → UI). */
@@ -492,6 +526,7 @@ export interface QueryPayloads {
   "bible.search": { request: BibleSearchRequest; reply: BibleSearchPayload };
   "bible.history": { request: BibleHistoryRequest; reply: BibleHistoryPayload };
   "bible.suggest": { request: BibleSuggestRequest; reply: BibleSuggestPayload };
+  "bible.getSettings": { request: EmptyPayload; reply: BibleSettingsPayload };
 }
 
 export type CommandType = keyof CommandPayloads;

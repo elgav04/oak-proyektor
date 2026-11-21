@@ -2,7 +2,10 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ipc } from "@/ipc/instance";
 import { MASTER_MODES, type DisplayInfo, type MasterMode, type OutputPauseReason } from "@/ipc/protocol";
-import { MediaTest } from "./MediaTest";
+import { BibleSettingsView } from "./bible/BibleSettings";
+import { BibleTab } from "./bible/BibleTab";
+import { getBibleController } from "./bible/instance";
+import { Diagnostics } from "./Diagnostics";
 import { describeOutput, type OutputNotice } from "./outputNotice";
 import { connectControlStore, dismissFailure, reconnectControl, useControlStore } from "./store";
 
@@ -64,6 +67,10 @@ export function App() {
   const database = useControlStore((s) => s.database);
   // Elección del operador antes de abrir: ID del monitor, o null = automático. Es estado de la vista, no de negocio.
   const [selected, setSelected] = useState<string | null>(null);
+  // Pestaña activa y si se ve la configuración de la Biblia: estado de la vista, no de negocio.
+  const [tab, setTab] = useState<"bible" | "output" | "diagnostics">("bible");
+  const [bibleSettingsOpen, setBibleSettingsOpen] = useState(false);
+  const bibleController = getBibleController();
 
   useEffect(() => {
     const connection = connectControlStore();
@@ -84,7 +91,7 @@ export function App() {
   const master = output?.state.master;
 
   return (
-    <main className="mx-auto flex max-w-3xl flex-col gap-8 p-6">
+    <main className="mx-auto flex max-w-6xl flex-col gap-6 p-6">
       <header className="flex items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">Oak-Proyektor</h1>
         <div className="flex items-center gap-3">
@@ -202,6 +209,50 @@ export function App() {
         </div>
       )}
 
+      <section aria-labelledby="master-title" className="flex flex-col gap-2">
+        <h2 id="master-title" className="sr-only">Controles maestros</h2>
+        <div className="grid grid-cols-5 gap-3">
+          {MASTER_MODES.map((mode) => (
+            <Button
+              key={mode}
+              size="lg"
+              className="h-14 text-base"
+              variant={master === mode ? "default" : "outline"}
+              disabled={!connected}
+              aria-pressed={master === mode}
+              onClick={() => { ipc.send("output.setMaster", { master: mode }); }}
+            >
+              {MASTER_LABELS[mode]}
+            </Button>
+          ))}
+        </div>
+      </section>
+
+      <nav aria-label="Secciones" className="flex gap-2 border-b">
+        {([["bible", "Biblia"], ["output", "Salida"], ["diagnostics", "Diagnóstico"]] as const).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            aria-current={tab === key ? "page" : undefined}
+            className={`rounded-t-md px-5 py-2 text-base font-semibold ${tab === key ? "border-x border-t bg-white" : "text-neutral-600 hover:bg-neutral-100"}`}
+            onClick={() => { setTab(key); }}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      {tab === "bible" &&
+        (bibleSettingsOpen ? (
+          <BibleSettingsView controller={bibleController} connected={connected} onClose={() => { setBibleSettingsOpen(false); }} />
+        ) : (
+          <BibleTab controller={bibleController} connected={connected} onOpenSettings={() => { setBibleSettingsOpen(true); }} />
+        ))}
+
+      {tab === "diagnostics" && <Diagnostics />}
+
+      {tab === "output" && (
+      <>
       <section aria-labelledby="displays-title" className="flex flex-col gap-3">
         <h2 id="displays-title" className="text-lg font-semibold">Monitores</h2>
         {displays.length === 0 && <p className="text-neutral-500">Sin información de monitores.</p>}
@@ -310,36 +361,14 @@ export function App() {
         </div>
       )}
 
-      <section aria-labelledby="master-title" className="flex flex-col gap-3">
-        <h2 id="master-title" className="text-lg font-semibold">Controles maestros</h2>
-        {hotkeys.some((h) => h.registered) && (
-          <p className="text-sm text-neutral-600">
-            Atajos globales de respaldo (funcionan aunque el panel se atasque; los de modo son interruptores, pulsar otra vez vuelve a Live):{" "}
-            {hotkeys.filter((h) => h.registered).map((h) => h.keys + " = " + (HOTKEY_LABELS[h.action] ?? h.action)).join("; ")}.
-          </p>
-        )}
-        <div className="grid grid-cols-5 gap-3">
-          {MASTER_MODES.map((mode) => (
-            <Button
-              key={mode}
-              size="lg"
-              className="h-16 text-base"
-              variant={master === mode ? "default" : "outline"}
-              disabled={!connected}
-              aria-pressed={master === mode}
-              onClick={() => { ipc.send("output.setMaster", { master: mode }); }}
-            >
-              {MASTER_LABELS[mode]}
-            </Button>
-          ))}
-        </div>
-        {output && (
-          <div className="mt-2 flex h-32 items-center justify-center rounded-md border text-2xl font-semibold text-white" style={{ backgroundColor: output.state.background.color }}>
-            {output.state.content.slide?.blocks[0]?.text ?? ""}
-          </div>
-        )}
-      </section>
-      <MediaTest />
+      {hotkeys.some((h) => h.registered) && (
+        <p className="text-sm text-neutral-600">
+          Atajos globales de respaldo (funcionan aunque el panel se atasque; los de modo son interruptores, pulsar otra vez vuelve a Live):{" "}
+          {hotkeys.filter((h) => h.registered).map((h) => h.keys + " = " + (HOTKEY_LABELS[h.action] ?? h.action)).join("; ")}.
+        </p>
+      )}
+      </>
+      )}
     </main>
   );
 }

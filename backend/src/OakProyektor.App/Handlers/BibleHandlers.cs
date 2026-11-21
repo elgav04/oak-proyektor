@@ -1,3 +1,4 @@
+using OakProyektor.Core;
 using OakProyektor.Core.Scripture;
 using OakProyektor.Data;
 using OakProyektor.Data.Scripture;
@@ -108,6 +109,56 @@ internal sealed class BibleSetAttributionHandler(IBibleQueryService bibles) : II
         await BibleIpc.RunAsync(async () => { await bibles.SetAttributionAsync(r.Bible, r.Attribution, cancellationToken).ConfigureAwait(false); return true; }).ConfigureAwait(false);
         return null;
     }
+}
+
+internal static class BibleSettingsMapper
+{
+    public static BibleSettingsPayload ToPayload(AppSettings s)
+    {
+        var b = s.Bible;
+        return new BibleSettingsPayload(s.DefaultBible, b.ProjectOnNavigate, b.SuperscriptNumbers, b.ShowAttribution, b.TransitionMs, b.EffectiveTheme,
+            [.. (b.ShortNames ?? []).Select(n => new BibleShortNameDto(n.Bible, n.ShortName))]);
+    }
+}
+
+/// <summary>Configuración de la proyección de Biblia (v8). Lee <c>settings.json</c>: no toca la BD.</summary>
+internal sealed class BibleGetSettingsHandler(ISettingsStore settings) : IIpcHandler
+{
+    public string Kind => IpcKind.Query;
+    public string Type => IpcTypes.BibleGetSettings;
+    public Task<object?> HandleAsync(IpcEnvelope request, CancellationToken cancellationToken) =>
+        Task.FromResult<object?>(BibleSettingsMapper.ToPayload(settings.Current));
+}
+
+/// <summary>Valida el conjunto completo ANTES de guardar nada (un valor inválido no cambia nada) y comprueba que la Biblia por defecto esté instalada.</summary>
+internal sealed class BibleSetSettingsHandler(ISettingsStore settings, IBibleQueryService bibles) : IIpcHandler
+{
+    public string Kind => IpcKind.Command;
+    public string Type => IpcTypes.BibleSetSettings;
+    public async Task<object?> HandleAsync(IpcEnvelope request, CancellationToken cancellationToken)
+    {
+        var r = request.GetPayload<BibleSetSettingsPayload>();
+        var display = new BibleDisplaySettings(r.ProjectOnNavigate, r.SuperscriptNumbers, r.ShowAttribution, r.TransitionMs, r.Theme,
+            [.. (r.ShortNames ?? []).Select(n => new BibleShortName(n.Bible, n.ShortName))]);
+        if (r.Theme is null) throw new IpcException(BibleSettingsErrors.Invalid, "Biblia: falta el tema.");
+        if (BibleDisplaySettings.Validate(display) is { } problem) throw new IpcException(BibleSettingsErrors.Invalid, problem);
+
+        var defaultBible = string.IsNullOrWhiteSpace(r.DefaultBible) ? null : r.DefaultBible;
+        if (defaultBible is not null)
+        {
+            var installed = await BibleIpc.RunAsync(() => bibles.ListBiblesAsync(cancellationToken)).ConfigureAwait(false);
+            if (installed.All(b => b.Abbreviation != defaultBible))
+                throw new IpcException(BibleErrorCodes.NotFound, $"La Biblia «{defaultBible}» no está instalada.");
+        }
+        // El tema lleva el ajuste automático como red de seguridad; el resto se guarda tal cual.
+        await settings.UpdateAsync(s => s with { DefaultBible = defaultBible, BibleDisplay = display }, cancellationToken).ConfigureAwait(false);
+        return null;
+    }
+}
+
+internal static class BibleSettingsErrors
+{
+    public const string Invalid = "bible.invalidSettings";
 }
 
 /// <summary>El comando solo ARRANCA la importación (en otro hilo) y vuelve: el handler no debe retener el carril de entrada durante segundos.</summary>
