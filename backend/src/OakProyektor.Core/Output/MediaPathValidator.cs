@@ -1,4 +1,4 @@
-﻿using System.Text.RegularExpressions;
+using System.Text.RegularExpressions;
 
 namespace OakProyektor.Core.Output;
 
@@ -53,14 +53,53 @@ public sealed class PhysicalMediaFileSystem : IMediaFileSystem
         {
             var info = new FileInfo(path);
             if (!info.Exists) return new FileProbe(false, 0, null);   // FileInfo.Exists es false para carpetas
-            string? final = null;
-            if (info.LinkTarget is not null) final = info.ResolveLinkTarget(returnFinalTarget: true)?.FullName;
+            // Ruta FINAL del sistema (GetFinalPathNameByHandle): resuelve enlaces simbólicos del archivo, uniones y enlaces de CARPETA intermedios y
+            // unidades `subst`/de red. `FileInfo.LinkTarget` solo veía un enlace sobre el archivo mismo (H9).
+            var final = FinalPathResolver.TryResolve(path);
+            if (final is null && info.LinkTarget is not null) final = info.ResolveLinkTarget(returnFinalTarget: true)?.FullName;
             return new FileProbe(true, info.Length, final);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
         {
             return new FileProbe(false, 0, null);
         }
+    }
+}
+
+/// <summary>Ruta final de un archivo abierto (sin seguir «atajos»), normalizada de <c>\\?\C:\…</c> / <c>\\?\UNC\srv\share\…</c> a <c>C:\…</c> / <c>\\srv\share\…</c>.</summary>
+public static class FinalPathResolver
+{
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+    private static extern uint GetFinalPathNameByHandleW(Microsoft.Win32.SafeHandles.SafeFileHandle file, System.Text.StringBuilder path, uint length, uint flags);
+
+    public static string? TryResolve(string path)
+    {
+        if (!OperatingSystem.IsWindows()) return null;
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1, FileOptions.None);
+            var buffer = new System.Text.StringBuilder(1024);
+            var length = GetFinalPathNameByHandleW(stream.SafeFileHandle, buffer, (uint)buffer.Capacity, 0);
+            if (length == 0) return null;
+            if (length > buffer.Capacity)
+            {
+                buffer = new System.Text.StringBuilder((int)length + 1);
+                length = GetFinalPathNameByHandleW(stream.SafeFileHandle, buffer, (uint)buffer.Capacity, 0);
+                if (length == 0) return null;
+            }
+            return Normalize(buffer.ToString());
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    public static string Normalize(string raw)
+    {
+        if (raw.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase)) return @"\\" + raw[8..];
+        if (raw.StartsWith(@"\\?\", StringComparison.Ordinal)) return raw[4..];
+        return raw;
     }
 }
 

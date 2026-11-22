@@ -9,6 +9,11 @@ export interface BackgroundSpec {
   mediaUrl: string | null;
   muted: boolean;
   transitionMs: number;
+  /**
+   * Contador de reintentos del MISMO medio (v9). Si sube y ese medio había fallado, se vuelve a intentar una vez; si el medio se reproduce bien, se ignora
+   * (nunca reinicia un video sano). Opcional: sin él vale 0.
+   */
+  retry?: number;
 }
 
 export interface BackgroundFailure {
@@ -31,15 +36,18 @@ export interface BackgroundEngine {
 
 export interface EngineOptions {
   onFailure?: (failure: BackgroundFailure) => void;
-  /** Cuánto esperar tras un evento `stalled` sin que el video avance antes de darlo por fallido. */
+  /** Cuánto esperar tras un evento `stalled`, o sin que `currentTime` avance, antes de darlo por atascado. */
   stallMs?: number;
-  /** Cuánto esperar a que el medio cargue su primer fotograma. */
+  /** Cuánto esperar a que el medio cargue su primer fotograma (solo corre con la ventana visible). */
   loadTimeoutMs?: number;
+  /** Cada cuánto se comprueba, con la ventana visible, que el video realmente avanza. */
+  watchMs?: number;
   /** Máximo de medios en fundido de salida a la vez (cada video retiene un decodificador): el más viejo se libera ya. */
   maxLeaving?: number;
 }
 
 type LayerState = "loading" | "visible" | "leaving";
+type Timer = ReturnType<typeof setTimeout>;
 
 interface MediaLayer {
   el: HTMLImageElement | HTMLVideoElement;
@@ -48,8 +56,20 @@ interface MediaLayer {
   state: LayerState;
   released: boolean;
   failed: boolean;
-  timers: Set<ReturnType<typeof setTimeout>>;
-  stallTimer: ReturnType<typeof setTimeout> | null;
+  timers: Set<Timer>;
+  stallTimer: Timer | null;
+  /** Tiempo de espera de carga (se suspende con la ventana oculta y se rearma al mostrarse). */
+  loadTimer: Timer | null;
+  /** Comprobación periódica de que el video avanza (solo con la ventana visible). */
+  watchTimer: ReturnType<typeof setInterval> | null;
+  lastTime: number;
+  lastMoveAt: number;
+  /** 0 = primer intento; 1 = ya se recargó una vez tras un atasco o una carga fallida (el siguiente fallo es definitivo). */
+  attempt: number;
+  /** Recargando el mismo medio tras un fallo blando (el elemento sigue en pantalla, sin imagen, hasta que decodifique). */
+  reloading: boolean;
+  /** Fallo blando ocurrido con la ventana oculta: se recarga al volver a ser visible. */
+  pendingReload: { reason: BackgroundFailureReason; detail: string } | null;
   detach: () => void;
 }
 
@@ -65,6 +85,7 @@ export function createSingleVideoEngine(container: HTMLElement, options: EngineO
   const doc = container.ownerDocument;
   const stallMs = options.stallMs ?? 5000;
   const loadTimeoutMs = options.loadTimeoutMs ?? 10000;
+  const watchMs = options.watchMs ?? 2000;
   const maxLeaving = options.maxLeaving ?? 2;
 
   const base = doc.createElement("div");
@@ -75,6 +96,9 @@ export function createSingleVideoEngine(container: HTMLElement, options: EngineO
   let spec: BackgroundSpec | null = null;
   /** Medio pedido (kind|url), o null si el fondo actual no es un medio. Se conserva tras un fallo: el mismo pedido no se reintenta en bucle. */
   let wantedKey: string | null = null;
+  /** El medio pedido falló definitivamente (cayó al color de reserva): solo un `retry` mayor lo vuelve a intentar. */
+  let wantedFailed = false;
+  let wantedRetry = 0;
   let disposed = false;
 
   const setBase = (color: string, ms: number): void => {
@@ -97,6 +121,20 @@ export function createSingleVideoEngine(container: HTMLElement, options: EngineO
     }
   };
 
+  const disarmLoad = (layer: MediaLayer): void => {
+    if (layer.loadTimer !== null) {
+      clearTimeout(layer.loadTimer);
+      layer.loadTimer = null;
+    }
+  };
+
+  const stopWatch = (layer: MediaLayer): void => {
+    if (layer.watchTimer !== null) {
+      clearInterval(layer.watchTimer);
+      layer.watchTimer = null;
+    }
+  };
+
   /** Libera el medio DE VERDAD: detiene, quita `src`, `load()` (suelta el decodificador y el archivo) y quita el nodo. */
   const release = (layer: MediaLayer): void => {
     if (layer.released) return;
@@ -105,6 +143,8 @@ export function createSingleVideoEngine(container: HTMLElement, options: EngineO
     for (const t of layer.timers) clearTimeout(t);
     layer.timers.clear();
     disarmStall(layer);
+    disarmLoad(layer);
+    stopWatch(layer);
     const index = layers.indexOf(layer);
     if (index >= 0) layers.splice(index, 1);
     try {
@@ -124,7 +164,10 @@ export function createSingleVideoEngine(container: HTMLElement, options: EngineO
   const leave = (layer: MediaLayer, ms: number): void => {
     if (layer.released || layer.state === "leaving") return;
     layer.state = "leaving";
+    layer.pendingReload = null;
     disarmStall(layer);
+    disarmLoad(layer);
+    stopWatch(layer);
     if (ms <= 0) {
       release(layer);
       return;
@@ -141,9 +184,15 @@ export function createSingleVideoEngine(container: HTMLElement, options: EngineO
     }
   };
 
+  /** Fallo DEFINITIVO: cae al color de reserva e informa. Un medio que ya estaba saliendo (fundido) solo se libera: no es el fondo vigente (H7). */
   const fail = (layer: MediaLayer, reason: BackgroundFailureReason, detail: string): void => {
     if (layer.released || layer.failed || disposed) return;
+    if (layer.state === "leaving") {
+      release(layer);
+      return;
+    }
     layer.failed = true;
+    if (`${layer.kind}|${layer.url}` === wantedKey) wantedFailed = true;
     const ms = spec?.transitionMs ?? 0;
     // Cae al color sólido (la base ya lo muestra): todo medio se retira con fundido, el que falló incluido; si nunca llegó a verse, se libera ya.
     for (const l of [...layers]) {
@@ -169,11 +218,77 @@ export function createSingleVideoEngine(container: HTMLElement, options: EngineO
     });
   };
 
+  /** Arma el tiempo de espera de carga. NO corre con la ventana oculta (Chromium puede diferir la carga): se rearma al mostrarse. */
+  const armLoad = (layer: MediaLayer): void => {
+    disarmLoad(layer);
+    if (layer.released || doc.hidden) return;
+    layer.loadTimer = setTimeout(() => {
+      layer.loadTimer = null;
+      if (layer.state === "loading" || layer.reloading) softFail(layer, layer.kind === "video" ? "stalled" : "imageError", "load-timeout");
+    }, loadTimeoutMs);
+  };
+
+  /** Vuelve a cargar el MISMO medio en el mismo elemento (un solo intento): el color de base se ve mientras tanto. */
+  const reload = (layer: MediaLayer): void => {
+    if (layer.released || layer.state === "leaving") return;
+    layer.attempt = 1;
+    layer.pendingReload = null;
+    layer.reloading = true;
+    disarmStall(layer);
+    stopWatch(layer);
+    layer.el.removeAttribute("src");
+    try {
+      if (layer.kind === "video") (layer.el as HTMLVideoElement).load();
+    } catch {
+      /* un elemento roto: el tiempo de espera de carga lo dará por fallido */
+    }
+    layer.el.setAttribute("src", layer.url);
+    ensurePlaying(layer);
+    armLoad(layer);
+  };
+
+  /**
+   * Fallo BLANDO (atasco, tiempo de carga): antes de dejar el fondo en el color de reserva se recarga el medio UNA vez; con la ventana oculta la recarga espera a
+   * que vuelva a ser visible (no se puede juzgar un video que Chromium tiene en pausa). El segundo fallo es definitivo.
+   */
+  const softFail = (layer: MediaLayer, reason: BackgroundFailureReason, detail: string): void => {
+    if (layer.released || layer.failed || disposed || layer.state === "leaving") return;
+    if (layer.attempt >= 1) {
+      fail(layer, reason, detail);
+      return;
+    }
+    if (doc.hidden) {
+      layer.pendingReload = { reason, detail };
+      return;
+    }
+    reload(layer);
+  };
+
+  /** Con la ventana visible, comprueba cada `watchMs` que el video realmente avanza: un fotograma congelado sin evento de error también se detecta. */
+  const startWatch = (layer: MediaLayer): void => {
+    if (layer.kind !== "video" || layer.released || layer.state === "leaving" || layer.watchTimer !== null || doc.hidden) return;
+    const video = layer.el as HTMLVideoElement;
+    layer.lastTime = video.currentTime;
+    layer.lastMoveAt = Date.now();
+    layer.watchTimer = setInterval(() => {
+      if (layer.released || layer.state === "leaving" || doc.hidden || layer.reloading) return;
+      ensurePlaying(layer);
+      const now = Date.now();
+      if (video.currentTime !== layer.lastTime) {
+        layer.lastTime = video.currentTime;
+        layer.lastMoveAt = now;
+        layer.attempt = 0;   // volvió a avanzar: un atasco futuro (minutos u horas después) vuelve a tener su recarga
+        return;
+      }
+      if (now - layer.lastMoveAt >= stallMs) softFail(layer, "stalled", "no-progress");
+    }, watchMs);
+  };
+
   const show = (layer: MediaLayer): void => {
     if (layer.released || layer.state !== "loading") return;
-    for (const timer of layer.timers) clearTimeout(timer);   // el tiempo de espera de carga
-    layer.timers.clear();
+    disarmLoad(layer);
     layer.state = "visible";
+    startWatch(layer);
     const ms = spec?.transitionMs ?? 0;
     layer.el.style.transition = `opacity ${String(Math.max(0, ms))}ms linear`;
     layer.el.style.opacity = "1";
@@ -181,10 +296,24 @@ export function createSingleVideoEngine(container: HTMLElement, options: EngineO
     for (const other of [...layers]) if (other !== layer && other.state === "visible") leave(other, ms);
   };
 
+  /** Primer fotograma decodificado: termina la carga (la primera o una recarga) y, si hace falta, lo muestra. */
+  const ready = (layer: MediaLayer): void => {
+    if (layer.released) return;
+    if (layer.reloading) {
+      layer.reloading = false;
+      disarmLoad(layer);
+      startWatch(layer);
+    }
+    show(layer);
+  };
+
   const create = (kind: "image" | "video", url: string, s: BackgroundSpec): MediaLayer => {
     const el = kind === "video" ? doc.createElement("video") : doc.createElement("img");
     el.style.cssText = `${FILL}opacity:0;`;
-    const layer: MediaLayer = { el, kind, url, state: "loading", released: false, failed: false, timers: new Set(), stallTimer: null, detach: () => undefined };
+    const layer: MediaLayer = {
+      el, kind, url, state: "loading", released: false, failed: false, timers: new Set(), stallTimer: null, loadTimer: null, watchTimer: null,
+      lastTime: 0, lastMoveAt: 0, attempt: 0, reloading: false, pendingReload: null, detach: () => undefined,
+    };
     const listeners: [string, () => void][] = [];
     const on = (type: string, fn: () => void): void => {
       el.addEventListener(type, fn);
@@ -204,8 +333,8 @@ export function createSingleVideoEngine(container: HTMLElement, options: EngineO
       video.preload = "auto";
       video.controls = false;
       video.disablePictureInPicture = true;
-      on("loadeddata", () => { show(layer); });
-      on("canplay", () => { show(layer); disarmStall(layer); });
+      on("loadeddata", () => { ready(layer); });
+      on("canplay", () => { ready(layer); disarmStall(layer); });
       on("playing", () => { disarmStall(layer); });
       on("timeupdate", () => { disarmStall(layer); });
       on("error", () => {
@@ -220,7 +349,7 @@ export function createSingleVideoEngine(container: HTMLElement, options: EngineO
         if (doc.hidden || layer.released || layer.state === "leaving" || layer.stallTimer !== null) return;
         layer.stallTimer = setTimeout(() => {
           layer.stallTimer = null;
-          fail(layer, "stalled", "stalled");
+          softFail(layer, "stalled", "stalled");
         }, stallMs);
       });
       // Chromium puede pausar un video silenciado cuando no es visible (ventana minimizada por la pausa de la salida): al volver sigue donde estaba.
@@ -228,13 +357,11 @@ export function createSingleVideoEngine(container: HTMLElement, options: EngineO
         if (!doc.hidden) ensurePlaying(layer);
       });
     } else {
-      on("load", () => { show(layer); });
+      on("load", () => { ready(layer); });
       on("error", () => { fail(layer, "imageError", "img error"); });
     }
 
-    later(layer, loadTimeoutMs, () => {
-      if (layer.state === "loading") fail(layer, kind === "video" ? "stalled" : "imageError", "load-timeout");
-    });
+    armLoad(layer);
     layers.push(layer);
     container.appendChild(el);
     el.setAttribute("src", url);
@@ -243,9 +370,22 @@ export function createSingleVideoEngine(container: HTMLElement, options: EngineO
   };
 
   const onVisibility = (): void => {
-    for (const layer of layers) {
-      if (doc.hidden) disarmStall(layer);
-      else ensurePlaying(layer);
+    for (const layer of [...layers]) {
+      if (doc.hidden) {
+        // Con la ventana oculta Chromium puede diferir la carga y pausar el video: no se juzga ni el tiempo de carga ni el avance.
+        disarmStall(layer);
+        disarmLoad(layer);
+        stopWatch(layer);
+        continue;
+      }
+      if (layer.state === "leaving") continue;
+      if (layer.pendingReload) {
+        reload(layer);   // un fallo blando ocurrido en la pausa: UNA recarga antes de darlo por perdido
+        continue;
+      }
+      if (layer.state === "loading" || layer.reloading) armLoad(layer);
+      ensurePlaying(layer);
+      startWatch(layer);
     }
   };
   doc.addEventListener("visibilitychange", onVisibility);
@@ -255,15 +395,27 @@ export function createSingleVideoEngine(container: HTMLElement, options: EngineO
       if (disposed) return;
       spec = next;
       setBase(next.color, next.transitionMs);
+      const retry = next.retry ?? 0;
 
       const isMedia = (next.kind === "image" || next.kind === "video") && next.mediaUrl !== null;
       const key = isMedia ? `${next.kind}|${String(next.mediaUrl)}` : null;
       if (key === wantedKey) {
+        if (key !== null && wantedFailed && retry !== wantedRetry && next.mediaUrl !== null) {
+          // «Reintentar» / reaplicar el mismo archivo tras un fallo (H2): el operador lo pidió de nuevo (p. ej. el USB volvió).
+          wantedFailed = false;
+          wantedRetry = retry;
+          for (const layer of [...layers]) if (layer.state === "loading") release(layer);
+          create(next.kind as "image" | "video", next.mediaUrl, next);
+          return;
+        }
+        wantedRetry = retry;
         // El mismo medio (p. ej. cambió el texto): NO se toca el elemento. Solo puede cambiar el silencio.
         for (const layer of layers) if (layer.kind === "video" && layer.state !== "leaving") (layer.el as HTMLVideoElement).muted = next.muted;
         return;
       }
       wantedKey = key;
+      wantedFailed = false;
+      wantedRetry = retry;
       for (const layer of [...layers]) if (layer.state === "loading") release(layer);   // nunca llegó a verse
       if (!isMedia || next.mediaUrl === null) {
         for (const layer of [...layers]) leave(layer, next.transitionMs);

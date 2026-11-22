@@ -9,6 +9,8 @@ const { createRoot } = await import("react-dom/client");
 const { createElement } = await import("react");
 const { OutputScreen } = await loadTs("/src/output/OutputScreen.tsx");
 const { nextView } = await loadTs("/src/output/freeze.ts");
+const roots = [];
+after(async () => { await act(async () => { for (const r of roots) r.unmount(); }); });   // desmontar detiene los motores de fondo (su vigilancia usa un intervalo)
 after(closeServer);
 
 const THEME = { fontFamily: "Arial", fontSize: 72, color: "#FFFFFF", outlineWidth: 0, outlineColor: "#000000", shadowBlur: 0, shadowOffset: 0, shadowColor: "#000000", align: "center", verticalAlign: "middle", lineHeight: 1.2, marginTop: 50, marginRight: 50, marginBottom: 50, marginLeft: 50, autoFit: true, minFontSize: 24 };
@@ -27,6 +29,7 @@ function mount() {
   const container = win.document.createElement("div");
   win.document.body.appendChild(container);
   const root = createRoot(container, { onCaughtError: () => undefined });   // los errores que el boundary captura (a proposito) no deben fallar el test
+  roots.push(root);
   let failures = [];
   const render = async (st, seq) => { await act(async () => { root.render(createElement(OutputScreen, { state: st, seq, onBackgroundFailure: (f) => failures.push(f) })); }); };
   return { container, root, render, failures: () => failures, video: () => container.querySelector("video"), texts: () => [...container.querySelectorAll(".content-text")].map((n) => n.textContent) };
@@ -137,6 +140,37 @@ test("ErrorBoundary: un snapshot que rompe el render conserva el ultimo estado p
   // otra secuencia con un snapshot bueno: se recupera
   await m.render(state("live", slide("c", "recuperado"), { kind: "color", color: "#1e3a8a", mediaUrl: null, fileName: null, muted: true, transitionMs: 0, warning: null }, 0), 3);
   assert.deepEqual(m.texts(), ["recuperado"]);
+});
+
+test("H8: un error de render del CONTENIDO no remonta el fondo: mismo <video>, mismo nodo, currentTime intacto, sin parpadeo del color de base", async () => {
+  const m = mount();
+  await m.render(state("live", slide("a", "bueno"), VIDEO, 0), 1);
+  const video = m.video();
+  video.dispatchEvent(new win.Event("loadeddata"));
+  video.currentTime = 42;
+  const src = video.getAttribute("src");
+
+  await m.render(state("live", slide("b", { boom: true }), { ...VIDEO }, 0), 2);   // el contenido rompe el render: entra el fallback del boundary
+  assert.equal(m.texts()[0], "bueno", "el contenido conserva lo ultimo pintado");
+  assert.equal(m.video(), video, "el fondo NO se remonto");
+  assert.equal(video.isConnected, true);
+  assert.equal(video.currentTime, 42);
+  assert.equal(video.getAttribute("src"), src);
+  assert.equal(m.container.querySelectorAll("video").length, 1);
+
+  await m.render(state("live", slide("c", "recuperado"), { ...VIDEO }, 0), 3);      // y al recuperarse tampoco
+  assert.equal(m.video(), video);
+  assert.equal(video.currentTime, 42);
+  assert.deepEqual(m.texts(), ["recuperado"]);
+});
+
+test("H8: durante el error de contenido el fondo sigue al snapshot mas reciente (un cambio de fondo se aplica)", async () => {
+  const m = mount();
+  await m.render(state("live", slide("a", "bueno"), { ...VIDEO, kind: "color", mediaUrl: null, color: "#112233" }, 0), 1);
+  await m.render(state("live", slide("b", { boom: true }), { ...VIDEO, kind: "color", mediaUrl: null, color: "#445566" }, 0), 2);
+  assert.equal(m.texts()[0], "bueno");
+  const base = m.container.querySelector('[data-layer="background"]').firstElementChild;
+  assert.equal(base.style.backgroundColor, "#445566");
 });
 
 // ───── Freeze + video ─────

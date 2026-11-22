@@ -6,10 +6,12 @@ import { closeServer, loadTs } from "./helper.mjs";
 const win = setupDom();
 const created = trackVideos(win);
 const { createSingleVideoEngine } = await loadTs("/src/output/background/engine.ts");
+const engines = [];
+after(() => { for (const e of engines) e.dispose(); });   // los motores con video en pantalla tienen un intervalo de vigilancia: sin esto el proceso de la prueba no termina
 after(closeServer);
 
-const video = (url, over = {}) => ({ kind: "video", color: "#102030", mediaUrl: url, muted: true, transitionMs: 0, ...over });
-const image = (url, over = {}) => ({ kind: "image", color: "#102030", mediaUrl: url, muted: true, transitionMs: 0, ...over });
+const video = (url, over = {}) => ({ kind: "video", color: "#102030", mediaUrl: url, muted: true, transitionMs: 0, retry: 0, ...over });
+const image = (url, over = {}) => ({ kind: "image", color: "#102030", mediaUrl: url, muted: true, transitionMs: 0, retry: 0, ...over });
 const color = (c = "#336699", ms = 0) => ({ kind: "color", color: c, mediaUrl: null, muted: true, transitionMs: ms });
 const fire = (el, type) => el.dispatchEvent(new win.Event(type));
 const setError = (el, code) => Object.defineProperty(el, "error", { configurable: true, value: { code } });
@@ -19,6 +21,7 @@ function setup(options = {}) {
   win.document.body.appendChild(container);
   const failures = [];
   const engine = createSingleVideoEngine(container, { onFailure: (f) => failures.push(f), ...options });
+  engines.push(engine);
   const videos = () => [...container.querySelectorAll("video")];
   const images = () => [...container.querySelectorAll("img")];
   return { container, engine, failures, videos, images, base: container.firstElementChild };
@@ -209,36 +212,238 @@ test("tras un fallo el mismo fondo no se reintenta en bucle con cada snapshot; u
   assert.equal(videos().length, 1);
 });
 
-test("stalled: solo falla si el video no avanza durante stallMs", async () => {
-  const { engine, videos, failures } = setup({ stallMs: 40 });
+/** Desactiva el control de avance (los tests de eventos no lo necesitan): intervalo enorme. */
+const NO_WATCH = { watchMs: 3_600_000 };
+
+test("stalled: solo falla si el video no avanza durante stallMs, y antes se recarga UNA vez", async () => {
+  const { engine, videos, failures } = setup({ stallMs: 40, ...NO_WATCH });
   engine.apply(video("file:///C:/v/a.mp4")); ready(videos()[0]);
   fire(videos()[0], "stalled");
   await sleep(10);
   fire(videos()[0], "timeupdate");   // avanzo: era un atasco momentaneo
   await sleep(80);
   assert.equal(failures.length, 0);
-  fire(videos()[0], "stalled");
+  const v = videos()[0];
+  const loads = v.__loads;
+  fire(v, "stalled");
+  await sleep(120);
+  // Primer atasco real: una recarga del MISMO elemento (sin avisar al panel todavia).
+  assert.equal(failures.length, 0);
+  assert.equal(videos()[0], v);
+  assert.equal(v.__loads, loads + 1, "se recargo");
+  assert.equal(v.getAttribute("src"), "file:///C:/v/a.mp4");
+  // La recarga tampoco avanza: ahora si es un fallo.
+  fire(v, "stalled");
   await sleep(120);
   assert.deepEqual(failures.map((f) => f.reason), ["stalled"]);
   assert.equal(videos().length, 0);
 });
 
-test("stalled con la ventana oculta no se da por fallo, y al volver se reanuda", async () => {
-  const { engine, videos, failures } = setup({ stallMs: 30 });
+test("stalled con la ventana oculta no se arma ni se juzga; al volver se vuelve a vigilar", async () => {
+  const { engine, videos, failures } = setup({ stallMs: 30, ...NO_WATCH });
   engine.apply(video("file:///C:/v/a.mp4")); ready(videos()[0]);
   setHidden(win, true);
   fire(videos()[0], "stalled");
   await sleep(100);
   assert.equal(failures.length, 0);
+  assert.equal(videos()[0].__loads, 0, "oculta: no se recarga nada");
   setHidden(win, false);
+  fire(videos()[0], "stalled");   // visible otra vez: ahora si cuenta (recarga una vez)
+  await sleep(80);
+  assert.equal(videos()[0].__loads, 1);
 });
 
-test("un medio que nunca carga falla por tiempo de espera", async () => {
-  const { engine, failures, videos } = setup({ loadTimeoutMs: 40 });
+test("un medio que nunca carga se recarga una vez y despues falla por tiempo de espera", async () => {
+  const { engine, failures, videos } = setup({ loadTimeoutMs: 40, ...NO_WATCH });
   engine.apply(video("file:///C:/v/lento.mp4"));
-  await sleep(120);
-  assert.deepEqual(failures.map((f) => f.reason), ["stalled"]);
+  const v = videos()[0];
+  await sleep(80);
+  assert.equal(failures.length, 0, "el primer tiempo de espera solo recarga");
+  assert.equal(v.__loads, 1);
+  await sleep(100);
+  assert.deepEqual(failures.map((f) => [f.reason, f.detail]), [["stalled", "load-timeout"]]);
   assert.equal(videos().length, 0);
+});
+
+// ───── H1: avance real (currentTime), carga con la ventana oculta ─────
+
+test("H1: un video visible cuyo currentTime no avanza se detecta aunque no llegue ningun evento", async () => {
+  const { engine, videos, failures } = setup({ stallMs: 40, watchMs: 10 });
+  engine.apply(video("file:///C:/v/a.mp4")); const [v] = videos(); ready(v);
+  v.currentTime = 5;           // congelado: ni `stalled` ni `error`
+  await sleep(120);            // 1.er atasco -> recarga (todavia no es un fallo)
+  assert.ok(v.__loads >= 1, "intento una recarga antes de rendirse");
+  assert.equal(failures.length, 0);
+  ready(v);                    // la recarga decodifica un fotograma pero el video sigue sin avanzar
+  await sleep(150);
+  assert.deepEqual(failures.map((f) => [f.reason, f.detail]), [["stalled", "no-progress"]]);
+  assert.equal(videos().length, 0);
+});
+
+test("H1: un video que avanza (bucle incluido) nunca se da por atascado", async () => {
+  const { engine, videos, failures } = setup({ stallMs: 40, watchMs: 10 });
+  engine.apply(video("file:///C:/v/a.mp4")); const [v] = videos(); ready(v);
+  for (let i = 0; i < 30; i++) { v.currentTime = i % 7; await sleep(10); }   // vuelve a 0 cada vuelta del bucle
+  assert.equal(failures.length, 0);
+  assert.equal(v.__loads, 0);
+  assert.equal(videos()[0], v);
+});
+
+test("H1: el control de avance NO corre con la ventana oculta y se rearma al mostrarse", async () => {
+  const { engine, videos, failures } = setup({ stallMs: 30, watchMs: 10 });
+  engine.apply(video("file:///C:/v/a.mp4")); const [v] = videos(); ready(v);
+  v.currentTime = 9;
+  setHidden(win, true);
+  await sleep(250);            // Chromium tiene el video en pausa: no es un atasco
+  assert.equal(failures.length, 0);
+  assert.equal(v.__loads, 0);
+  setHidden(win, false);       // vuelve: la linea base se reinicia, no se acusa por el tiempo que estuvo oculta
+  await sleep(15);
+  assert.equal(failures.length, 0);
+  assert.equal(v.__loads, 0);
+  await sleep(200);            // y si sigue sin avanzar estando visible, entonces si
+  assert.ok(v.__loads >= 1, "estando visible y sin avanzar, ahora si se recarga");
+});
+
+test("H1: el limite de carga NO corre con la ventana oculta: no hay falso fallo durante la pausa", async () => {
+  const { engine, videos, failures } = setup({ loadTimeoutMs: 40, ...NO_WATCH });
+  setHidden(win, true);
+  engine.apply(video("file:///C:/v/en-pausa.mp4"));   // se cambia el fondo con la salida en pausa
+  const v = videos()[0];
+  await sleep(200);                                    // mucho mas que el limite
+  assert.equal(failures.length, 0, "oculta: no se juzga la carga");
+  assert.equal(v.__loads, 0);
+  setHidden(win, false);                               // se reanuda: el limite se rearma desde cero
+  await sleep(15);
+  assert.equal(failures.length, 0);
+  ready(v);                                            // y el video carga bien: se ve, sin color de reserva
+  assert.equal(v.style.opacity, "1");
+  await sleep(120);
+  assert.equal(failures.length, 0);
+});
+
+test("H1: carga iniciada a la vista y ventana oculta a medias: el tiempo de espera se suspende y se rearma completo", async () => {
+  const { engine, videos, failures } = setup({ loadTimeoutMs: 60, ...NO_WATCH });
+  engine.apply(video("file:///C:/v/a.mp4"));
+  const v = videos()[0];
+  await sleep(30);
+  setHidden(win, true);
+  await sleep(150);
+  assert.equal(failures.length, 0);
+  assert.equal(v.__loads, 0);
+  setHidden(win, false);
+  await sleep(30);
+  assert.equal(v.__loads, 0, "queda tiempo: todavia no se recarga");
+  await sleep(40);
+  assert.equal(v.__loads, 1, "agotado el tiempo rearmado: UNA recarga");
+  assert.equal(failures.length, 0);
+});
+
+test("H1: un fallo blando que ocurre con la ventana oculta espera y se recarga UNA vez al volver a ser visible", async () => {
+  const { engine, videos, failures } = setup({ loadTimeoutMs: 30, ...NO_WATCH });
+  engine.apply(video("file:///C:/v/a.mp4"));
+  const v = videos()[0];
+  // La ventana pasa a oculta SIN evento (carrera): el temporizador de carga dispara con la ventana ya oculta.
+  Object.defineProperty(win.document, "hidden", { configurable: true, get: () => true });
+  await sleep(100);
+  assert.equal(failures.length, 0);
+  assert.equal(v.__loads, 0, "oculta: no recarga todavia");
+  setHidden(win, false);       // vuelve a ser visible
+  assert.equal(v.__loads, 1, "recarga UNA vez al volver");
+  assert.equal(failures.length, 0, "y todavia no es un fallo");
+  assert.equal(videos()[0], v);
+});
+
+test("H1: una recarga que termina bien deja el video visible y reinicia la vigilancia", async () => {
+  const { engine, videos, failures } = setup({ stallMs: 40, ...NO_WATCH });
+  engine.apply(video("file:///C:/v/a.mp4")); const [v] = videos(); ready(v);
+  fire(v, "stalled");
+  await sleep(100);
+  assert.equal(v.__loads, 1);
+  ready(v);                                      // la recarga decodifico
+  assert.equal(v.style.opacity, "1");
+  fire(v, "stalled");                            // un atasco posterior vuelve a empezar por la recarga (no es definitivo de entrada)
+  await sleep(10);
+  fire(v, "timeupdate");
+  await sleep(80);
+  assert.equal(failures.length, 0);
+});
+
+// ───── H2: reintentar el mismo archivo tras un fallo ─────
+
+test("H2: reaplicar el MISMO archivo tras un fallo (retry mayor) lo intenta de nuevo; sin cambiar el contador no", () => {
+  const { engine, videos, failures } = setup();
+  engine.apply(video("file:///C:/v/usb.mp4", { retry: 0 }));
+  setError(videos()[0], 3); fire(videos()[0], "error");     // se desconecto el USB
+  assert.equal(failures.length, 1);
+  const total = created.length;
+
+  for (let i = 0; i < 10; i++) engine.apply(video("file:///C:/v/usb.mp4", { retry: 0 }));   // el mismo snapshot repetido: nunca en bucle
+  assert.equal(created.length, total);
+
+  engine.apply(video("file:///C:/v/usb.mp4", { retry: 1 }));  // «Reintentar» o reaplicar el archivo
+  assert.equal(created.length, total + 1, "se creo un video nuevo");
+  assert.equal(videos().length, 1);
+  assert.equal(videos()[0].getAttribute("src"), "file:///C:/v/usb.mp4");
+  ready(videos()[0]);
+  assert.equal(videos()[0].style.opacity, "1");
+  assert.equal(failures.length, 1, "no hay un aviso nuevo: se reproduce bien");
+
+  // Un contador mayor con el video SANO no lo reinicia.
+  const v = videos()[0]; v.currentTime = 20;
+  engine.apply(video("file:///C:/v/usb.mp4", { retry: 2 }));
+  assert.equal(videos()[0], v);
+  assert.equal(v.currentTime, 20);
+  assert.equal(created.length, total + 1);
+});
+
+test("H2: si el reintento vuelve a fallar se avisa de nuevo y se puede reintentar otra vez", () => {
+  const { engine, videos, failures } = setup();
+  engine.apply(video("file:///C:/v/usb.mp4"));
+  setError(videos()[0], 3); fire(videos()[0], "error");
+  engine.apply(video("file:///C:/v/usb.mp4", { retry: 1 }));
+  setError(videos()[0], 2); fire(videos()[0], "error");
+  assert.deepEqual(failures.map((f) => f.reason), ["decodeError", "readError"]);
+  const total = created.length;
+  engine.apply(video("file:///C:/v/usb.mp4", { retry: 2 }));
+  assert.equal(created.length, total + 1);
+});
+
+test("H2: un archivo distinto no depende del contador; volver a uno anterior con retry 0 tambien funciona", () => {
+  const { engine, videos } = setup();
+  engine.apply(video("file:///C:/v/a.mp4", { retry: 3 }));
+  setError(videos()[0], 4); fire(videos()[0], "error");
+  engine.apply(video("file:///C:/v/b.mp4", { retry: 0 }));
+  assert.equal(videos().length, 1);
+  assert.equal(videos()[0].getAttribute("src"), "file:///C:/v/b.mp4");
+});
+
+test("H2: una imagen que fallo tambien se reintenta", () => {
+  const { engine, images, failures } = setup();
+  engine.apply(image("file:///C:/i/a.png"));
+  fire(images()[0], "error");
+  assert.equal(failures.length, 1);
+  engine.apply(image("file:///C:/i/a.png", { retry: 1 }));
+  assert.equal(images().length, 1);
+  fire(images()[0], "load");
+  assert.equal(images()[0].style.opacity, "1");
+});
+
+// ───── H7: un medio que ya esta saliendo y falla solo se libera ─────
+
+test("H7: el video anterior que falla MIENTRAS se desvanece solo se libera: el fondo nuevo que ya se ve se queda", async () => {
+  const { engine, videos, failures } = setup();
+  engine.apply(video("file:///C:/v/a.mp4", { transitionMs: 500 }));
+  const [a] = videos(); ready(a);
+  engine.apply(video("file:///C:/v/b.mp4", { transitionMs: 500 }));
+  const b = videos().find((v) => v !== a); ready(b);       // b visible, a saliendo
+  assert.equal(a.style.opacity, "0");
+  setError(a, 3); fire(a, "error");                          // el viejo se rompe a mitad del fundido
+  assert.equal(failures.length, 0, "no es el fondo vigente: no se avisa al panel");
+  assert.equal(a.isConnected, false, "el viejo se libero");
+  assert.equal(b.isConnected, true);
+  assert.equal(b.style.opacity, "1", "el nuevo no se retiro");
+  assert.equal(videos().length, 1);
 });
 
 test("una imagen que no carga cae al color de reserva e informa imageError", () => {

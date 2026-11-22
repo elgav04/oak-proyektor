@@ -82,7 +82,7 @@ function Eval($ws, $expr, $timeoutMs = 8000) {
 }
 function Send-Command($ws, [string]$type, $payload) {
     $json = $payload | ConvertTo-Json -Depth 8 -Compress
-    [void](Eval $ws ("window.external.sendMessage(JSON.stringify({v:8,id:crypto.randomUUID(),kind:'command',type:'$type',payload:$json}));true"))
+    [void](Eval $ws ("window.external.sendMessage(JSON.stringify({v:9,id:crypto.randomUUID(),kind:'command',type:'$type',payload:$json}));true"))
 }
 
 # Memoria PRIVADA de los procesos del navegador de la SALIDA (su perfil esta en la linea de comandos), por tipo.
@@ -138,10 +138,10 @@ try {
     if (-not $control) { throw "No aparecio el panel" }
     $cws = Connect-Cdp $control.webSocketDebuggerUrl
     Start-Sleep -Seconds 2
-    $list = Eval $cws '(async () => { const id = crypto.randomUUID(); return await new Promise((resolve) => { window.external.receiveMessage((raw) => { const m = JSON.parse(raw); if (m.id === id) resolve(JSON.stringify(m.payload)); }); window.external.sendMessage(JSON.stringify({ v: 8, id, kind: "query", type: "display.list", payload: {} })); }); })()'
+    $list = Eval $cws '(async () => { const id = crypto.randomUUID(); return await new Promise((resolve) => { window.external.receiveMessage((raw) => { const m = JSON.parse(raw); if (m.id === id) resolve(JSON.stringify(m.payload)); }); window.external.sendMessage(JSON.stringify({ v:9, id, kind: "query", type: "display.list", payload: {} })); }); })()'
     $panelId = ((($list | ConvertFrom-Json).result.displays) | Where-Object { $_.hostsPanel } | Select-Object -First 1).id
     if (-not $panelId) { throw "No se pudo leer el monitor del panel: $list" }
-    [void](Eval $cws ("window.external.sendMessage(JSON.stringify({v:8,id:crypto.randomUUID(),kind:'command',type:'output.open',payload:{displayId:" + ($panelId | ConvertTo-Json -Compress) + "}}));true"))
+    [void](Eval $cws ("window.external.sendMessage(JSON.stringify({v:9,id:crypto.randomUUID(),kind:'command',type:'output.open',payload:{displayId:" + ($panelId | ConvertTo-Json -Compress) + "}}));true"))
     $output = $null
     for ($i = 0; $i -lt 40 -and -not $output; $i++) { Start-Sleep -Milliseconds 500; $output = Get-Targets "output" | Where-Object { $_.type -eq "page" -and $_.url -match "output\.html" } | Select-Object -First 1 }
     if (-not $output) { throw "No aparecio la ventana de salida" }
@@ -241,9 +241,24 @@ try {
         Start-Sleep -Milliseconds 800
         $result["salida tras el fallo"] = Eval $ows 'JSON.stringify({ videos: document.querySelectorAll("video").length, baseColor: getComputedStyle(document.querySelector("[data-layer=background]").firstElementChild).backgroundColor, textLayerVisible: getComputedStyle(document.querySelector("[data-layer=content]")).visibility })'
 
+        # H2: reintentar el MISMO archivo tras un fallo (simula el USB que se desconecta y vuelve). El archivo sigue roto: «Reintentar» lo intenta y avisa de nuevo.
+        $retryClick = '[...document.querySelectorAll("button")].filter((b) => b.innerText.trim() === "Reintentar").forEach((b) => b.click()); true'
+        [void](Eval $cws $retryClick)
+        Start-Sleep -Milliseconds 400
+        $again = ""
+        for ($i = 0; $i -lt 40 -and $again -notmatch "Fallo del fondo"; $i++) { Start-Sleep -Milliseconds 250; $again = (Eval $cws $banner) -replace "\s+", " " }
+        $result["reintento con el archivo todavia roto: el aviso vuelve"] = $again
+        # El archivo vuelve a estar bien (se reconecto el USB): reaplicar el mismo archivo ahora SI lo reproduce y el aviso desaparece.
+        Copy-Item -LiteralPath $bgVideo.path -Destination $corrupt -Force
+        Send-Command $cws "output.setBackground" @{ kind = "video"; path = $corrupt; color = "#445566"; muted = $true; transitionMs = 300 }
+        $played = $false
+        for ($i = 0; $i -lt 40; $i++) { Start-Sleep -Milliseconds 250; if ([bool](Eval $ows '(() => { const v = document.querySelector("video"); return !!v && v.getAttribute("src").endsWith("corrupto.mp4") && v.readyState >= 2 && v.currentTime > 0.3; })()')) { $played = $true; break } }
+        $result["reaplicar el mismo archivo ya sano: se reproduce = $played; aviso del panel"] = ((Eval $cws $banner) -replace "\s+", " ")
+        $result.retryVerdict = if ($again -match "Fallo del fondo" -and $played) { "OK: Reintentar vuelve a fallar con el archivo roto y reaplicar el mismo archivo sano lo reproduce" } else { "REVISAR el reintento (aviso de nuevo = $($again -match 'Fallo del fondo'); reproduce = $played)" }
         # Pausa y reanudacion de la salida con un video reproduciendose.
         [void](Eval $cws $dismiss)
         Send-Command $cws "output.setBackground" $bgVideo
+        Start-Sleep -Seconds 2   # deja terminar el fundido: el video anterior sigue en el DOM mientras sale y no debe confundirse con el nuevo
         for ($i = 0; $i -lt 40; $i++) { Start-Sleep -Milliseconds 250; if ([bool](Eval $ows '(() => { const v = document.querySelector("video"); return !!v && v.readyState >= 2 && v.currentTime > 0.5; })()')) { break } }
         [void](Eval $ows '(() => { const v = document.querySelector("video"); v.__oakNode = true; window.__oakLoops = 0; v.addEventListener("seeked", () => { window.__oakLoops++; }); return true; })()')
         $before = Eval $ows 'JSON.stringify((() => { const v = document.querySelector("video"); return { t: +v.currentTime.toFixed(2), paused: v.paused, hidden: document.hidden }; })())'
@@ -259,6 +274,17 @@ try {
         $result["pausa: despues de reanudar (3 s)"] = $after
         $a = $after | ConvertFrom-Json
         $result.VERDICT = if ($a.sameNode -and -not $a.paused -and $a.videos -eq 1) { "OK: tras la pausa el video es el mismo nodo y esta reproduciendose (no se reinicio ni se perdio el fondo)" } else { "REVISAR la pausa/reanudacion" }
+        # H1: cambiar el fondo con la salida EN PAUSA, esperar mas que el limite de carga (10 s) y reanudar: el video nuevo debe verse (no el color de reserva ni un falso fallo).
+        [void](Eval $cws $dismiss)
+        Send-Command $cws "output.recover" @{ reason = "manual" }
+        Start-Sleep -Seconds 2
+        Send-Command $cws "output.setBackground" @{ kind = "video"; path = $videos[1]; color = "#102030"; muted = $true; transitionMs = 300 }
+        Start-Sleep -Seconds 13
+        Send-Command $cws "output.open" @{ displayId = $panelId }
+        $okPause = $false
+        for ($i = 0; $i -lt 60; $i++) { Start-Sleep -Milliseconds 250; if ([bool](Eval $ows '(() => { const v = document.querySelector("video"); return !!v && v.getAttribute("src").endsWith("b.mp4") && v.readyState >= 2 && v.currentTime > 0.3 && !v.paused; })()')) { $okPause = $true; break } }
+        $result["H1 fondo cambiado en pausa (13 s) y reanudado: b.mp4 se reproduce = $okPause; aviso del panel"] = ((Eval $cws $banner) -replace "\s+", " ")
+        $result.pauseBackgroundVerdict = if ($okPause) { "OK: el fondo cambiado durante la pausa se ve al reanudar, sin falso fallo" } else { "REVISAR: el fondo cambiado en pausa no se reproduce al reanudar" }
     }
 
     # ---------------------------------------------------------------- gap

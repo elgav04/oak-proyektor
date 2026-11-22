@@ -13,7 +13,7 @@ public class MediaHandlerTests
 {
     private const string Theme = """{"fontFamily":"Arial","fontSize":72,"color":"#FFFFFF","outlineWidth":0,"outlineColor":"#000000","shadowBlur":0,"shadowOffset":0,"shadowColor":"#000000","align":"center","verticalAlign":"middle","lineHeight":1.2,"marginTop":50,"marginRight":50,"marginBottom":50,"marginLeft":50,"autoFit":true,"minFontSize":24}""";
 
-    private static string Msg(string type, string payload) => $$"""{"v":8,"id":"c1","kind":"command","type":"{{type}}","payload":{{payload}}}""";
+    private static string Msg(string type, string payload) => $$"""{"v":9,"id":"c1","kind":"command","type":"{{type}}","payload":{{payload}}}""";
 
     private static (IpcDispatcher D, FakeOutputController Output, FakeMediaFileSystem Fs) Create(IMediaFileSystem? fs = null, TimeSpan? timeout = null)
     {
@@ -25,6 +25,7 @@ public class MediaHandlerTests
             new OutputShowContentHandler(output),
             new OutputClearContentHandler(output),
             new OutputReportBackgroundFailureHandler(output),
+            new OutputRetryBackgroundHandler(output),
         ];
         return (new IpcDispatcher(handlers, NullLogger<IpcDispatcher>.Instance), output, fake);
     }
@@ -38,7 +39,7 @@ public class MediaHandlerTests
     [Fact]
     public async Task The_json_the_ps_script_sends_deserializes_as_is()
     {
-        var env = IpcSerializer.TryParse("""{"v":8,"id":"x","kind":"command","type":"output.setBackground","payload":{"color":"#102030","path":"C:\\Users\\x\\media-test\\a.mp4","transitionMs":300,"muted":true,"kind":"video"}}""", out var e, out var err);
+        var env = IpcSerializer.TryParse("""{"v":9,"id":"x","kind":"command","type":"output.setBackground","payload":{"color":"#102030","path":"C:\\Users\\x\\media-test\\a.mp4","transitionMs":300,"muted":true,"kind":"video"}}""", out var e, out var err);
         Assert.True(env, err);
         var p = e!.GetPayload<OutputSetBackgroundPayload>();
         Assert.Equal((BackgroundKind.Video, 300), (p.Kind, p.TransitionMs));
@@ -153,9 +154,49 @@ public class MediaHandlerTests
         Assert.Equal(2, output.Calls.Count);
     }
 
+    [Fact]
+    public async Task A_stuck_disk_never_accumulates_blocked_threads_one_check_in_flight_at_most()
+    {
+        var gate = new ManualResetEventSlim();
+        var blocking = new BlockingFileSystem(gate);
+        var (d, output, _) = Create(blocking, TimeSpan.FromMilliseconds(100));
+        try
+        {
+            var first = await d.DispatchAsync(Msg("output.setBackground", Video(@"C:\a.mp4")), CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Equal("output.mediaRejected", ErrorCode(first));
+
+            // La primera comprobación sigue colgada en el disco: las siguientes se rechazan AL INSTANTE y NO ocupan otro hilo del pool.
+            for (var i = 0; i < 20; i++)
+            {
+                var again = await d.DispatchAsync(Msg("output.setBackground", Video(@"C:\a.mp4")), CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(2));
+                Assert.Equal("output.mediaRejected", ErrorCode(again));
+                Assert.Contains("anterior", ErrorMessage(again));
+            }
+            Assert.Equal(1, blocking.Calls);
+            Assert.Empty(output.Backgrounds);
+        }
+        finally { gate.Set(); }
+
+        // Cuando el disco responde, la guarda se libera y se vuelve a poder aplicar un fondo.
+        await Task.Delay(200);
+        var ok = await d.DispatchAsync(Msg("output.setBackground", Video(@"C:\a.mp4")), CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Null(ok);
+        Assert.Single(output.Backgrounds);
+    }
+
+    [Fact]
+    public async Task Retry_background_reaches_the_controller_and_needs_no_payload()
+    {
+        var (d, output, _) = Create();
+        Assert.Null(await d.DispatchAsync("""{"v":9,"id":"r1","kind":"command","type":"output.retryBackground","payload":{}}""", CancellationToken.None));
+        Assert.Equal(["retryBackground"], output.Calls);
+    }
+
     private sealed class BlockingFileSystem(ManualResetEventSlim gate) : IMediaFileSystem
     {
+        private int _calls;
+        public int Calls => Volatile.Read(ref _calls);
         public DriveType DriveTypeOf(string root) => DriveType.Fixed;
-        public FileProbe Probe(string path) { gate.Wait(TimeSpan.FromSeconds(30)); return new FileProbe(true, 1, null); }
+        public FileProbe Probe(string path) { Interlocked.Increment(ref _calls); gate.Wait(TimeSpan.FromSeconds(30)); return new FileProbe(true, 1, null); }
     }
 }

@@ -63,7 +63,9 @@ function applyOutput(payload: OutputStateChangedPayload): void {
   const state = useControlStore.getState();
   if (!isNewer(state.output?.seq ?? null, payload.seq)) return;
   // Otro fondo (u ninguno) ya no es el que falló: el aviso deja de valer.
-  const stale = state.backgroundFailure !== null && payload.state.background.fileName !== state.backgroundFailure.fileName;
+  // También deja de valer si se pidió un reintento del mismo medio (sube `retry`): la salida lo vuelve a intentar y, si falla otra vez, manda un aviso nuevo.
+  const retried = payload.state.background.retry > (state.output?.state.background.retry ?? 0);
+  const stale = state.backgroundFailure !== null && (payload.state.background.fileName !== state.backgroundFailure.fileName || retried);
   useControlStore.setState(stale ? { output: payload, backgroundFailure: null } : { output: payload });
 }
 

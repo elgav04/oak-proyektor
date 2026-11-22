@@ -67,6 +67,13 @@ internal sealed class OutputSetBackgroundHandler(IOutputController output, IMedi
 {
     internal static readonly TimeSpan DefaultValidationTimeout = TimeSpan.FromSeconds(5);
 
+    /// <summary>
+    /// La comprobación del disco es síncrona e incancelable (una unidad atascada bloquea el hilo hasta que el sistema la suelta): no se puede ABANDONAR, así que se LIMITA a UNA a la vez.
+    /// Si la anterior sigue colgada, las nuevas se rechazan al instante en lugar de bloquear otro hilo del pool por cada intento (H9).
+    /// </summary>
+    private Task? _validationInFlight;
+    private readonly object _validationGate = new();
+
     public string Kind => IpcKind.Command;
     public string Type => IpcTypes.OutputSetBackground;
     public async Task<object?> HandleAsync(IpcEnvelope request, CancellationToken cancellationToken)
@@ -89,10 +96,17 @@ internal sealed class OutputSetBackgroundHandler(IOutputController output, IMedi
             default:
                 var expected = p.Kind == BackgroundKind.Video ? MediaKind.Video : MediaKind.Image;
                 MediaValidation result;
+                Task<MediaValidation> work;
+                lock (_validationGate)
+                {
+                    if (_validationInFlight is { IsCompleted: false })
+                        throw new IpcException("output.mediaRejected", "Una comprobación anterior sigue sin terminar (¿una unidad desconectada o muy lenta?). Espera unos segundos e inténtalo de nuevo.");
+                    work = Task.Run(() => MediaPathValidator.Validate(p.Path, fileSystem, expected), CancellationToken.None);
+                    _validationInFlight = work;
+                }
                 try
                 {
-                    result = await Task.Run(() => MediaPathValidator.Validate(p.Path, fileSystem, expected), cancellationToken)
-                        .WaitAsync(validationTimeout ?? DefaultValidationTimeout, cancellationToken).ConfigureAwait(false);
+                    result = await work.WaitAsync(validationTimeout ?? DefaultValidationTimeout, cancellationToken).ConfigureAwait(false);
                 }
                 catch (TimeoutException)
                 {
@@ -105,6 +119,18 @@ internal sealed class OutputSetBackgroundHandler(IOutputController output, IMedi
         }
         output.SetBackground(layer);
         return null;
+    }
+}
+
+/// <summary><c>output.retryBackground</c>: «Reintentar» el fondo actual (típico: el USB volvió a conectarse). No revalida la ruta: la salida informa si el medio sigue fallando.</summary>
+internal sealed class OutputRetryBackgroundHandler(IOutputController output) : IIpcHandler
+{
+    public string Kind => IpcKind.Command;
+    public string Type => IpcTypes.OutputRetryBackground;
+    public Task<object?> HandleAsync(IpcEnvelope request, CancellationToken cancellationToken)
+    {
+        output.RetryBackground();
+        return Task.FromResult<object?>(null);
     }
 }
 

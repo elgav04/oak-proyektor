@@ -1,5 +1,5 @@
 // Datos y «backend» SINTÉTICOS para los tests de la pestaña de Biblia: libros y versículos INVENTADOS (ningún texto bíblico). El backend falso
-// habla el protocolo real (sobre v8) con el cliente IPC real, así que los tests también comprueban los mensajes tal como salen a C#.
+// habla el protocolo real (sobre v9) con el cliente IPC real, así que los tests también comprueban los mensajes tal como salen a C#.
 import { loadTs } from "./helper.mjs";
 
 const { IpcClient } = await loadTs("/src/ipc/client.ts");
@@ -50,8 +50,8 @@ export function createFakeBackend(options = {}) {
   const verseDto = (b, c, v) => ({ bookNumber: b.number, bookName: b.name, chapter: c, verseNumber: v, text: verseText(b.number, c, v, sentencesOf(b.number, c, v, longVerses)) });
   const chapterVerses = (b, c) => Array.from({ length: CHAPTER_SIZES[`${b.number}:${c}`] ?? 0 }, (_, i) => verseDto(b, c, i + 1));
   const findBook = (token) => BOOKS.find((b) => b.aliases.some((a) => a.startsWith(token.toLowerCase())) || b.name.toLowerCase().startsWith(token.toLowerCase()));
-  const reply = (req, result) => deliver(JSON.stringify({ v: 8, id: req.id, kind: "reply", type: req.type, payload: { ok: true, result, error: null } }));
-  const fail = (req, code, message) => deliver(JSON.stringify({ v: 8, id: req.id, kind: "reply", type: req.type, payload: { ok: false, result: null, error: { code, message } } }));
+  const reply = (req, result) => deliver(JSON.stringify({ v:9, id: req.id, kind: "reply", type: req.type, payload: { ok: true, result, error: null } }));
+  const fail = (req, code, message) => deliver(JSON.stringify({ v:9, id: req.id, kind: "reply", type: req.type, payload: { ok: false, result: null, error: { code, message } } }));
 
   const passage = (req, record) => {
     const m = /^\s*([^\d\s]+(?:\s+[^\d\s]+)?)\s*(\d+)(?:\s*[:.]\s*(\d+)(?:\s*-\s*(\d+))?)?\s*$/.exec(req.payload.reference);

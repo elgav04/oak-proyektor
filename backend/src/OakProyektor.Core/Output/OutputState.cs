@@ -33,9 +33,23 @@ public sealed record OutputState(int SchemaVersion, long Revision, MasterMode Ma
         return master == Master ? this : this with { Revision = Revision + 1, Master = master };
     }
 
-    /// <summary>Cambia el fondo. Un fondo idéntico al actual no cambia nada. NO toca el contenido: cambiar de fondo no reinicia el texto y viceversa.</summary>
-    public OutputState WithBackground(BackgroundLayer background) =>
-        background == Background ? this : this with { Background = background };
+    /// <summary>
+    /// Cambia el fondo. Un fondo de COLOR o ninguno idéntico al actual no cambia nada. Reaplicar el MISMO medio (imagen o video) cuenta como un reintento:
+    /// sube <see cref="BackgroundLayer.Retry"/> para que el estado cambie y la salida pueda volver a intentarlo si había fallado (H2).
+    /// NO toca el contenido: cambiar de fondo no reinicia el texto y viceversa.
+    /// </summary>
+    public OutputState WithBackground(BackgroundLayer background)
+    {
+        var next = background with { Retry = Background.Retry };
+        if (next == Background) return IsMedia(Background) ? WithBackgroundRetry() : this;
+        return this with { Background = background with { Retry = 0 } };
+    }
+
+    /// <summary>«Reintentar» el fondo actual: sube el contador si es un medio; con otro tipo de fondo no hace nada.</summary>
+    public OutputState WithBackgroundRetry() =>
+        IsMedia(Background) ? this with { Background = Background with { Retry = Background.Retry + 1 } } : this;
+
+    private static bool IsMedia(BackgroundLayer b) => b.Kind is BackgroundKind.Image or BackgroundKind.Video && b.MediaUrl is not null;
 
     /// <summary>Muestra un slide (reemplaza al anterior con crossfade). No toca el fondo ni el modo maestro.</summary>
     public OutputState WithSlide(Slide slide, int transitionMs) => this with { Content = new ContentLayer(slide, transitionMs) };

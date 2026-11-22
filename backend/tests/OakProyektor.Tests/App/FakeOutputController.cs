@@ -16,6 +16,7 @@ internal sealed class FakeOutputController : IOutputController
     public void SetMaster(MasterMode master) => Calls.Add($"master:{master}");
     public List<BackgroundLayer> Backgrounds { get; } = [];
     public void SetBackground(BackgroundLayer background) { Calls.Add("background:" + background.Kind); Backgrounds.Add(background); }
+    public void RetryBackground() => Calls.Add("retryBackground");
     public void ShowContent(IReadOnlyList<string> blocks, TextTheme theme, int transitionMs) => Calls.Add($"showContent:{blocks.Count}:{transitionMs}");
     public void ClearContent(int transitionMs) => Calls.Add($"clearContent:{transitionMs}");
     public void ReportBackgroundFailure(string mediaUrl, BackgroundFailureReason reason, string? detail) => Calls.Add($"backgroundFailure:{reason}:{mediaUrl}");

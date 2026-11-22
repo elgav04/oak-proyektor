@@ -77,6 +77,7 @@ internal sealed class ApplicationHost : IAsyncDisposable
         services.AddSingleton<IIpcHandler, Handlers.OutputShowContentHandler>();
         services.AddSingleton<IIpcHandler, Handlers.OutputClearContentHandler>();
         services.AddSingleton<IIpcHandler, Handlers.OutputReportBackgroundFailureHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.OutputRetryBackgroundHandler>();
         services.AddSingleton<IIpcHandler, Handlers.SettingsSetAutoRestoreHandler>();
         services.AddSingleton<IIpcHandler, Handlers.SettingsSetDisplayLostPolicyHandler>();
         services.AddSingleton<IIpcHandler, Handlers.SettingsSetPanelAlertOnOutputHandler>();

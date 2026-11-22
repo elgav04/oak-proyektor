@@ -8,15 +8,15 @@ Pruebas al momento de la revisión: C# 1021 correctas y 1 omitida; JS 166 correc
 
 | # | Prioridad | Resumen | Estado |
 |---|-----------|---------|--------|
-| 1 | Importante | Video de fondo: atasco sin aviso y falso fallo de carga con la ventana oculta | pendiente (prompt A) |
-| 2 | Importante | Reaplicar el mismo archivo tras un fallo no reintenta | pendiente (prompt A) |
+| 1 | Importante | Video de fondo: atasco sin aviso y falso fallo de carga con la ventana oculta | corregido (prompt A): motor con control de avance, carga suspendida con la ventana oculta y recarga única; verificado con tests y en la app real; la parte «Chromium difiere la carga» sigue [A PROBAR] en el proyector |
+| 2 | Importante | Reaplicar el mismo archivo tras un fallo no reintenta | corregido (prompt A): protocolo v9 (`retry`, `output.retryBackground`), botón «Reintentar» en todas las pestañas; verificado en la app real |
 | 3 | Importante | Texto recortado con otro escalado de monitor | pendiente (prompt C) |
 | 4 | Importante | Una referencia enorme congela el panel | pendiente (prompt D) |
 | 5 | Importante | La insignia «EN VIVO» no refleja el estado de C# | pendiente (prompt B) |
 | 6 | Importante | `showContent` hace cola detrás de trabajo lento | pendiente (prompt B) |
-| 7 | Menor | `fail()` de un medio saliente retira el fondo nuevo | pendiente (prompt A) |
-| 8 | Menor | El `OutputErrorBoundary` remonta `BackgroundLayer` | pendiente (prompt A) |
-| 9 | Menor | `MediaPathValidator` solo resuelve el enlace del archivo final | pendiente (prompt A) |
+| 7 | Menor | `fail()` de un medio saliente retira el fondo nuevo | corregido (prompt A) |
+| 8 | Menor | El `OutputErrorBoundary` remonta `BackgroundLayer` | corregido (prompt A): el fondo va fuera del boundary |
+| 9 | Menor | `MediaPathValidator` solo resuelve el enlace del archivo final | corregido (prompt A): ruta final + una comprobación en vuelo; unión de carpeta real probada |
 | 10 | Menor | `SettingsStore` sin validación al cargar, sin copia ni flush | pendiente (prompt E) |
 | 11 | Menor | `BibleSettings` guarda un borrador obsoleto | pendiente (prompt D) |
 | 12 | Menor | `isTypingTarget` bloquea atajos tras casillas y selector | pendiente (prompt D) |

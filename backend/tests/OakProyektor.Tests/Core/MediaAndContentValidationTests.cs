@@ -159,6 +159,88 @@ public class MediaPathValidatorTests
     }
 
     [Fact]
+    public void A_folder_junction_or_link_in_the_middle_of_the_path_to_a_network_share_is_rejected()
+    {
+        // `C:\Fondos` es un enlace de carpeta a un recurso de red: el archivo «es local» por su ruta, pero la ruta FINAL del sistema es de red (H9).
+        var fs = new FakeMediaFileSystem();
+        fs.Files[@"C:\Fondos\a.mp4"] = new FileProbe(true, 10, @"\\servidor\recurso\a.mp4");
+        var r = Validate(@"C:\Fondos\a.mp4", fs);
+        Assert.False(r.IsValid);
+        Assert.Equal(MediaRejectionReason.NetworkPath, r.Reason);
+    }
+
+    [Fact]
+    public void A_folder_junction_to_a_mapped_network_drive_is_rejected()
+    {
+        var fs = new FakeMediaFileSystem();
+        fs.Drives[@"Z:\"] = DriveType.Network;
+        fs.Files[@"C:\Fondos\a.mp4"] = new FileProbe(true, 10, @"Z:\carpeta\a.mp4");
+        Assert.Equal(MediaRejectionReason.NetworkDrive, Validate(@"C:\Fondos\a.mp4", fs).Reason);
+    }
+
+    [Fact]
+    public void A_subst_drive_is_judged_by_the_real_drive_behind_it()
+    {
+        var fs = new FakeMediaFileSystem();
+        // S: es un `subst` de una carpeta de E: (USB): el archivo se acepta y se avisa de que está en una unidad extraíble.
+        fs.Drives[@"S:\"] = DriveType.Fixed;
+        fs.Drives[@"E:\"] = DriveType.Removable;
+        fs.Files[@"S:\a.mp4"] = new FileProbe(true, 10, @"E:\Fondos\a.mp4");
+        var ok = Validate(@"S:\a.mp4", fs);
+        Assert.True(ok.IsValid, ok.Message);
+        Assert.True(ok.Media!.Removable);
+        Assert.Equal("file:///E:/Fondos/a.mp4", ok.Media.Url);   // la salida recibe el destino REAL
+        Assert.Equal("a.mp4", ok.Media.FileName);
+
+        // Y un `subst` (o una unión) que acaba en una unidad de red también se rechaza.
+        fs.Drives[@"Z:\"] = DriveType.Network;
+        fs.Files[@"S:\b.mp4"] = new FileProbe(true, 10, @"Z:\b.mp4");
+        Assert.Equal(MediaRejectionReason.NetworkDrive, Validate(@"S:\b.mp4", fs).Reason);
+    }
+
+    [Fact]
+    public void A_link_that_ends_on_another_unsupported_file_is_rejected_by_its_real_extension()
+    {
+        var fs = new FakeMediaFileSystem();
+        fs.Files[@"C:\enlace.mp4"] = new FileProbe(true, 10, @"C:\real.exe");
+        Assert.Equal(MediaRejectionReason.UnsupportedExtension, Validate(@"C:\enlace.mp4", fs).Reason);
+    }
+
+    [Theory]
+    [InlineData(@"\\?\C:\Videos\a.mp4", @"C:\Videos\a.mp4")]
+    [InlineData(@"\\?\UNC\servidor\recurso\a.mp4", @"\\servidor\recurso\a.mp4")]
+    [InlineData(@"\\?\unc\servidor\recurso\a.mp4", @"\\servidor\recurso\a.mp4")]
+    [InlineData(@"C:\ya\normal.mp4", @"C:\ya\normal.mp4")]
+    public void The_final_path_prefix_is_normalized(string raw, string expected) => Assert.Equal(expected, FinalPathResolver.Normalize(raw));
+
+    [Fact]
+    public void The_real_file_system_sees_through_a_real_folder_junction()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var root = Path.Combine(Path.GetTempPath(), "oak-junction-" + Guid.NewGuid().ToString("N"));
+        var target = Path.Combine(root, "destino");
+        var junction = Path.Combine(root, "atajo");
+        Directory.CreateDirectory(target);
+        try
+        {
+            File.WriteAllBytes(Path.Combine(target, "fondo.mp4"), [1, 2, 3]);
+            var psi = new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/c mklink /J \"{junction}\" \"{target}\"") { CreateNoWindow = true, UseShellExecute = false, RedirectStandardOutput = true };
+            using (var p = System.Diagnostics.Process.Start(psi)!) { p.WaitForExit(10000); Assert.Equal(0, p.ExitCode); }
+
+            var viaJunction = MediaPathValidator.Validate(Path.Combine(junction, "fondo.mp4"), new PhysicalMediaFileSystem(), MediaKind.Video);
+            Assert.True(viaJunction.IsValid, viaJunction.Message);
+            // La ruta que se valida y se envía a la salida es la FINAL (la de la carpeta de destino), no la del atajo.
+            Assert.Equal(Path.Combine(target, "fondo.mp4"), viaJunction.Media!.Path, ignoreCase: true);
+            Assert.DoesNotContain("atajo", viaJunction.Media.Url);
+        }
+        finally
+        {
+            try { if (Directory.Exists(junction)) Directory.Delete(junction); } catch (IOException) { }
+            try { Directory.Delete(root, true); } catch (IOException) { }
+        }
+    }
+
+    [Fact]
     public void The_real_file_system_finds_a_real_file_and_a_missing_one()
     {
         var dir = Path.Combine(Path.GetTempPath(), "oak-media-" + Guid.NewGuid().ToString("N"));

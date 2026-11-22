@@ -2,7 +2,7 @@
 import { Button } from "@/components/ui/button";
 import { ipc } from "@/ipc/instance";
 import { cleanPath, kindOfPath, THEME_PRESETS } from "./themes";
-import { dismissBackgroundFailure, useControlStore } from "./store";
+import { useControlStore } from "./store";
 
 /**
  * VISTA PROVISIONAL de prueba del motor multimedia (NO es la interfaz final): elegir un archivo de fondo (se pega su ruta), escribir un texto,
@@ -11,7 +11,6 @@ import { dismissBackgroundFailure, useControlStore } from "./store";
 export function MediaTest() {
   const connected = useControlStore((s) => s.connected);
   const output = useControlStore((s) => s.output);
-  const backgroundFailure = useControlStore((s) => s.backgroundFailure);
   const [path, setPath] = useState("");
   const [color, setColor] = useState("#1e3a8a");
   const [fadeMs, setFadeMs] = useState(600);
@@ -46,15 +45,7 @@ export function MediaTest() {
         <p className="text-sm text-neutral-600">No es la interfaz final. La salida debe estar abierta y en Live para ver el resultado.</p>
       </div>
 
-      {backgroundFailure && (
-        <div role="alert" className="flex items-start justify-between gap-4 rounded-lg border-2 border-red-700 bg-red-600 p-4 text-white">
-          <p>
-            <span className="font-bold">Fallo del fondo: </span>
-            {backgroundFailure.message}
-          </p>
-          <Button variant="outline" className="shrink-0 text-black" onClick={dismissBackgroundFailure}>Cerrar aviso</Button>
-        </div>
-      )}
+      {/* El aviso de fallo del fondo (con «Reintentar») está en App: se ve en todas las pestañas. */}
       {background?.warning === "removableDrive" && (
         <div role="alert" className="rounded-lg border-2 border-amber-600 bg-amber-100 p-3 text-sm text-amber-950">
           <span className="font-bold">«{background.fileName}» está en una unidad extraíble.</span> Si se desconecta durante el culto, el fondo cae al color de reserva. Mejor cópialo a un disco fijo.

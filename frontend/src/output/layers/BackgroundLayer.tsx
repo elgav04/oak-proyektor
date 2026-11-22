@@ -39,10 +39,10 @@ export function BackgroundLayer({ background, onFailure, createEngine = createSi
     };
   }, [createEngine]);
 
-  const { kind, color, mediaUrl, muted, transitionMs } = background;
+  const { kind, color, mediaUrl, muted, transitionMs, retry } = background;
   useEffect(() => {
-    engineRef.current?.apply({ kind, color, mediaUrl, muted, transitionMs });
-  }, [kind, color, mediaUrl, muted, transitionMs]);
+    engineRef.current?.apply({ kind, color, mediaUrl, muted, transitionMs, retry });
+  }, [kind, color, mediaUrl, muted, transitionMs, retry]);
 
   return <div ref={containerRef} className="layer layer-background" data-layer="background" />;
 }

@@ -7,7 +7,7 @@ import { BibleTab } from "./bible/BibleTab";
 import { getBibleController } from "./bible/instance";
 import { Diagnostics } from "./Diagnostics";
 import { describeOutput, type OutputNotice } from "./outputNotice";
-import { connectControlStore, dismissFailure, reconnectControl, useControlStore } from "./store";
+import { connectControlStore, dismissBackgroundFailure, dismissFailure, reconnectControl, useControlStore } from "./store";
 
 const MASTER_LABELS: Record<MasterMode, string> = {
   live: "Live",
@@ -64,6 +64,7 @@ export function App() {
   const displays = useControlStore((s) => s.displays);
   const output = useControlStore((s) => s.output);
   const failure = useControlStore((s) => s.failure);
+  const backgroundFailure = useControlStore((s) => s.backgroundFailure);
   const database = useControlStore((s) => s.database);
   // Elección del operador antes de abrir: ID del monitor, o null = automático. Es estado de la vista, no de negocio.
   const [selected, setSelected] = useState<string | null>(null);
@@ -137,6 +138,24 @@ export function App() {
           <Button variant="outline" className="shrink-0" onClick={dismissFailure}>
             Cerrar aviso
           </Button>
+        </div>
+      )}
+
+      {backgroundFailure && (
+        // En TODAS las pestañas (antes solo se veía en Diagnóstico): un fondo que no se reproduce cae al color de reserva y el operador debe enterarse estando en la Biblia.
+        <div role="alert" data-testid="background-failure" className="flex items-start justify-between gap-4 rounded-lg border-2 border-red-700 bg-red-600 p-4 text-white">
+          <p>
+            <span className="font-bold">Fallo del fondo: </span>
+            {backgroundFailure.message}
+          </p>
+          <div className="flex shrink-0 gap-2">
+            <Button variant="outline" className="text-black" disabled={!connected} onClick={() => { ipc.send("output.retryBackground", {}); }}>
+              Reintentar
+            </Button>
+            <Button variant="outline" className="text-black" onClick={dismissBackgroundFailure}>
+              Cerrar aviso
+            </Button>
+          </div>
         </div>
       )}
 

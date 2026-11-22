@@ -25,7 +25,7 @@ internal sealed class NoBibles : OakProyektor.Data.Scripture.IBibleQueryService
 public class HandlerTests
 {
     private static string Msg(string kind, string type, string payload = "{}") =>
-        $$"""{"v":8,"id":"q1","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
+        $$"""{"v":9,"id":"q1","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
 
     private static (IpcDispatcher Dispatcher, FakeOutputController Output) Create(params DisplayInfo[] displays)
     {
@@ -42,6 +42,7 @@ public class HandlerTests
             new OutputShowContentHandler(output),
             new OutputClearContentHandler(output),
             new OutputReportBackgroundFailureHandler(output),
+            new OutputRetryBackgroundHandler(output),
             new SettingsSetAutoRestoreHandler(new InMemorySettings(), output),
             new SettingsSetDisplayLostPolicyHandler(new InMemorySettings(), output),
             new SettingsSetPanelAlertOnOutputHandler(new InMemorySettings(), output),
@@ -93,7 +94,7 @@ public class HandlerTests
         }
         Assert.True(unhandled.Count == 0, "Mensajes del catálogo sin handler: " + string.Join(", ", unhandled));
         // Los comandos llegaron a su handler (si faltara uno, el despachador solo lo registraría y no quedaría la llamada).
-        Assert.Equal(["open:auto", "close", "master:Live", "pause:Manual", "background:Color", "showContent:1:400", "clearContent:400", "backgroundFailure:UnsupportedFormat:file:///x", "settingsChanged", "settingsChanged", "settingsChanged"], output.Calls);
+        Assert.Equal(["open:auto", "close", "master:Live", "pause:Manual", "background:Color", "showContent:1:400", "clearContent:400", "retryBackground", "backgroundFailure:UnsupportedFormat:file:///x", "settingsChanged", "settingsChanged", "settingsChanged"], output.Calls);
     }
 
     [Fact]

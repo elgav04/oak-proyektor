@@ -75,11 +75,47 @@ public class OutputStateTests
     }
 
     [Fact]
-    public void The_same_background_is_not_a_change()
+    public void The_same_color_or_none_background_is_not_a_change()
+    {
+        var color = OutputState.Initial.WithBackground(BackgroundLayer.OfColor("#102030"));
+        Assert.Same(color, color.WithBackground(BackgroundLayer.OfColor("#102030")));   // iguales por valor: no se publica nada
+        Assert.Same(color, color.WithBackgroundRetry());                                // sin medio no hay nada que reintentar
+        Assert.Same(OutputState.Initial, OutputState.Initial.WithBackground(BackgroundLayer.Empty));
+        var s = OutputState.Initial.WithBackground(Video());
+        Assert.NotSame(s, s.WithBackground(Video("file:///C:/v/b.mp4")));
+    }
+
+    [Fact]
+    public void Reapplying_the_same_media_file_counts_as_a_retry_so_the_state_changes_and_the_output_can_try_again()
     {
         var s = OutputState.Initial.WithBackground(Video());
-        Assert.Same(s, s.WithBackground(Video()));   // iguales por valor: no se publica nada
-        Assert.NotSame(s, s.WithBackground(Video("file:///C:/v/b.mp4")));
+        Assert.Equal(0, s.Background.Retry);
+        var again = s.WithBackground(Video());
+        Assert.NotEqual(s, again);                       // NO se descarta: la salida debe enterarse
+        Assert.Equal(1, again.Background.Retry);
+        Assert.Equal(2, again.WithBackground(Video()).Background.Retry);
+        Assert.Equal(3, again.WithBackground(Video()).WithBackgroundRetry().Background.Retry);
+        // Solo cambia el contador: el resto del fondo es el mismo.
+        Assert.Equal(s.Background, again.Background with { Retry = 0 });
+    }
+
+    [Fact]
+    public void Changing_the_media_file_resets_the_retry_counter()
+    {
+        var s = OutputState.Initial.WithBackground(Video()).WithBackgroundRetry().WithBackgroundRetry();
+        var other = s.WithBackground(Video("file:///C:/v/b.mp4"));
+        Assert.Equal(0, other.Background.Retry);
+        Assert.Equal(0, other.WithBackground(Video("file:///C:/v/a.mp4")).Background.Retry);
+    }
+
+    [Fact]
+    public void A_retry_never_touches_the_content_or_the_master_mode()
+    {
+        var s = OutputState.Initial.WithMaster(MasterMode.Live).WithBackground(Video()).WithSlide(SlideOf("s1"), 400);
+        var retried = s.WithBackgroundRetry();
+        Assert.Same(s.Content, retried.Content);
+        Assert.Equal(s.Master, retried.Master);
+        Assert.Equal(s.Revision, retried.Revision);
     }
 
     [Fact]

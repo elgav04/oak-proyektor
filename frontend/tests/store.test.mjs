@@ -14,7 +14,7 @@ globalThis.window = {
 const { useControlStore, connectControlStore, reconnectControl, dismissFailure } = await loadTs("/src/control/store.ts");
 after(closeServer);
 
-const msg = (kind, type, payload, id = "x") => ({ v: 8, id, kind, type, payload });
+const msg = (kind, type, payload, id = "x") => ({ v:9, id, kind, type, payload });
 const send = (o) => deliver(typeof o === "string" ? o : JSON.stringify(o));
 const ok = (result) => ({ ok: true, result, error: null });
 const tick = (ms = 20) => new Promise((r) => setTimeout(r, ms));
@@ -25,7 +25,7 @@ const nextAttempt = async (type, from) => {
   return queries(type).length;
 };
 const window_ = (over = {}) => ({ isOpen: false, displayId: null, isWindowed: false, isPaused: false, pauseReason: null, autoRestore: true, emergencyHotkey: null, preferredDisplayId: null, onDisplayLost: "warnAndWait", ...over });
-const outputPayload = (seq, master = "black", win = {}) => ({ seq, state: { schemaVersion: 1, revision: seq, master, background: { kind: "none", color: "#000000", mediaUrl: null, fileName: null, muted: true, transitionMs: 0, warning: null }, content: { slide: null, transitionMs: 400 }, overlays: { items: [] } }, window: window_(win) });
+const outputPayload = (seq, master = "black", win = {}) => ({ seq, state: { schemaVersion: 1, revision: seq, master, background: { kind: "none", color: "#000000", mediaUrl: null, fileName: null, muted: true, transitionMs: 0, warning: null, retry: 0 }, content: { slide: null, transitionMs: 400 }, overlays: { items: [] } }, window: window_(win) });
 
 let connection = null;
 beforeEach(() => {
@@ -281,4 +281,28 @@ test("dispose() detiene el heartbeat", async () => {
   const before = queries("database.getStatus").length;
   await tick(120);
   assert.equal(queries("database.getStatus").length, before);
+});
+
+const mediaPayload = (seq, retry, fileName = "a.mp4") => {
+  const p = outputPayload(seq, "live");
+  p.state.background = { kind: "video", color: "#102030", mediaUrl: "file:///C:/v/" + fileName, fileName, muted: true, transitionMs: 0, warning: null, retry };
+  return p;
+};
+
+test("el aviso de fallo del fondo sigue mientras sea el mismo archivo y se retira al reintentarlo o cambiar de archivo", async () => {
+  connection = connectControlStore({ retry: { baseMs: 5000 }, requestTimeoutMs: 1000 });
+  send(msg("event", "output.stateChanged", mediaPayload(1, 0)));
+  send(msg("event", "output.backgroundFailed", { reason: "readError", message: "no se pudo leer", fileName: "a.mp4" }));
+  assert.equal(useControlStore.getState().backgroundFailure?.fileName, "a.mp4");
+
+  send(msg("event", "output.stateChanged", mediaPayload(2, 0)));            // otro snapshot, mismo fondo: el aviso sigue
+  assert.notEqual(useControlStore.getState().backgroundFailure, null);
+
+  send(msg("event", "output.stateChanged", mediaPayload(3, 1)));            // «Reintentar» / reaplicar el mismo archivo: sube retry
+  assert.equal(useControlStore.getState().backgroundFailure, null);
+
+  send(msg("event", "output.backgroundFailed", { reason: "readError", message: "otra vez", fileName: "a.mp4" }));   // si vuelve a fallar, aviso nuevo
+  assert.equal(useControlStore.getState().backgroundFailure?.message, "otra vez");
+  send(msg("event", "output.stateChanged", mediaPayload(4, 0, "b.mp4")));   // otro archivo: ya no vale
+  assert.equal(useControlStore.getState().backgroundFailure, null);
 });

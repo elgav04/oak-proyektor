@@ -3,7 +3,7 @@ import test, { after } from "node:test";
 import { createFakeBackend, tick, until, verseText } from "./bible-fixtures.mjs";
 import { closeServer, loadTs } from "./helper.mjs";
 
-// El controlador habla con un backend FALSO a través del cliente IPC REAL (sobres v8). Medición simulada: capacidad en caracteres.
+// El controlador habla con un backend FALSO a través del cliente IPC REAL (sobre v9). Medición simulada: capacidad en caracteres.
 const { createBibleController } = await loadTs("/src/control/bible/controller.ts");
 after(closeServer);
 
@@ -18,14 +18,14 @@ async function setup({ cap = CAP, backend: backendOptions, controller: controlle
 }
 const typeQuery = async (c, s, text) => { c.setQuery(text); await tick(15); await until(() => s().passage !== null || s().suggestions.length > 0 || s().hits.length > 0 || s().message !== null); };
 
-test("init carga Biblias, ajustes e historial; el crossfade por defecto es corto (280 ms) y las consultas van con el sobre v8", async () => {
+test("init carga Biblias, ajustes e historial; el crossfade por defecto es corto (280 ms) y las consultas van con el sobre v9", async () => {
   const { backend, s } = await setup();
   assert.equal(s().loaded, true);
   assert.equal(s().activeBible, "SIN");
   assert.equal(s().settings.transitionMs, 280);
   assert.ok(s().settings.transitionMs >= 250 && s().settings.transitionMs <= 300);
   assert.deepEqual(backend.queries.map((q) => q.type).sort(), ["bible.getSettings", "bible.history", "bible.list"]);
-  assert.ok(backend.queries.every((q) => q.v === 8));
+  assert.ok(backend.queries.every((q) => q.v === 9));
 });
 
 test("una referencia con rango navega al capítulo, selecciona el rango y NO proyecta nada hasta Enter", async () => {

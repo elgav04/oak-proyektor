@@ -12,8 +12,9 @@
  * comandos `output.setBackground`, `output.showContent`, `output.clearContent` y `output.reportBackgroundFailure` (este lo manda la salida);
  * evento `output.backgroundFailed`; errores `output.mediaRejected` y `output.invalidContent`.
  * v8: configuración de la proyección de Biblia: query `bible.getSettings` y comando `bible.setSettings` (en settings.json); error `bible.invalidSettings`.
+ * v9: `BackgroundLayer.retry` (contador de reintentos del mismo medio) y comando `output.retryBackground` («Reintentar» el fondo que falló).
  */
-export const PROTOCOL_VERSION = 8;
+export const PROTOCOL_VERSION = 9;
 
 export type MessageKind = "command" | "event" | "query" | "reply";
 
@@ -25,6 +26,7 @@ export const MESSAGE_CATALOG = [
   { type: "output.setBackground", kind: "command" },
   { type: "output.showContent", kind: "command" },
   { type: "output.clearContent", kind: "command" },
+  { type: "output.retryBackground", kind: "command" },
   { type: "output.reportBackgroundFailure", kind: "command" },
   { type: "output.backgroundFailed", kind: "event" },
   { type: "settings.setAutoRestore", kind: "command" },
@@ -107,6 +109,8 @@ export interface BackgroundLayer {
   muted: boolean;
   transitionMs: number;
   warning: string | null;
+  /** Contador de reintentos del MISMO medio: si sube y ese medio había fallado, la salida lo intenta de nuevo (v9). */
+  retry: number;
 }
 
 export interface TextBlock {
@@ -495,6 +499,7 @@ export interface CommandPayloads {
   "output.setBackground": OutputSetBackgroundPayload;
   "output.showContent": OutputShowContentPayload;
   "output.clearContent": OutputClearContentPayload;
+  "output.retryBackground": EmptyPayload;
   "output.reportBackgroundFailure": OutputReportBackgroundFailurePayload;
   "settings.setAutoRestore": SetAutoRestorePayload;
   "settings.setDisplayLostPolicy": SetDisplayLostPolicyPayload;

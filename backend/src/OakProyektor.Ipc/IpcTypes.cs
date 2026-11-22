@@ -21,6 +21,7 @@ public static class IpcTypes
     public const string OutputSetBackground = "output.setBackground";
     public const string OutputShowContent = "output.showContent";
     public const string OutputClearContent = "output.clearContent";
+    public const string OutputRetryBackground = "output.retryBackground";
     public const string OutputReportBackgroundFailure = "output.reportBackgroundFailure";
     public const string OutputBackgroundFailed = "output.backgroundFailed";
     public const string SettingsSetAutoRestore = "settings.setAutoRestore";
@@ -63,8 +64,9 @@ public static class IpcCatalog
     /// evento <c>output.backgroundFailed</c>; errores <c>output.mediaRejected</c> y <c>output.invalidContent</c>.
     /// v8: configuración de la proyección de Biblia: query <c>bible.getSettings</c> y comando <c>bible.setSettings</c> (Biblia por defecto, nombres cortos, tema, opciones y crossfade; en <c>settings.json</c>);
     /// error <c>bible.invalidSettings</c>.
+    /// v9: <c>BackgroundLayer</c> lleva <c>retry</c> (contador de reintentos del mismo medio); nuevo comando <c>output.retryBackground</c> («Reintentar» el fondo que falló).
     /// </summary>
-    public const int ProtocolVersion = 8;
+    public const int ProtocolVersion = 9;
 
     public static IReadOnlyList<MessageDescriptor> Messages { get; } =
     [
@@ -75,6 +77,7 @@ public static class IpcCatalog
         new(IpcTypes.OutputSetBackground, IpcKind.Command),
         new(IpcTypes.OutputShowContent, IpcKind.Command),
         new(IpcTypes.OutputClearContent, IpcKind.Command),
+        new(IpcTypes.OutputRetryBackground, IpcKind.Command),
         new(IpcTypes.OutputReportBackgroundFailure, IpcKind.Command),
         new(IpcTypes.OutputBackgroundFailed, IpcKind.Event),
         new(IpcTypes.SettingsSetAutoRestore, IpcKind.Command),

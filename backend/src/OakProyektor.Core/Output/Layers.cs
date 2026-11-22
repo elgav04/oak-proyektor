@@ -31,7 +31,9 @@ public enum VerticalAlign
 /// <param name="FileName">Nombre del archivo, solo para mostrarlo en el panel.</param>
 /// <param name="TransitionMs">Duración del fundido al cambiar a ESTE fondo.</param>
 /// <param name="Warning">Aviso para el panel sobre el medio (<c>removableDrive</c>: está en una unidad extraíble y puede desaparecer); la salida lo ignora.</param>
-public sealed record BackgroundLayer(BackgroundKind Kind, string Color, string? MediaUrl, string? FileName, bool Muted, int TransitionMs, string? Warning)
+/// <param name="Retry">Contador de reintentos (v9). Cada vez que el operador reaplica o pulsa «Reintentar» sobre el MISMO medio sube en uno: así el estado cambia (no se descarta
+/// como idéntico) y la salida, si ese medio había fallado, lo intenta de nuevo. Un medio que se reproduce bien lo ignora (no se reinicia). Vuelve a 0 al cambiar de medio.</param>
+public sealed record BackgroundLayer(BackgroundKind Kind, string Color, string? MediaUrl, string? FileName, bool Muted, int TransitionMs, string? Warning, int Retry = 0)
 {
     public const string DefaultColor = "#000000";
     public const string RemovableDriveWarning = "removableDrive";

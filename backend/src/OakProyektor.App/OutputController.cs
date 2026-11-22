@@ -23,6 +23,8 @@ internal interface IOutputController
     void SetMaster(MasterMode master);
     /// <summary>Cambia el fondo (ya validado por el handler). No toca el contenido, el modo maestro ni la ventana: sigue igual aunque la salida esté en pausa.</summary>
     void SetBackground(BackgroundLayer background);
+    /// <summary>«Reintentar»: vuelve a pedir a la salida el medio de fondo actual (sube su contador de reintento). Con un fondo que no es un medio no hace nada.</summary>
+    void RetryBackground();
     /// <summary>Muestra un slide (ya validado). No cambia el modo maestro: si está en Black/Clear/Logo no se ve hasta volver a Live.</summary>
     void ShowContent(IReadOnlyList<string> blocks, TextTheme theme, int transitionMs);
     /// <summary>Quita el slide del estado (queda solo el fondo).</summary>
@@ -138,6 +140,12 @@ internal sealed class OutputController : IOutputController
     public void SetBackground(BackgroundLayer background)
     {
         lock (_gate) _state = _state.WithBackground(background);
+        Publish();
+    }
+
+    public void RetryBackground()
+    {
+        lock (_gate) _state = _state.WithBackgroundRetry();
         Publish();
     }
 
