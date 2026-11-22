@@ -97,3 +97,6 @@ public sealed record OutputStateChangedPayload(long Seq, OutputState State, Outp
 /// </summary>
 public sealed record DatabaseStatusPayload(long Seq, DatabaseState State, string? Message, string? BackupPath);
 
+/// <summary>Reply de <c>settings.getStatus</c> (v10): avisos de la carga de <c>settings.json</c> (bloques inválidos que volvieron a su valor por defecto, archivo dañado); vacío si todo estaba bien.</summary>
+public sealed record SettingsStatusPayload(IReadOnlyList<string> Warnings);
+

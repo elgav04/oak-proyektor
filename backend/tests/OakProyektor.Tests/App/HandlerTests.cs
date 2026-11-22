@@ -25,7 +25,7 @@ internal sealed class NoBibles : OakProyektor.Data.Scripture.IBibleQueryService
 public class HandlerTests
 {
     private static string Msg(string kind, string type, string payload = "{}") =>
-        $$"""{"v":9,"id":"q1","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
+        $$"""{"v":10,"id":"q1","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
 
     private static (IpcDispatcher Dispatcher, FakeOutputController Output) Create(params DisplayInfo[] displays)
     {
@@ -46,6 +46,7 @@ public class HandlerTests
             new SettingsSetAutoRestoreHandler(new InMemorySettings(), output),
             new SettingsSetDisplayLostPolicyHandler(new InMemorySettings(), output),
             new SettingsSetPanelAlertOnOutputHandler(new InMemorySettings(), output),
+            new SettingsGetStatusHandler(new InMemorySettings()),
             new DatabaseGetStatusHandler(new DatabaseStatusReporter(new FakeReadiness(), new Outbox(NullLogger<Outbox>.Instance))),
             // Biblias (v6): consultas contra un servicio que no tiene ninguna Biblia; la importación falla en su validación sin abrir la BD.
             new BibleListHandler(new NoBibles()),

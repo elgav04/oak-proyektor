@@ -47,13 +47,34 @@ test("un versículo largo se divide en límite de FRASE antes que de palabra, y 
   for (const p of pages) assert.ok(p.length <= 70);
 });
 
+/** ¿Las páginas contienen exactamente las mismas PALABRAS enteras, en orden? Una palabra partida por la mitad produce una palabra de más y falla. */
+const wordsIntact = (pages, text) => JSON.stringify(pages.flatMap((p) => p.split(" "))) === JSON.stringify(text.split(" "));
+
+test("el comprobador de palabras enteras detecta una palabra partida (control negativo de la prueba de abajo)", () => {
+  const text = "uno dos tres";
+  assert.equal(wordsIntact(["uno dos", "tres"], text), true);
+  assert.equal(wordsIntact(["uno d", "os tres"], text), false, "«dos» partida en «d» + «os»");
+  assert.equal(wordsIntact(["uno dos tr", "es"], text), false);
+});
+
 test("sin final de frase cercano, corta en cláusula (coma) y si no en palabra; nunca a mitad de palabra si hay espacios", () => {
   const text = "uno dos tres, cuatro cinco seis, siete ocho nueve, diez once doce trece catorce quince dieciseis diecisiete";
   const pages = paginate([text], cap(40));
   assert.equal(pages.join(" "), text);
   for (const p of pages) assert.ok(p.length <= 40);
-  for (const p of pages.slice(0, -1)) assert.match(p, /,$|[a-z]$/);
+  // «nunca a mitad de palabra»: cada palabra del original aparece ENTERA en una página (ninguna se partió)
+  assert.ok(wordsIntact(pages, text), `alguna palabra quedó partida: ${JSON.stringify(pages)}`);
   assert.ok(pages.slice(0, -1).some((p) => p.endsWith(",")), "debería preferir la coma como límite");
+});
+
+test("nunca parte una palabra con ninguna capacidad de página mientras la palabra más larga quepa", () => {
+  const text = "uno dos tres, cuatro cinco seis, siete ocho nueve, diez once doce trece catorce quince dieciseis diecisiete. Otra frase mas, con varias palabras sueltas y algun punto.";
+  const longest = Math.max(...text.split(" ").map((w) => w.length));
+  for (let capacity = longest; capacity <= 90; capacity++) {
+    const pages = paginate([text], cap(capacity));
+    assert.ok(wordsIntact(pages, text), `capacidad ${capacity}: ${JSON.stringify(pages)}`);
+    for (const p of pages) assert.ok(p.length <= capacity, `capacidad ${capacity}: página de ${p.length}`);
+  }
 });
 
 test("una palabra más larga que la página se parte por caracteres (nunca se recorta ni se cuelga)", () => {

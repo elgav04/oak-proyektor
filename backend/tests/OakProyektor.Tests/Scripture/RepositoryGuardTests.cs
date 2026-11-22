@@ -108,3 +108,40 @@ public sealed class ManualFactAttribute : FactAttribute
             Skip = $"Prueba manual: define {environmentVariable} con la ruta de un archivo real que exista (fuera del repositorio) para ejecutarla.";
     }
 }
+
+/// <summary>Integridad de los archivos de texto del repositorio (hallazgo H15).</summary>
+public class TextFileIntegrityTests
+{
+
+    [Fact]
+    public void No_versioned_text_file_contains_stray_control_characters()
+    {
+        // H15: CLAUDE.md llegó a tener 0x08 (retroceso) y 0x07 (campana) donde debía haber `bible.x` y `attribution`: un script de PowerShell interpretó «`b» y «`a»
+        // como escapes al escribir la línea. Un carácter de control (salvo tabulador, CR y LF) en un archivo de texto del repositorio siempre es ese tipo de daño.
+        var root = FindRepositoryRoot();
+        var extensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".md", ".cs", ".ts", ".tsx", ".mjs", ".ps1", ".json", ".sql", ".html", ".css", ".csproj", ".props", ".yml" };
+        var skipped = new[] { "node_modules", "bin", "obj", "dist", "data", ".git", "wwwroot", "TestResults" };
+        var damaged = new List<string>();
+        foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+        {
+            var relative = Path.GetRelativePath(root, file);
+            if (relative.Split(Path.DirectorySeparatorChar).Any(part => skipped.Contains(part))) continue;
+            if (!extensions.Contains(Path.GetExtension(file))) continue;
+            var bytes = File.ReadAllBytes(file);
+            var line = 1;
+            foreach (var b in bytes)
+            {
+                if (b == (byte)'\n') line++;
+                else if (b < 32 && b != (byte)'\t' && b != (byte)'\r') { damaged.Add($"{relative}:{line} (0x{b:X2})"); break; }
+            }
+        }
+        Assert.True(damaged.Count == 0, "Caracteres de control en archivos de texto: " + string.Join(", ", damaged));
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
+            if (File.Exists(Path.Combine(dir.FullName, "CLAUDE.md"))) return dir.FullName;
+        throw new DirectoryNotFoundException("No se encontró CLAUDE.md subiendo desde " + AppContext.BaseDirectory);
+    }
+}

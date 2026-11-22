@@ -12,9 +12,10 @@
  * comandos `output.setBackground`, `output.showContent`, `output.clearContent` y `output.reportBackgroundFailure` (este lo manda la salida);
  * evento `output.backgroundFailed`; errores `output.mediaRejected` y `output.invalidContent`.
  * v8: configuración de la proyección de Biblia: query `bible.getSettings` y comando `bible.setSettings` (en settings.json); error `bible.invalidSettings`.
+ * v10: query `settings.getStatus` (avisos de la carga de settings.json: bloques inválidos vueltos a su valor por defecto, archivo dañado).
  * v9: `BackgroundLayer.retry` (contador de reintentos del mismo medio) y comando `output.retryBackground` («Reintentar» el fondo que falló).
  */
-export const PROTOCOL_VERSION = 9;
+export const PROTOCOL_VERSION = 10;
 
 export type MessageKind = "command" | "event" | "query" | "reply";
 
@@ -41,6 +42,8 @@ export const MESSAGE_CATALOG = [
   { type: "command.failed", kind: "event" },
   { type: "database.getStatus", kind: "query" },
   { type: "database.getStatus", kind: "reply" },
+  { type: "settings.getStatus", kind: "query" },
+  { type: "settings.getStatus", kind: "reply" },
   { type: "database.statusChanged", kind: "event" },
   { type: "bible.import", kind: "command" },
   { type: "bible.setAttribution", kind: "command" },
@@ -284,6 +287,11 @@ export interface DatabaseStatusPayload {
   backupPath: string | null;
 }
 
+/** Avisos de la carga de settings.json (vacío = todo estaba bien). */
+export interface SettingsStatusPayload {
+  warnings: string[];
+}
+
 export interface CommandFailedPayload {
   commandId: string;
   commandType: string;
@@ -525,6 +533,7 @@ export interface QueryPayloads {
   "display.list": { request: EmptyPayload; reply: DisplayListPayload };
   "output.getState": { request: EmptyPayload; reply: OutputStateChangedPayload };
   "database.getStatus": { request: EmptyPayload; reply: DatabaseStatusPayload };
+  "settings.getStatus": { request: EmptyPayload; reply: SettingsStatusPayload };
   "bible.list": { request: EmptyPayload; reply: BibleListPayload };
   "bible.lookup": { request: BibleLookupRequest; reply: BiblePassagePayload };
   "bible.chapter": { request: BibleChapterRequest; reply: BiblePassagePayload };

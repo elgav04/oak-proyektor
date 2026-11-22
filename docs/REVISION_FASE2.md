@@ -17,12 +17,12 @@ Pruebas al momento de la revisión: C# 1021 correctas y 1 omitida; JS 166 correc
 | 7 | Menor | `fail()` de un medio saliente retira el fondo nuevo | corregido (prompt A) |
 | 8 | Menor | El `OutputErrorBoundary` remonta `BackgroundLayer` | corregido (prompt A): el fondo va fuera del boundary |
 | 9 | Menor | `MediaPathValidator` solo resuelve el enlace del archivo final | corregido (prompt A): ruta final + una comprobación en vuelo; unión de carpeta real probada |
-| 10 | Menor | `SettingsStore` sin validación al cargar, sin copia ni flush | pendiente (prompt E) |
+| 10 | Menor | `SettingsStore` sin validación al cargar, sin copia ni flush | corregido (prompt E): carga por bloque, `settings.json.bad`, aviso en el panel (protocolo v10) y escritura con `Flush(true)`; verificado en la app real; el corte de luz no se puede probar |
 | 11 | Menor | `BibleSettings` guarda un borrador obsoleto | corregido (prompt D): `mergeSettings` |
 | 12 | Menor | `isTypingTarget` bloquea atajos tras casillas y selector | corregido (prompt D) |
 | 13 | Menor | `BuildMatch`: sin límite de términos y NFD | corregido (prompt D): NFC, `\p{M}`, 32 términos y 1000 caracteres |
 | 14 | Menor | Bloque de más de 4000 caracteres con letra muy pequeña | corregido (prompt C): la paginación divide por longitud (4000/20000) |
-| 15 | Menor | Honestidad de tests y documentación | pendiente (prompt E) |
+| 15 | Menor | Honestidad de tests y documentación | corregido (prompt E): test de «palabras enteras», nota sobre los atajos globales, línea «Biblias (v6)» restaurada y test que vigila caracteres de control |
 
 ## Importante
 

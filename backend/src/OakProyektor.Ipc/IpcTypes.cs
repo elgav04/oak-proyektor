@@ -14,6 +14,7 @@ public static class IpcTypes
     public const string DisplayList = "display.list";
     public const string OutputGetState = "output.getState";
     public const string DatabaseGetStatus = "database.getStatus";
+    public const string SettingsGetStatus = "settings.getStatus";
     public const string OutputOpen = "output.open";
     public const string OutputClose = "output.close";
     public const string OutputSetMaster = "output.setMaster";
@@ -65,8 +66,9 @@ public static class IpcCatalog
     /// v8: configuración de la proyección de Biblia: query <c>bible.getSettings</c> y comando <c>bible.setSettings</c> (Biblia por defecto, nombres cortos, tema, opciones y crossfade; en <c>settings.json</c>);
     /// error <c>bible.invalidSettings</c>.
     /// v9: <c>BackgroundLayer</c> lleva <c>retry</c> (contador de reintentos del mismo medio); nuevo comando <c>output.retryBackground</c> («Reintentar» el fondo que falló).
+    /// v10: query <c>settings.getStatus</c> (avisos de la carga de <c>settings.json</c>: bloques inválidos que volvieron a su valor por defecto o archivo dañado).
     /// </summary>
-    public const int ProtocolVersion = 9;
+    public const int ProtocolVersion = 10;
 
     public static IReadOnlyList<MessageDescriptor> Messages { get; } =
     [
@@ -92,6 +94,8 @@ public static class IpcCatalog
         new(IpcTypes.CommandFailed, IpcKind.Event),
         new(IpcTypes.DatabaseGetStatus, IpcKind.Query),
         new(IpcTypes.DatabaseGetStatus, IpcKind.Reply),
+        new(IpcTypes.SettingsGetStatus, IpcKind.Query),
+        new(IpcTypes.SettingsGetStatus, IpcKind.Reply),
         new(IpcTypes.DatabaseStatusChanged, IpcKind.Event),
         new(IpcTypes.BibleImport, IpcKind.Command),
         new(IpcTypes.BibleSetAttribution, IpcKind.Command),

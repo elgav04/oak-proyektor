@@ -7,7 +7,7 @@ import { BibleTab } from "./bible/BibleTab";
 import { getBibleController } from "./bible/instance";
 import { Diagnostics } from "./Diagnostics";
 import { describeOutput, type OutputNotice } from "./outputNotice";
-import { connectControlStore, dismissBackgroundFailure, dismissFailure, reconnectControl, useControlStore } from "./store";
+import { connectControlStore, dismissBackgroundFailure, dismissFailure, dismissSettingsWarnings, reconnectControl, useControlStore } from "./store";
 
 const MASTER_LABELS: Record<MasterMode, string> = {
   live: "Live",
@@ -65,6 +65,7 @@ export function App() {
   const output = useControlStore((s) => s.output);
   const failure = useControlStore((s) => s.failure);
   const backgroundFailure = useControlStore((s) => s.backgroundFailure);
+  const settingsWarnings = useControlStore((s) => s.settingsWarnings);
   const database = useControlStore((s) => s.database);
   // Elección del operador antes de abrir: ID del monitor, o null = automático. Es estado de la vista, no de negocio.
   const [selected, setSelected] = useState<string | null>(null);
@@ -138,6 +139,19 @@ export function App() {
           <Button variant="outline" className="shrink-0" onClick={dismissFailure}>
             Cerrar aviso
           </Button>
+        </div>
+      )}
+
+      {settingsWarnings.length > 0 && (
+        // H10: lo que settings.json traía mal (editado a mano o dañado) volvió a su valor por defecto; el operador debe saberlo y por qué la configuración «cambió sola».
+        <div role="alert" data-testid="settings-warnings" className="flex items-start justify-between gap-4 rounded-lg border-2 border-amber-600 bg-amber-100 p-4 text-amber-950">
+          <div>
+            <p className="font-bold">La configuración guardada tenía problemas y se corrigió al arrancar:</p>
+            <ul className="mt-1 list-disc pl-5 text-sm">
+              {settingsWarnings.map((w) => <li key={w}>{w}</li>)}
+            </ul>
+          </div>
+          <Button variant="outline" className="shrink-0" onClick={dismissSettingsWarnings}>Cerrar aviso</Button>
         </div>
       )}
 

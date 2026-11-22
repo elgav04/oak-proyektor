@@ -15,7 +15,7 @@ public class IpcDispatcherTests
     }
 
     private static string Msg(string kind, string type, string id = "id-1", string payload = "{}") =>
-        $$"""{"v":9,"id":"{{id}}","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
+        $$"""{"v":10,"id":"{{id}}","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
 
     private static (IpcDispatcher Dispatcher, ListLogger<IpcDispatcher> Log) Create(params IIpcHandler[] handlers)
     {
@@ -97,7 +97,7 @@ public class IpcDispatcherTests
     [Theory]
     [InlineData("not json")]
     [InlineData("")]
-    [InlineData("""{"v":99,"id":"1","kind":"command","type":"output.close","payload":{}}""")]
+    [InlineData("""{"v":109,"id":"1","kind":"command","type":"output.close","payload":{}}""")]
     [InlineData("""{"v":1,"id":"1","kind":"command","type":"output.close","payload":{}}""")]
     public async Task Uncorrelatable_messages_are_logged_and_ignored(string raw)
     {

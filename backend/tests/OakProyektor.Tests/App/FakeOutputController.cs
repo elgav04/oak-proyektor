@@ -45,6 +45,8 @@ internal sealed class FakeDisplayManager(params DisplayInfo[] displays) : IDispl
 internal sealed class InMemorySettings : ISettingsStore
 {
     public OakProyektor.Core.AppSettings Current { get; private set; } = new();
+    public IReadOnlyList<string> Warnings { get; set; } = [];
+    public Task Loaded => Task.CompletedTask;
     public Task LoadAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     public Task UpdateAsync(Func<OakProyektor.Core.AppSettings, OakProyektor.Core.AppSettings> change, CancellationToken cancellationToken)
     {

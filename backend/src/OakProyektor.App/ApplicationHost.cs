@@ -82,6 +82,7 @@ internal sealed class ApplicationHost : IAsyncDisposable
         services.AddSingleton<IIpcHandler, Handlers.SettingsSetDisplayLostPolicyHandler>();
         services.AddSingleton<IIpcHandler, Handlers.SettingsSetPanelAlertOnOutputHandler>();
         services.AddSingleton<IIpcHandler, Handlers.DatabaseGetStatusHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.SettingsGetStatusHandler>();
         services.AddSingleton<IpcDispatcher>();
         services.AddSingleton<InboundProcessor>();
         services.AddSingleton<IpcPump>();

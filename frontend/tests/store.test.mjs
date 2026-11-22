@@ -11,10 +11,10 @@ globalThis.window = {
     receiveMessage: (cb) => { deliver = cb; },
   },
 };
-const { useControlStore, connectControlStore, reconnectControl, dismissFailure } = await loadTs("/src/control/store.ts");
+const { useControlStore, connectControlStore, reconnectControl, dismissFailure, dismissSettingsWarnings } = await loadTs("/src/control/store.ts");
 after(closeServer);
 
-const msg = (kind, type, payload, id = "x") => ({ v:9, id, kind, type, payload });
+const msg = (kind, type, payload, id = "x") => ({ v:10, id, kind, type, payload });
 const send = (o) => deliver(typeof o === "string" ? o : JSON.stringify(o));
 const ok = (result) => ({ ok: true, result, error: null });
 const tick = (ms = 20) => new Promise((r) => setTimeout(r, ms));
@@ -30,7 +30,7 @@ const outputPayload = (seq, master = "black", win = {}) => ({ seq, state: { sche
 let connection = null;
 beforeEach(() => {
   sent.length = 0;
-  useControlStore.setState({ connected: false, everConnected: false, displays: [], displaysSeq: null, output: null, database: null, failure: null });
+  useControlStore.setState({ connected: false, everConnected: false, displays: [], displaysSeq: null, output: null, database: null, failure: null, settingsWarnings: [] });
 });
 afterEach(() => { connection?.dispose(); connection = null; });
 
@@ -305,4 +305,42 @@ test("el aviso de fallo del fondo sigue mientras sea el mismo archivo y se retir
   assert.equal(useControlStore.getState().backgroundFailure?.message, "otra vez");
   send(msg("event", "output.stateChanged", mediaPayload(4, 0, "b.mp4")));   // otro archivo: ya no vale
   assert.equal(useControlStore.getState().backgroundFailure, null);
+});
+
+// ───── H10: avisos de la carga de settings.json ─────
+
+test("H10: los avisos de settings.json llegan al panel con la carga inicial y el panel funciona aunque esa consulta no se responda", async () => {
+  connection = connectControlStore({ retry: { baseMs: 5, maxMs: 10 }, requestTimeoutMs: 200 });
+  await tick();
+  answerInitialQueries(1, 1);                                 // NO se responde a settings.getStatus
+  await tick();
+  assert.equal(useControlStore.getState().connected, true);
+  assert.deepEqual(useControlStore.getState().settingsWarnings, []);
+  assert.equal(queries("settings.getStatus").length, 1, "se pidió");
+
+  send(msg("reply", "settings.getStatus", ok({ warnings: ["El tema de la Biblia no es válido en settings.json: se usa el tema por defecto."] }), queries("settings.getStatus").at(-1).id));
+  await tick();
+  assert.deepEqual(useControlStore.getState().settingsWarnings, ["El tema de la Biblia no es válido en settings.json: se usa el tema por defecto."]);
+});
+
+test("H10: cerrar el aviso lo quita y no reaparece al volver a pedir el estado", async () => {
+  connection = connectControlStore({ retry: { baseMs: 5, maxMs: 10 }, requestTimeoutMs: 200 });
+  await tick();
+  answerInitialQueries(1, 1);
+  await tick();
+  send(msg("reply", "settings.getStatus", ok({ warnings: ["aviso"] }), queries("settings.getStatus").at(-1).id));
+  await tick();
+  assert.deepEqual(useControlStore.getState().settingsWarnings, ["aviso"]);
+  dismissSettingsWarnings();
+  assert.deepEqual(useControlStore.getState().settingsWarnings, []);
+
+  const before = queries("settings.getStatus").length;       // el panel vuelve a cargar el estado completo (reconexión)
+  reconnectControl();
+  await nextAttempt("display.list", queries("display.list").length - 1);
+  answerInitialQueries(2, 2);
+  await tick();
+  const status = queries("settings.getStatus");
+  if (status.length > before) send(msg("reply", "settings.getStatus", ok({ warnings: ["aviso"] }), status.at(-1).id));
+  await tick();
+  assert.deepEqual(useControlStore.getState().settingsWarnings, [], "el aviso cerrado no vuelve");
 });

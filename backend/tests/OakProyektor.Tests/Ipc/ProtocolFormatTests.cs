@@ -61,6 +61,7 @@ public partial class ProtocolFormatTests
         new(typeof(OutputWindowStatus), "OutputWindowStatus", Direction.FromBackend),
         new(typeof(OutputStateChangedPayload), "OutputStateChangedPayload", Direction.FromBackend),
         new(typeof(DatabaseStatusPayload), "DatabaseStatusPayload", Direction.FromBackend),
+        new(typeof(SettingsStatusPayload), "SettingsStatusPayload", Direction.FromBackend),
         new(typeof(CommandFailedPayload), "CommandFailedPayload", Direction.FromBackend),
         new(typeof(IpcError), "IpcErrorPayload", Direction.FromBackend),
         new(typeof(IpcReply), "IpcReplyFields", Direction.FromBackend),
@@ -124,6 +125,7 @@ public partial class ProtocolFormatTests
         [7] = "500376f2b5030c49250ad82c905d2fe55c31b76ebfd581b7209672802df93e25",
         [8] = "67f904ea172bc555de07b902918364eb616530849d797cf4f1e567436dd3e810",
         [9] = "a1a6972f80fdb5177c93cd8e415865b9db03ecea77d452e94d83d9f8efa8653b",
+        [10] = "a5cbbb567e89373b8aab56fbc1a9308a3c77a08ab5030acc4df9938e180a706e",
     };
 
     // ───────────────────────────── lectura de C# ─────────────────────────────

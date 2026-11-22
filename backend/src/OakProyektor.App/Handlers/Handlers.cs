@@ -228,6 +228,19 @@ internal sealed class SettingsSetPanelAlertOnOutputHandler(ISettingsStore settin
     }
 }
 
+/// <summary><c>settings.getStatus</c>: los avisos de la carga de settings.json. Espera (como mucho 2 s) a que la carga haya terminado para no responder «sin avisos» por llegar antes.</summary>
+internal sealed class SettingsGetStatusHandler(ISettingsStore settings) : IIpcHandler
+{
+    public string Kind => IpcKind.Query;
+    public string Type => IpcTypes.SettingsGetStatus;
+    public async Task<object?> HandleAsync(IpcEnvelope request, CancellationToken cancellationToken)
+    {
+        try { await settings.Loaded.WaitAsync(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false); }
+        catch (TimeoutException) { /* la carga sigue: se responde con lo que haya */ }
+        return new SettingsStatusPayload(settings.Warnings);
+    }
+}
+
 internal sealed class DatabaseGetStatusHandler(DatabaseStatusReporter reporter) : IIpcHandler
 {
     public string Kind => IpcKind.Query;

@@ -30,6 +30,8 @@ interface ControlState {
   failure: CommandFailure | null;
   /** El fondo actual no se pudo reproducir (la salida cayó al color de reserva). Se limpia al cambiar de archivo de fondo o al cerrarlo el operador. */
   backgroundFailure: OutputBackgroundFailedPayload | null;
+  /** Avisos de la carga de settings.json (bloques inválidos vueltos a su valor por defecto, archivo dañado). El operador los cierra; no vuelven hasta reiniciar. */
+  settingsWarnings: string[];
 }
 
 export const useControlStore = create<ControlState>(() => ({
@@ -41,6 +43,7 @@ export const useControlStore = create<ControlState>(() => ({
   database: null,
   failure: null,
   backgroundFailure: null,
+  settingsWarnings: [],
 }));
 
 /** Cada cuánto el panel pide algo barato al backend para comprobar que sigue vivo. */
@@ -78,6 +81,11 @@ export function dismissFailure(): void {
   useControlStore.setState({ failure: null });
 }
 
+export function dismissSettingsWarnings(): void {
+  settingsWarningsDismissed = true;
+  useControlStore.setState({ settingsWarnings: [] });
+}
+
 export function dismissBackgroundFailure(): void {
   useControlStore.setState({ backgroundFailure: null });
 }
@@ -104,7 +112,16 @@ async function load(requestTimeoutMs: number): Promise<void> {
   applyDisplays(displays);
   applyOutput(output);
   applyDatabase(database);
+  // Los avisos de settings.json van aparte: no condicionan la conexión (si esta consulta falla, el panel funciona igual) y, tras un cierre del operador, no reaparecen.
+  void ipc
+    .request("settings.getStatus", {}, requestTimeoutMs)
+    .then((status) => {
+      if (!settingsWarningsDismissed) useControlStore.setState({ settingsWarnings: status.warnings });
+    })
+    .catch(() => undefined);
 }
+
+let settingsWarningsDismissed = false;
 
 /**
  * Se suscribe a los eventos y pide el estado inicial. Si el backend no responde, REINTENTA INDEFINIDAMENTE con espera creciente
