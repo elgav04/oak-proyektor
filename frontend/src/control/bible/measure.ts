@@ -1,6 +1,8 @@
 import type { TextTheme } from "@/ipc/protocol";
 import { CANVAS_HEIGHT, CANVAS_WIDTH } from "@/output/canvas";
-import { themeBoxStyle, themeTextStyle } from "@/output/theme";
+import { inkBleed, themeBoxStyle, themeTextStyle } from "@/output/theme";
+
+export { inkBleed };
 
 /**
  * Medición REAL de texto: reproduce, fuera de pantalla, la estructura exacta con que la salida pinta un slide (`ContentSlot`: caja con los márgenes del tema
@@ -20,18 +22,21 @@ export function applyStyle(el: HTMLElement, style: Record<string, unknown>): voi
   }
 }
 
+/** Renglones de holgura que se reservan al paginar (H3). */
+export const SAFETY_LINES = 0.25;
+
 /**
- * Cuánto se sale la TINTA por arriba/abajo de la caja de texto (la caja recorta lo que sobresale): contorno + sombra, menos la holgura que ya da el
- * interlineado (medio interlineado extra a cada lado del renglón). El texto debe dejar esa altura libre para que no se corte el contorno ni la sombra.
+ * Holgura de seguridad (≈ 0,25 renglones): el panel y la salida pueden estar en monitores con otro escalado de Windows (p. ej. 125 % y 100 %) y el motor de
+ * layout puede repartir los renglones distinto (otro salto de línea cambia el alto en un renglón entero). Con esta reserva, una diferencia pequeña no llega a
+ * recortar; y si llegara, el ajuste automático de la salida reduce la letra (ver `projectionTheme`).
  */
-export function inkBleed(theme: TextTheme): number {
-  const halfLeading = Math.max(0, ((theme.lineHeight - 1) / 2) * theme.fontSize);
-  return Math.max(0, Math.ceil(theme.outlineWidth + theme.shadowBlur + theme.shadowOffset - halfLeading));
+export function safetyMargin(theme: TextTheme): number {
+  return Math.ceil(SAFETY_LINES * theme.lineHeight * theme.fontSize);
 }
 
-/** Alto disponible para el texto: el de la caja (lienzo menos márgenes) menos el sangrado de la tinta. */
+/** Alto disponible para el texto al paginar: el de la caja (lienzo menos márgenes) menos el sangrado de la tinta y la holgura de seguridad. */
 export function availableHeight(theme: TextTheme): number {
-  return CANVAS_HEIGHT - theme.marginTop - theme.marginBottom - inkBleed(theme);
+  return CANVAS_HEIGHT - theme.marginTop - theme.marginBottom - inkBleed(theme) - safetyMargin(theme);
 }
 
 export interface BlocksMeasurer {

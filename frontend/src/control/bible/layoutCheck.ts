@@ -1,6 +1,6 @@
 import type { BibleVerseDto, TextTheme } from "@/ipc/protocol";
 import { BIBLE_DEFAULT_THEME } from "./defaults";
-import { availableHeight, createBlocksMeasurer, inkBleed } from "./measure";
+import { availableHeight, createBlocksMeasurer, inkBleed, safetyMargin } from "./measure";
 import { buildPassage, projectionTheme } from "./slide";
 
 /**
@@ -32,6 +32,8 @@ export interface CaseReport {
   fontSize: number;
   limit: number;
   inkBleed: number;
+  /** Holgura de seguridad (≈ 0,25 renglones) reservada al paginar, además del sangrado de la tinta. */
+  safetyMargin: number;
   pages: PageReport[];
   /** Al unir las páginas se recupera el texto original (sin perder ni recortar nada). */
   lossless: boolean;
@@ -149,6 +151,7 @@ export function runLayoutCheck(doc: Document = document): LayoutReport {
         fontSize: c.theme.fontSize,
         limit,
         inkBleed: inkBleed(c.theme),
+        safetyMargin: safetyMargin(c.theme),
         pages,
         lossless: normalize(rebuilt) === normalize(original),
         allFit: pages.every((p) => p.fits),

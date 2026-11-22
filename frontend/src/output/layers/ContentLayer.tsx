@@ -3,7 +3,7 @@ import type { ContentLayer as ContentState, Slide } from "@/ipc/protocol";
 import { CANVAS_HEIGHT, CANVAS_WIDTH } from "../canvas";
 import { assertRenderableSlide, fadeReducer, initFade } from "../crossfade";
 import { fitFontSize } from "../fit";
-import { themeBoxStyle, themeTextStyle } from "../theme";
+import { inkBleed, themeBoxStyle, themeTextStyle } from "../theme";
 
 /** Un búfer del crossfade: pinta un slide con su tema y ajusta el tamaño del texto al área (ajuste automático, sobre el lienzo de 1920×1080). */
 function ContentSlot({ slide, active, ms }: { slide: Slide | null; active: boolean; ms: number }) {
@@ -22,9 +22,11 @@ function ContentSlot({ slide, active, ms }: { slide: Slide | null; active: boole
       text.style.fontSize = `${String(t.fontSize)}px`;
       return;
     }
+    // El mismo criterio que la paginación del panel: el texto deja libre el sangrado de la tinta (contorno + sombra), que la caja recorta.
+    const bleed = inkBleed(t);
     const size = fitFontSize(t.minFontSize, t.fontSize, (candidate) => {
       text.style.fontSize = `${String(candidate)}px`;
-      return text.offsetHeight <= box.clientHeight;
+      return text.offsetHeight + bleed <= box.clientHeight;
     });
     text.style.fontSize = `${String(size)}px`;
   }, [slide, autoFit]);

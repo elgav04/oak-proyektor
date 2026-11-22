@@ -359,4 +359,19 @@ public class BackgroundFailuresTests
         Assert.Equal(messages.Count, messages.Distinct().Count());
         Assert.All(messages, m => Assert.Contains("el fondo", m));
     }
-}
+
+    [Fact]
+    public void The_frontend_pagination_uses_the_same_block_and_total_limits_as_the_validator()
+    {
+        // La paginación (frontend/src/control/bible/slide.ts) garantiza páginas por debajo de estos límites; si el backend los cambia sin avisar, el panel
+        // volvería a mandar páginas que se rechazan con output.invalidContent (H14).
+        string? source = null;
+        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null && source is null; dir = dir.Parent)
+        {
+            var candidate = Path.Combine(dir.FullName, "frontend", "src", "control", "bible", "slide.ts");
+            if (File.Exists(candidate)) source = File.ReadAllText(candidate);
+        }
+        Assert.NotNull(source);
+        Assert.Equal(ContentValidator.MaxBlockChars, int.Parse(System.Text.RegularExpressions.Regex.Match(source, @"MAX_BLOCK_CHARS\s*=\s*(\d+)").Groups[1].Value));
+        Assert.Equal(ContentValidator.MaxTotalChars, int.Parse(System.Text.RegularExpressions.Regex.Match(source, @"MAX_TOTAL_CHARS\s*=\s*(\d+)").Groups[1].Value));
+    }}

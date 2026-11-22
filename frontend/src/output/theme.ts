@@ -23,6 +23,16 @@ export function themeTextStyle(theme: TextTheme, fontSize: number): CSSPropertie
   return style;
 }
 
+/**
+ * Cuánto se sale la TINTA por arriba/abajo de la caja de texto (la caja recorta lo que sobresale): contorno + sombra, menos la holgura que ya da el
+ * interlineado (medio interlineado extra a cada lado del renglón). El texto debe dejar esa altura libre para que no se corte el contorno ni la sombra.
+ * Lo usan la paginación del panel Y el ajuste automático de la salida (así, al reducir la letra, tampoco se recorta la tinta).
+ */
+export function inkBleed(theme: TextTheme): number {
+  const halfLeading = Math.max(0, ((theme.lineHeight - 1) / 2) * theme.fontSize);
+  return Math.max(0, Math.ceil(theme.outlineWidth + theme.shadowBlur + theme.shadowOffset - halfLeading));
+}
+
 /** Posición del área de texto: los márgenes del tema dentro del lienzo, y la alineación vertical. */
 export function themeBoxStyle(theme: TextTheme, canvasWidth: number, canvasHeight: number): CSSProperties {
   return {

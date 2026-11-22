@@ -5,6 +5,8 @@ import type { BibleSettingsPayload, TextAlign, TextTheme, VerticalAlign } from "
 import { CANVAS_HEIGHT, CANVAS_WIDTH } from "@/output/canvas";
 import { themeBoxStyle, themeTextStyle } from "@/output/theme";
 import type { BibleController } from "./controller";
+import { BIBLE_DEFAULT_THEME } from "./defaults";
+import { themeWithFontSize } from "./slide";
 import { toSuperscript } from "./superscript";
 
 const HEX = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/;
@@ -137,7 +139,7 @@ export function BibleSettingsView({ controller, connected, onClose }: { controll
             </select>
           </Field>
           <Field label="Tamaño (8–400)">
-            <input className="h-10 rounded-md border-2 p-2" type="number" min={8} max={400} value={theme.fontSize} onChange={(e) => { setTheme({ fontSize: num(e.target.value, theme.fontSize), minFontSize: Math.min(theme.minFontSize, num(e.target.value, theme.fontSize)) }); }} />
+            <input className="h-10 rounded-md border-2 p-2" type="number" min={8} max={400} value={theme.fontSize} onChange={(e) => { setTheme(themeWithFontSize(theme, num(e.target.value, theme.fontSize), BIBLE_DEFAULT_THEME.minFontSize)); }} />
           </Field>
           <Field label="Interlineado">
             <input className="h-10 rounded-md border-2 p-2" type="number" step={0.05} min={0.8} max={3} value={theme.lineHeight} onChange={(e) => { setTheme({ lineHeight: num(e.target.value, theme.lineHeight) }); }} />

@@ -10,7 +10,7 @@ Pruebas al momento de la revisión: C# 1021 correctas y 1 omitida; JS 166 correc
 |---|-----------|---------|--------|
 | 1 | Importante | Video de fondo: atasco sin aviso y falso fallo de carga con la ventana oculta | corregido (prompt A): motor con control de avance, carga suspendida con la ventana oculta y recarga única; verificado con tests y en la app real; la parte «Chromium difiere la carga» sigue [A PROBAR] en el proyector |
 | 2 | Importante | Reaplicar el mismo archivo tras un fallo no reintenta | corregido (prompt A): protocolo v9 (`retry`, `output.retryBackground`), botón «Reintentar» en todas las pestañas; verificado en la app real |
-| 3 | Importante | Texto recortado con otro escalado de monitor | pendiente (prompt C) |
+| 3 | Importante | Texto recortado con otro escalado de monitor | corregido en el código (prompt C): mínimo siempre < tamaño, holgura de 0,25 renglones, tinta en el ajuste de la salida; verificado con tests y emulación de escala; la salida REAL en otro monitor (-OutputOn other) sigue [A PROBAR] |
 | 4 | Importante | Una referencia enorme congela el panel | pendiente (prompt D) |
 | 5 | Importante | La insignia «EN VIVO» no refleja el estado de C# | corregido (prompt B): la insignia se deriva del estado confirmado por el backend |
 | 6 | Importante | `showContent` hace cola detrás de trabajo lento | corregido (prompt B): tres carriles de entrada (prioridad, en vivo, lento); latencia real con un disco colgado y USB físico [A PROBAR] |
@@ -21,7 +21,7 @@ Pruebas al momento de la revisión: C# 1021 correctas y 1 omitida; JS 166 correc
 | 11 | Menor | `BibleSettings` guarda un borrador obsoleto | pendiente (prompt D) |
 | 12 | Menor | `isTypingTarget` bloquea atajos tras casillas y selector | pendiente (prompt D) |
 | 13 | Menor | `BuildMatch`: sin límite de términos y NFD | pendiente (prompt D) |
-| 14 | Menor | Bloque de más de 4000 caracteres con letra muy pequeña | pendiente (prompt C) |
+| 14 | Menor | Bloque de más de 4000 caracteres con letra muy pequeña | corregido (prompt C): la paginación divide por longitud (4000/20000) |
 | 15 | Menor | Honestidad de tests y documentación | pendiente (prompt E) |
 
 ## Importante

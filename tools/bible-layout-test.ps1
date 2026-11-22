@@ -12,12 +12,24 @@
 #     - el alto medido por el panel coincide con el de la salida (tolerancia 1 px).
 #  3. Que fuente pinta de verdad los digitos en superindice con cada fuente del editor de temas (CSS.getPlatformFontsForNode): informa si caen a otra fuente.
 #
-#   powershell -File tools\bible-layout-test.ps1 [-Shots] [-KeepData]
+#  4. ESCALADO (hallazgo H3). El panel y la salida pueden estar en monitores con otro escalado de Windows (aqui: panel al 125 % y proyector al 100 %). Con otro
+#     escalado el motor de layout puede repartir los renglones distinto. Por eso, ademas de la pasada normal (misma escala: aqui se exige la coincidencia exacta,
+#     diferencia <= 1 px), la prueba repite el paso 2 con la salida a OTROS factores de escala (-OutputScales, emulados por CDP: Emulation.setDeviceMetricsOverride)
+#     y, con -OutputOn other, con la salida de verdad en OTRO monitor. En esas pasadas la condicion es que la salida NUNCA recorte: ni el texto ni el sangrado de la
+#     tinta; puede reducir la letra (red de seguridad del ajuste automatico, hasta el minimo) y se informa cuantas paginas lo hicieron y el minimo alcanzado.
+#
+#   powershell -File tools\bible-layout-test.ps1 [-Shots] [-KeepData] [-OutputOn panel|other] [-OutputScales 1.0,1.5,2.0]
 #   -Shots: guarda una captura PNG de la salida por caso en la carpeta temporal y muestra la ruta (para revisar a ojo: contorno, sombra, superindices).
+#   -OutputOn panel (por defecto): la salida en una VENTANA NORMAL en el monitor del panel (nunca en el proyector).
+#   -OutputOn other: la salida a PANTALLA COMPLETA en un monitor distinto al del panel (el proyector): proyecta texto SINTETICO unos minutos. Hace falta un segundo
+#                    monitor; no lo uses durante un culto. Compara el escalado real de ambos monitores y exige que no haya recortes.
+#   -OutputScales: factores de escala emulados para la salida en la repeticion del paso 2 (por defecto 1.0, 1.5 y 2.0; con -OutputScales @() no se repite).
 # Sale con codigo 0 si todo pasa, 1 si algo falla.
 param(
     [switch]$Shots,
-    [switch]$KeepData
+    [switch]$KeepData,
+    [ValidateSet("panel", "other")] [string]$OutputOn = "panel",
+    [double[]]$OutputScales = @(1.0, 1.5, 2.0)
 )
 
 $ErrorActionPreference = "Stop"
@@ -105,6 +117,50 @@ $readOutput = @'
 })()
 '@
 
+# Proyecta cada pagina del informe en la SALIDA real y comprueba lo que pinta. $strict = misma escala que el panel: coincidencia EXACTA (letra pedida, diferencia
+# de alto <= 1 px, holgura de seguridad). Si no: la condicion es que NUNCA recorte (la letra puede reducirse por la red de seguridad, hasta el minimo).
+function Test-OutputPages($report, [string]$label, [bool]$strict, [bool]$shots) {
+    $s = [ordered]@{ pages = 0; maxDelta = 0.0; minHeadroom = 99999.0; shrunkPages = 0; minFontSeen = 99999.0 }
+    foreach ($c in $report.cases) {
+        $pi = 0
+        foreach ($p in $c.pages) {
+            $pi++
+            $blocks = @($p.blocks)
+            Send-FromPanel $cws "output.showContent" @{ blocks = $blocks; theme = $c.projectionTheme; transitionMs = 0 }
+            $expectedFirst = [string]$blocks[0]
+            $m = $null
+            for ($t = 0; $t -lt 40 -and -not $m; $t++) {
+                Start-Sleep -Milliseconds 75
+                $json = Eval $ows $readOutput
+                if ($json) { $cand = $json | ConvertFrom-Json; if ($cand.first -eq $expectedFirst) { $m = $cand } }
+            }
+            $tag = "[$label] $($c.name) p$pi/$($c.pages.Count)"
+            if (-not $m) { Check $false "$tag : la salida no llego a pintar la pagina"; continue }
+            $s.pages++
+            $delta = [math]::Abs($m.textH - $p.measuredHeight); if ($delta -gt $s.maxDelta) { $s.maxDelta = $delta }
+            $headroom = $m.boxH - $m.textH - $c.inkBleed; if ($headroom -lt $s.minHeadroom) { $s.minHeadroom = $headroom }
+            if ($m.fontSize -lt $c.fontSize) { $s.shrunkPages++ }
+            if ($m.fontSize -lt $s.minFontSeen) { $s.minFontSeen = $m.fontSize }
+            # SIEMPRE (con cualquier escala): nada recortado ni desbordado, la tinta tiene su sangrado y los bloques son los pedidos.
+            Check ($m.textH -le $m.boxH) "$tag : el texto desborda su caja ($($m.textH) > $($m.boxH))"
+            Check ($m.scrollH -le $m.boxH) "$tag : texto RECORTADO (scrollHeight $($m.scrollH) > $($m.boxH))"
+            Check ($headroom -ge 0) "$tag : no deja libre el sangrado de la tinta (contorno + sombra): faltan $(-$headroom) px"
+            Check ($m.blocks -eq $blocks.Count) "$tag : bloques distintos ($($m.blocks) vs $($blocks.Count))"
+            Check ($m.fontSize -le $c.fontSize -and $m.fontSize -ge $c.projectionTheme.minFontSize) "$tag : letra $($m.fontSize) px fuera de [minimo $($c.projectionTheme.minFontSize), pedida $($c.fontSize)]"
+            if ($strict) {
+                Check ($m.fontSize -eq $c.fontSize) "$tag : la salida redujo la letra a $($m.fontSize) px (pedida $($c.fontSize)): la medicion del panel no coincide con la de la salida"
+                Check ($delta -le 1) "$tag : el alto medido por el panel ($($p.measuredHeight)) difiere del de la salida ($($m.textH))"
+                Check ($headroom -ge $c.safetyMargin) "$tag : no queda la holgura de seguridad de ~0,25 renglones (quedan $headroom px, se reservaron $($c.safetyMargin))"
+            }
+            if ($shots -and $pi -eq 1) {
+                $shot = Invoke-Cdp $ows "Page.captureScreenshot" @{ format = "png" } 15000
+                if ($shot -and $shot.result.data) { [IO.File]::WriteAllBytes((Join-Path $shotDir ("{0}.png" -f $c.name)), [Convert]::FromBase64String($shot.result.data)) }
+            }
+        }
+    }
+    return [pscustomobject]$s
+}
+
 $result = [ordered]@{}
 try {
     # 1. Panel y salida (ventana normal en el monitor del panel)
@@ -116,13 +172,28 @@ try {
     $list = Eval $cws '(async () => { const id = crypto.randomUUID(); return await new Promise((resolve) => { window.external.receiveMessage((raw) => { const m = JSON.parse(raw); if (m.id === id) resolve(JSON.stringify(m.payload)); }); window.external.sendMessage(JSON.stringify({ v:9, id, kind: "query", type: "display.list", payload: {} })); }); })()'
     $panelId = ((($list | ConvertFrom-Json).result.displays) | Where-Object { $_.hostsPanel } | Select-Object -First 1).id
     if (-not $panelId) { throw "No se pudo leer el monitor del panel: $list" }
-    Send-FromPanel $cws "output.open" @{ displayId = $panelId }
+    $displays = @((($list | ConvertFrom-Json).result.displays))
+    $panelDisplay = $displays | Where-Object { $_.hostsPanel } | Select-Object -First 1
+    $openOn = $panelId
+    if ($OutputOn -eq "other") {
+        $other = $displays | Where-Object { -not $_.hostsPanel } | Select-Object -First 1
+        if (-not $other) { throw "-OutputOn other necesita un segundo monitor (solo hay uno)." }
+        $openOn = $other.id
+        Write-Host ("Salida a pantalla completa en el OTRO monitor ({0}x{1}, escala {2}); el panel esta en un monitor con escala {3}." -f $other.width, $other.height, $other.scale, $panelDisplay.scale) -ForegroundColor Yellow
+        $result.monitores = "panel: escala $($panelDisplay.scale) | salida: escala $($other.scale)"
+    }
+    Send-FromPanel $cws "output.open" @{ displayId = $openOn }
     $output = $null
     for ($i = 0; $i -lt 40 -and -not $output; $i++) { Start-Sleep -Milliseconds 500; $output = Get-Targets "output" | Where-Object { $_.type -eq "page" -and $_.url -match "output\.html" } | Select-Object -First 1 }
     if (-not $output) { throw "No aparecio la ventana de salida" }
     $ows = Connect-Cdp $output.webSocketDebuggerUrl
     Start-Sleep -Seconds 2
     $result.chromium = Eval $ows "navigator.userAgent"
+    $panelDpr = [double](Eval $cws "window.devicePixelRatio")
+    $outputDpr = [double](Eval $ows "window.devicePixelRatio")
+    $result.devicePixelRatio = "panel $panelDpr | salida $outputDpr"
+    $sameScale = ($panelDpr -eq $outputDpr)
+    if (-not $sameScale) { Write-Host "  El panel y la salida tienen DISTINTO devicePixelRatio ($panelDpr vs $outputDpr): pasada principal en modo \"sin recortes\"." -ForegroundColor Yellow }
     Send-FromPanel $cws "output.setMaster" @{ master = "live" }
     Send-FromPanel $cws "output.setBackground" @{ kind = "color"; path = $null; color = "#1e3a8a"; muted = $true; transitionMs = 0 }
 
@@ -150,41 +221,29 @@ try {
     # 3. Cada pagina en la SALIDA real
     Write-Host "Paso 2: cada pagina proyectada en la ventana de salida real..." -ForegroundColor Cyan
     $shotDir = Join-Path $data "shots"; if ($Shots) { New-Item -ItemType Directory $shotDir | Out-Null }
-    $pagesChecked = 0; $maxDelta = 0.0; $minHeadroom = 99999.0
-    foreach ($c in $report.cases) {
-        $pi = 0
-        foreach ($p in $c.pages) {
-            $pi++
-            $blocks = @($p.blocks)
-            Send-FromPanel $cws "output.showContent" @{ blocks = $blocks; theme = $c.projectionTheme; transitionMs = 0 }
-            $expectedFirst = [string]$blocks[0]
-            $m = $null
-            for ($t = 0; $t -lt 40 -and -not $m; $t++) {
-                Start-Sleep -Milliseconds 75
-                $json = Eval $ows $readOutput
-                if ($json) { $cand = $json | ConvertFrom-Json; if ($cand.first -eq $expectedFirst) { $m = $cand } }
-            }
-            $label = "$($c.name) p$pi/$($c.pages.Count)"
-            if (-not $m) { Check $false "$label : la salida no llego a pintar la pagina"; continue }
-            $pagesChecked++
-            $delta = [math]::Abs($m.textH - $p.measuredHeight); if ($delta -gt $maxDelta) { $maxDelta = $delta }
-            $headroom = $m.boxH - $m.textH - $c.inkBleed; if ($headroom -lt $minHeadroom) { $minHeadroom = $headroom }
-            Check ($m.fontSize -eq $c.fontSize) "$label : la salida redujo la letra a $($m.fontSize) px (pedida $($c.fontSize)): la medicion del panel no coincide con la de la salida"
-            Check ($m.textH -le $m.boxH) "$label : el texto desborda su caja ($($m.textH) > $($m.boxH))"
-            Check ($m.scrollH -le $m.boxH) "$label : texto RECORTADO (scrollHeight $($m.scrollH) > $($m.boxH))"
-            Check ($headroom -ge 0) "$label : no deja libre el sangrado de la tinta (contorno + sombra): faltan $(-$headroom) px"
-            Check ($delta -le 1) "$label : el alto medido por el panel ($($p.measuredHeight)) difiere del de la salida ($($m.textH))"
-            Check ($m.blocks -eq $blocks.Count) "$label : bloques distintos ($($m.blocks) vs $($blocks.Count))"
-            if ($Shots -and $pi -eq 1) {
-                $shot = Invoke-Cdp $ows "Page.captureScreenshot" @{ format = "png" } 15000
-                if ($shot -and $shot.result.data) { [IO.File]::WriteAllBytes((Join-Path $shotDir ("{0}.png" -f $c.name)), [Convert]::FromBase64String($shot.result.data)) }
-            }
-        }
-    }
-    $result.pagesProjected = $pagesChecked
-    $result.maxHeightDeltaPx = $maxDelta
-    $result.minInkHeadroomPx = $minHeadroom
+    $main = Test-OutputPages $report "principal (salida a su escala real $outputDpr)" $sameScale $Shots
+    $result.pagesProjected = $main.pages
+    $result.maxHeightDeltaPx = $main.maxDelta
+    $result.minInkHeadroomPx = $main.minHeadroom
+    $result.mainShrunkPages = $main.shrunkPages
     if ($Shots) { Write-Host "  Capturas en $shotDir" }
+
+    # 3b. La salida a OTROS factores de escala (emulados): nunca debe recortar
+    if ($OutputScales.Count -gt 0) {
+        Write-Host "Paso 2b: la salida a otros factores de escala ($($OutputScales -join ", ")): ningun recorte..." -ForegroundColor Cyan
+        $dim = (Eval $ows 'JSON.stringify({ w: window.innerWidth, h: window.innerHeight })') | ConvertFrom-Json
+        foreach ($sc in $OutputScales) {
+            [void](Invoke-Cdp $ows "Emulation.setDeviceMetricsOverride" @{ width = [int]$dim.w; height = [int]$dim.h; deviceScaleFactor = [double]$sc; mobile = $false })
+            Start-Sleep -Milliseconds 500
+            $effective = [double](Eval $ows "window.devicePixelRatio")
+            Check ([math]::Abs($effective - $sc) -lt 0.001) "la emulacion de escala $sc no se aplico (devicePixelRatio $effective)"
+            $r = Test-OutputPages $report "escala x$sc" $false $false
+            Write-Host ("  escala x{0}: {1} paginas, letra reducida en {2}, minimo visto {3} px, holgura minima de tinta {4} px, diferencia de alto maxima {5} px" -f $sc, $r.pages, $r.shrunkPages, $r.minFontSeen, $r.minHeadroom, $r.maxDelta)
+            $result["escala x$sc"] = "paginas $($r.pages); letra reducida en $($r.shrunkPages); minimo $($r.minFontSeen) px; holgura tinta min $($r.minHeadroom) px; delta alto max $($r.maxDelta) px"
+        }
+        [void](Invoke-Cdp $ows "Emulation.clearDeviceMetricsOverride")
+        Start-Sleep -Milliseconds 300
+    }
 
     # 4. Que fuente pinta los superindices con cada fuente del editor de temas
     Write-Host "Paso 3: fuente que pinta los digitos en superindice (por fuente del editor de temas)..." -ForegroundColor Cyan
