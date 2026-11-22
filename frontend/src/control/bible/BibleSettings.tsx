@@ -5,7 +5,9 @@ import type { BibleSettingsPayload, TextAlign, TextTheme, VerticalAlign } from "
 import { CANVAS_HEIGHT, CANVAS_WIDTH } from "@/output/canvas";
 import { themeBoxStyle, themeTextStyle } from "@/output/theme";
 import type { BibleController } from "./controller";
+import { BibleImportSection } from "./BibleImport";
 import { BIBLE_DEFAULT_THEME } from "./defaults";
+import type { ImportController } from "./importController";
 import { mergeSettings } from "./settingsMerge";
 import { themeWithFontSize } from "./slide";
 import { toSuperscript } from "./superscript";
@@ -41,7 +43,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 /** Configuración de la Biblia: Biblia por defecto, nombre corto y aviso de derechos por Biblia, opciones y tema propio. Se guarda en el backend (settings.json / BD). */
-export function BibleSettingsView({ controller, connected, onClose }: { controller: BibleController; connected: boolean; onClose: () => void }) {
+export function BibleSettingsView({ controller, importer, connected, onClose }: { controller: BibleController; importer?: ImportController; connected: boolean; onClose: () => void }) {
   const s = useStore(controller.store);
   const [draft, setDraft] = useState<BibleSettingsPayload | null>(s.settings);
   // Lo que había al abrir (o tras el último guardado): al guardar solo se aplica lo que se cambió AQUÍ y lo demás conserva el valor actual (H11).
@@ -118,6 +120,8 @@ export function BibleSettingsView({ controller, connected, onClose }: { controll
           </div>
         ))}
       </section>
+
+      {importer && <BibleImportSection importer={importer} bibles={controller} connected={connected} />}
 
       <section className="flex flex-col gap-3" aria-label="Opciones">
         <h3 className="text-lg font-semibold">Proyección</h3>

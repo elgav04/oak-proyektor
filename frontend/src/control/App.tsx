@@ -4,7 +4,7 @@ import { ipc } from "@/ipc/instance";
 import { MASTER_MODES, type DisplayInfo, type MasterMode, type OutputPauseReason } from "@/ipc/protocol";
 import { BibleSettingsView } from "./bible/BibleSettings";
 import { BibleTab } from "./bible/BibleTab";
-import { getBibleController } from "./bible/instance";
+import { getBibleController, getImportController } from "./bible/instance";
 import { Diagnostics } from "./Diagnostics";
 import { describeOutput, type OutputNotice } from "./outputNotice";
 import { connectControlStore, dismissBackgroundFailure, dismissFailure, dismissSettingsWarnings, reconnectControl, useControlStore } from "./store";
@@ -277,7 +277,7 @@ export function App() {
 
       {tab === "bible" &&
         (bibleSettingsOpen ? (
-          <BibleSettingsView controller={bibleController} connected={connected} onClose={() => { setBibleSettingsOpen(false); }} />
+          <BibleSettingsView controller={bibleController} importer={getImportController()} connected={connected} onClose={() => { setBibleSettingsOpen(false); }} />
         ) : (
           <BibleTab controller={bibleController} connected={connected} output={output} onOpenSettings={() => { setBibleSettingsOpen(true); }} />
         ))}

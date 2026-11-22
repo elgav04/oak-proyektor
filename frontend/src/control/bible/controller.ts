@@ -138,6 +138,8 @@ export interface BibleController {
   reproject: (entry: CitationDto) => void;
   saveSettings: (next: BibleSettingsPayload) => Promise<void>;
   saveAttribution: (bible: string, attribution: string) => Promise<void>;
+  /** Vuelve a pedir la lista de Biblias instaladas (tras importar una). */
+  refreshBibles: () => Promise<void>;
   dismissMessage: () => void;
   dispose: () => void;
 }
@@ -595,6 +597,19 @@ export function createBibleController(deps: BibleControllerDeps): BibleControlle
           builtCache.clear();
           refreshBuilt();
         }
+      } catch (error) {
+        if (!gone()) set({ message: errorMessage(error) });
+      }
+    },
+
+    async refreshBibles() {
+      try {
+        const list = await api.request("bible.list", {});
+        if (gone()) return;
+        const { activeBible } = get();
+        set({ bibles: list.bibles, activeBible: activeBible ?? list.bibles[0]?.abbreviation ?? null, message: list.bibles.length === 0 ? "No hay ninguna Biblia instalada." : get().message });
+        builtCache.clear();
+        refreshBuilt();
       } catch (error) {
         if (!gone()) set({ message: errorMessage(error) });
       }

@@ -393,3 +393,12 @@ test("H4: volver a una selección ya paginada usa la memoria (ida y vuelta sin m
   assert.equal(s().built.reference, "Gamma 2:2");
   assert.equal(counter.calls, measured);
 });
+
+test("refreshBibles vuelve a pedir la lista (tras importar una Biblia) y conserva la Biblia activa", async () => {
+  const { backend, c, s } = await setup();
+  assert.equal(s().bibles.length, 1);
+  backend.state.bibles.push({ id: 2, abbreviation: "NUE", name: "Biblia nueva sintética", language: "es", attribution: "", numberingProfile: null, books: 1, verses: 3 });
+  await c.refreshBibles();
+  assert.deepEqual(s().bibles.map((b) => b.abbreviation), ["SIN", "NUE"]);
+  assert.equal(s().activeBible, "SIN", "no cambia la Biblia que se estaba usando");
+});

@@ -276,3 +276,22 @@ public class NumberingProfileTests
         Assert.Equal([new SourceVerse(19, 47, 9, "nueve diez")], result.Verses);
     }
 }
+
+/// <summary>La importación desde el panel ofrece los perfiles de numeración del backend (H: importación por la interfaz).</summary>
+public class ImportFormProfilesTests
+{
+    [Fact]
+    public void The_panel_offers_exactly_the_numbering_profiles_the_backend_knows()
+    {
+        string? source = null;
+        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null && source is null; dir = dir.Parent)
+        {
+            var candidate = Path.Combine(dir.FullName, "frontend", "src", "control", "bible", "importController.ts");
+            if (File.Exists(candidate)) source = File.ReadAllText(candidate);
+        }
+        Assert.NotNull(source);
+        var block = System.Text.RegularExpressions.Regex.Match(source, @"NUMBERING_PROFILES[^=]*=\s*\[(.*?)\];", System.Text.RegularExpressions.RegexOptions.Singleline).Groups[1].Value;
+        var ids = System.Text.RegularExpressions.Regex.Matches(block, @"id:\s*""([^""]+)""").Select(m => m.Groups[1].Value).ToArray();
+        Assert.Equal(NumberingProfiles.All.Select(p => p.Id), ids);
+    }
+}
