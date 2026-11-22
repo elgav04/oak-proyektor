@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.Logging.Abstractions;
 using OakProyektor.App;
+using OakProyektor.App.Handlers;
 using OakProyektor.Core.Output;
 using OakProyektor.Ipc;
 using OakProyektor.Ipc.Messages;
@@ -81,6 +82,164 @@ public class InboundProcessorTests
         Assert.True(handledAt < DateTime.UtcNow);
     }
 
+    // ───── H6: tres carriles ─────
+
+    [Theory]
+    [InlineData("command", "output.setMaster", IpcLane.Priority)]
+    [InlineData("command", "output.recover", IpcLane.Priority)]
+    [InlineData("command", "output.showContent", IpcLane.Live)]
+    [InlineData("command", "output.clearContent", IpcLane.Live)]
+    [InlineData("command", "output.reportBackgroundFailure", IpcLane.Live)]
+    [InlineData("command", "bible.setSettings", IpcLane.Live)]
+    [InlineData("command", "settings.setAutoRestore", IpcLane.Live)]
+    [InlineData("query", "output.getState", IpcLane.Live)]
+    [InlineData("query", "display.list", IpcLane.Live)]
+    [InlineData("query", "database.getStatus", IpcLane.Live)]
+    [InlineData("query", "bible.lookup", IpcLane.Live)]
+    [InlineData("query", "bible.chapter", IpcLane.Live)]
+    [InlineData("query", "bible.suggest", IpcLane.Live)]
+    [InlineData("query", "bible.history", IpcLane.Live)]
+    [InlineData("query", "bible.getSettings", IpcLane.Live)]
+    [InlineData("command", "output.nope", IpcLane.Live)]
+    [InlineData("command", "output.setBackground", IpcLane.Slow)]
+    [InlineData("command", "output.retryBackground", IpcLane.Slow)]
+    [InlineData("command", "output.open", IpcLane.Slow)]
+    [InlineData("command", "output.close", IpcLane.Slow)]
+    [InlineData("command", "bible.import", IpcLane.Slow)]
+    [InlineData("query", "bible.search", IpcLane.Slow)]
+    public void Every_message_belongs_to_the_lane_its_urgency_asks_for(string kind, string type, IpcLane lane)
+    {
+        Assert.True(IpcSerializer.TryParse($$$"""{"v":9,"id":"x","kind":"{{{kind}}}","type":"{{{type}}}","payload":{}}""", out var env, out var err), err);
+        Assert.Equal(lane, IpcPriority.LaneOf(env!));
+    }
+
+    [Fact]
+    public void Every_catalog_message_has_a_deliberate_lane()
+    {
+        // Lo que NO es Live se enumera a mano: si alguien añade un comando que toca disco o ventanas y lo olvida, queda en Live y este test lo obliga a decidir.
+        var slow = IpcCatalog.Messages.Where(m => IpcPriority.LaneOf(new IpcEnvelope(IpcCatalog.ProtocolVersion, "x", m.Kind, m.Type, default)) == IpcLane.Slow).Select(m => m.Type).Distinct().Order().ToArray();
+        Assert.Equal(["bible.import", "bible.search", "output.close", "output.open", "output.retryBackground", "output.setBackground"], slow);
+    }
+
+    [Fact]
+    public async Task A_show_content_sent_right_after_a_background_whose_validation_takes_5_seconds_is_handled_without_waiting()
+    {
+        // Simulación del requisito: setBackground con una validación de 5 s (disco atascado). showContent, enviado justo después, debe salir al instante.
+        var bgStarted = new TaskCompletionSource();
+        var releaseBg = new TaskCompletionSource();
+        var shown = new TaskCompletionSource<TimeSpan>();
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var (intake, _, processor) = Create(
+            new Handler(IpcKind.Command, IpcTypes.OutputSetBackground, async (_, _) => { bgStarted.SetResult(); await releaseBg.Task; return null; }),   // «5 s»: no termina hasta que el test lo permita
+            new Handler(IpcKind.Command, IpcTypes.OutputShowContent, (_, _) => { shown.SetResult(clock.Elapsed); return Task.FromResult<object?>(null); }));
+        using var cts = new CancellationTokenSource();
+        var tasks = processor.Start(cts.Token);
+
+        intake.Enqueue(WindowKind.Control, Cmd("output.setBackground"));
+        await bgStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var sentAt = clock.Elapsed;
+        intake.Enqueue(WindowKind.Control, Cmd("output.showContent"));
+
+        var shownAt = await shown.Task.WaitAsync(TimeSpan.FromSeconds(2));   // con el fondo AÚN bloqueado
+        Assert.False(releaseBg.Task.IsCompleted);
+        Assert.True(shownAt - sentAt < TimeSpan.FromMilliseconds(500), $"showContent tardó {(shownAt - sentAt).TotalMilliseconds:0} ms");
+
+        releaseBg.SetResult();
+        cts.Cancel(); intake.Complete();
+        await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task With_the_real_handlers_a_slow_disk_check_does_not_hold_back_show_clear_or_the_master_modes()
+    {
+        var gate = new ManualResetEventSlim();
+        var output = new FakeOutputController();
+        var timeout = TimeSpan.FromSeconds(5);   // el tope real de la validación
+        var (intake, _, processor) = Create(
+            new OutputSetBackgroundHandler(output, new SlowDisk(gate), timeout),
+            new OutputShowContentHandler(output),
+            new OutputClearContentHandler(output),
+            new OutputSetMasterHandler(output));
+        using var cts = new CancellationTokenSource();
+        var tasks = processor.Start(cts.Token);
+        const string Theme = """{"fontFamily":"Arial","fontSize":72,"color":"#FFFFFF","outlineWidth":0,"outlineColor":"#000000","shadowBlur":0,"shadowOffset":0,"shadowColor":"#000000","align":"center","verticalAlign":"middle","lineHeight":1.2,"marginTop":50,"marginRight":50,"marginBottom":50,"marginLeft":50,"autoFit":true,"minFontSize":24}""";
+        try
+        {
+            intake.Enqueue(WindowKind.Control, Cmd("output.setBackground", """{"kind":"video","path":"C:\\a.mp4","color":"#102030","muted":true,"transitionMs":300}"""));
+            await Task.Delay(100);   // la validación ya está colgada en el disco
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            intake.Enqueue(WindowKind.Control, Cmd("output.showContent", $$"""{"blocks":["Uno"],"theme":{{Theme}},"transitionMs":280}"""));
+            intake.Enqueue(WindowKind.Control, Cmd("output.clearContent", """{"transitionMs":280}"""));
+            intake.Enqueue(WindowKind.Control, Cmd("output.setMaster", """{"master":"black"}"""));
+            await WaitUntilAsync(() => { lock (output.Calls) return output.Calls.Count >= 3; });
+            Assert.True(clock.Elapsed < TimeSpan.FromSeconds(1.5), $"tardó {clock.Elapsed.TotalMilliseconds:0} ms con el fondo colgado");
+            lock (output.Calls)
+            {
+                Assert.DoesNotContain(output.Calls, c => c.StartsWith("background:"));   // el fondo sigue sin aplicarse
+                Assert.Equal(["showContent:1:280", "clearContent:280"], output.Calls.Where(c => c.StartsWith("showContent") || c.StartsWith("clearContent")));   // orden FIFO dentro del carril
+            }
+        }
+        finally { gate.Set(); }
+        // Al responder el disco, el fondo se aplica por su carril.
+        await WaitUntilAsync(() => { lock (output.Calls) return output.Calls.Contains("background:Video"); });
+        cts.Cancel(); intake.Complete();
+        await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Inside_each_lane_the_order_is_kept_even_when_the_lanes_interleave()
+    {
+        var live = new List<string>();
+        var slow = new List<string>();
+        var allDone = new CountdownEvent(8);
+        var (intake, _, processor) = Create(
+            new Handler(IpcKind.Command, IpcTypes.OutputShowContent, async (r, _) => { await Task.Delay(r.Id.EndsWith('1') ? 30 : 1); lock (live) live.Add(r.Id); allDone.Signal(); return null; }),
+            new Handler(IpcKind.Command, IpcTypes.OutputSetBackground, async (r, _) => { await Task.Delay(r.Id.EndsWith('1') ? 30 : 1); lock (slow) slow.Add(r.Id); allDone.Signal(); return null; }));
+        using var cts = new CancellationTokenSource();
+        var tasks = processor.Start(cts.Token);
+        for (var i = 0; i < 4; i++)
+        {
+            intake.Enqueue(WindowKind.Control, Cmd("output.showContent", id: $"live{i}"));
+            intake.Enqueue(WindowKind.Control, Cmd("output.setBackground", id: $"slow{i}"));
+        }
+        Assert.True(allDone.Wait(TimeSpan.FromSeconds(5)));
+        lock (live) Assert.Equal(["live0", "live1", "live2", "live3"], live);
+        lock (slow) Assert.Equal(["slow0", "slow1", "slow2", "slow3"], slow);
+        cts.Cancel(); intake.Complete();
+        await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task A_full_slow_lane_does_not_reject_live_messages()
+    {
+        var started = new TaskCompletionSource();
+        var release = new TaskCompletionSource();
+        var shown = new TaskCompletionSource();
+        var (intake, outbox, processor) = CreateWithCapacity(laneCapacity: 1,
+            new Handler(IpcKind.Command, IpcTypes.OutputSetBackground, async (_, _) => { started.TrySetResult(); await release.Task; return null; }),
+            new Handler(IpcKind.Command, IpcTypes.OutputShowContent, (_, _) => { shown.TrySetResult(); return Task.FromResult<object?>(null); }));
+        using var cts = new CancellationTokenSource();
+        var tasks = processor.Start(cts.Token);
+
+        intake.Enqueue(WindowKind.Control, Cmd("output.setBackground", id: "b1"));
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        intake.Enqueue(WindowKind.Control, Cmd("output.setBackground", id: "b2"));   // llena el carril lento
+        intake.Enqueue(WindowKind.Control, Cmd("output.setBackground", id: "b3"));   // se rechaza (overloaded)
+        var (_, failure) = await NextOutboundAsync(outbox);
+        Assert.Equal("b3", failure.GetPayload<CommandFailedPayload>().CommandId);
+
+        intake.Enqueue(WindowKind.Control, Cmd("output.showContent", id: "v1"));     // el carril en vivo sigue libre
+        await shown.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        release.SetResult();
+        cts.Cancel(); intake.Complete();
+        await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    private sealed class SlowDisk(ManualResetEventSlim gate) : OakProyektor.Core.Output.IMediaFileSystem
+    {
+        public DriveType DriveTypeOf(string root) => DriveType.Fixed;
+        public OakProyektor.Core.Output.FileProbe Probe(string path) { gate.Wait(TimeSpan.FromSeconds(30)); return new OakProyektor.Core.Output.FileProbe(true, 1, null); }
+    }
     [Fact]
     public async Task Emergency_recover_is_also_high_priority()
     {
@@ -149,7 +308,7 @@ public class InboundProcessorTests
         var release = new TaskCompletionSource();
         var (intake, outbox, processor) = CreateWithCapacity(laneCapacity: 1,
             new Handler(IpcKind.Command, IpcTypes.OutputOpen, async (_, _) => { started.TrySetResult(); await release.Task; return null; }),
-            new Handler(IpcKind.Query, IpcTypes.DisplayList, (_, _) => Task.FromResult<object?>(new { })));
+            new Handler(IpcKind.Query, IpcTypes.BibleSearch, (_, _) => Task.FromResult<object?>(new { })));   // una consulta del carril LENTO (el que está lleno)
         using var cts = new CancellationTokenSource();
         var tasks = processor.Start(cts.Token);
 
@@ -161,10 +320,10 @@ public class InboundProcessorTests
         Assert.Equal(Targets.Output, target1);
 
         // Una query descartada recibe un reply con error (no un command.failed), correlacionado por su id: el cliente la rechaza al instante.
-        intake.Enqueue(WindowKind.Control, """{"v":9,"id":"q9","kind":"query","type":"display.list","payload":{}}""");
+        intake.Enqueue(WindowKind.Control, """{"v":9,"id":"q9","kind":"query","type":"bible.search","payload":{}}""");
         var (target2, reply) = await NextOutboundAsync(outbox);
         Assert.Equal(Targets.Control, target2);
-        Assert.Equal(("reply", IpcTypes.DisplayList, "q9"), (reply.Kind, reply.Type, reply.Id));
+        Assert.Equal(("reply", IpcTypes.BibleSearch, "q9"), (reply.Kind, reply.Type, reply.Id));
         var body = reply.GetPayload<IpcReply>();
         Assert.False(body.Ok);
         Assert.Equal("overloaded", body.Error!.Code);
@@ -256,9 +415,11 @@ public class InboundProcessorTests
             if (got.Count == 2) break;
         }
 
-        Assert.Equal((Targets.Control, "command.failed", "output.pageMissing"),
-            (got[0].Target, got[0].Env.Type, got[0].Env.GetPayload<CommandFailedPayload>().Error.Code));
-        Assert.Equal((Targets.Output, "unknown_message"), (got[1].Target, got[1].Env.GetPayload<CommandFailedPayload>().Error.Code));
+        // Van por carriles distintos (open = lento, desconocido = en vivo): el orden de llegada de las respuestas NO está garantizado, así que se buscan por destino.
+        var control = got.Single(g => g.Target == Targets.Control);
+        var output = got.Single(g => g.Target == Targets.Output);
+        Assert.Equal(("command.failed", "output.pageMissing"), (control.Env.Type, control.Env.GetPayload<CommandFailedPayload>().Error.Code));
+        Assert.Equal("unknown_message", output.Env.GetPayload<CommandFailedPayload>().Error.Code);
         cts.Cancel(); intake.Complete();
         await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(5));
     }

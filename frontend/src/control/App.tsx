@@ -265,7 +265,7 @@ export function App() {
         (bibleSettingsOpen ? (
           <BibleSettingsView controller={bibleController} connected={connected} onClose={() => { setBibleSettingsOpen(false); }} />
         ) : (
-          <BibleTab controller={bibleController} connected={connected} onOpenSettings={() => { setBibleSettingsOpen(true); }} />
+          <BibleTab controller={bibleController} connected={connected} output={output} onOpenSettings={() => { setBibleSettingsOpen(true); }} />
         ))}
 
       {tab === "diagnostics" && <Diagnostics />}

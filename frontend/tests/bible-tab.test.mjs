@@ -25,7 +25,9 @@ async function mount({ cap = 400, backend: backendOptions } = {}) {
   const container = win.document.createElement("div");
   win.document.body.appendChild(container);
   const root = createRoot(container);
-  await act(async () => { root.render(createElement(BibleTab, { controller, connected: true, onOpenSettings: () => undefined })); });
+  let output = null;
+  const paint = async () => { await act(async () => { root.render(createElement(BibleTab, { controller, connected: true, output, onOpenSettings: () => undefined })); }); };
+  await paint();
   await act(async () => { await sleep(30); });
   const q = (sel) => container.querySelector(sel);
   const input = () => q('input[type="search"]');
@@ -45,7 +47,14 @@ async function mount({ cap = 400, backend: backendOptions } = {}) {
   };
   const settle = async (ms = 60) => { await act(async () => { await sleep(ms); }); };
   const selectedVerses = () => [...container.querySelectorAll('[role="listbox"] [role="option"][aria-selected="true"][data-active]')].map((n) => n.textContent.slice(0, 2).trim());
-  return { backend, controller, container, root, q, input, press, type, settle, selectedVerses, unmount: async () => { await act(async () => { root.unmount(); }); controller.dispose(); } };
+  /** Simula el snapshot que el backend CONFIRMA (`output.stateChanged`): la insignia sale de aquí, no de lo que el panel envió. */
+  const confirm = async ({ blocks, master = "live", isOpen = true, isPaused = false } = {}) => {
+    const slide = blocks ? { id: "s1", blocks: blocks.map((text) => ({ text })), theme: {} } : null;
+    output = { seq: (output?.seq ?? 0) + 1, state: { master, content: { slide, transitionMs: 280 } }, window: { isOpen, isPaused } };
+    await paint();
+  };
+  const badge = () => q('[data-testid="live-badge"]').textContent;
+  return { backend, controller, container, root, q, input, press, type, settle, selectedVerses, confirm, badge, unmount: async () => { await act(async () => { root.unmount(); }); controller.dispose(); } };
 }
 
 test("flujo completo con el teclado: «/» enfoca, escribir + Enter proyecta, flechas, Mayús+flecha, Enter, Esc", async () => {
@@ -61,7 +70,9 @@ test("flujo completo con el teclado: «/» enfoca, escribir + Enter proyecta, fl
   await until(() => m.backend.sent("output.showContent").length === 1);
   assert.match(m.backend.lastContent().blocks[1], /^Alfa 1:2 /);
   assert.notEqual(win.document.activeElement, m.input(), "tras Enter el foco sale del cuadro para que las flechas muevan los versículos");
-  assert.match(m.container.textContent, /EN VIVO/);
+  assert.equal(m.badge(), "LISTO", "el panel NO da por hecho que está en pantalla: espera la confirmación del backend");
+  await m.confirm({ blocks: m.backend.lastContent().blocks });
+  assert.equal(m.badge(), "EN VIVO");
 
   await m.press("ArrowDown");                              // 1:3 (sin «proyectar al navegar»: no manda nada)
   await m.settle(60);
@@ -198,4 +209,90 @@ test("el aviso de derechos VACÍO no muestra nada en la salida aunque la opción
   await until(() => m.backend.sent("output.showContent").length === 1);
   assert.equal(m.backend.lastContent().blocks.length, 2, "solo el texto y la referencia");
   await m.unmount();
+});
+
+// ───── H5: la insignia sale del estado REAL que confirma el backend ─────
+
+async function projectOne(m, text = "alfa 1:2") {
+  await m.type(text);
+  await m.settle();
+  await until(() => m.controller.store.getState().built !== null);
+  await m.press("Enter", {}, m.input());
+  await until(() => m.backend.sent("output.showContent").length === 1);
+  return m.backend.lastContent().blocks;
+}
+
+test("H5: tras un output.invalidContent (el backend rechaza y el estado no cambia) la insignia NO dice EN VIVO", async () => {
+  const m = await mount();
+  await projectOne(m);                       // el panel envió el comando...
+  await m.confirm({ blocks: ["otro texto que ya estaba"] });   // ...pero el backend lo rechazó: el estado sigue con lo anterior
+  assert.equal(m.badge(), "LISTO");
+  await m.confirm({ blocks: null });         // o no había nada
+  assert.equal(m.badge(), "LISTO");
+  await m.unmount();
+});
+
+test("H5: Negro, Limpiar texto, Logo y Congelar (también por los atajos globales, que cambian el modo maestro en C#) dejan de decir EN VIVO y dicen por qué", async () => {
+  const m = await mount();
+  const blocks = await projectOne(m);
+  await m.confirm({ blocks });
+  assert.equal(m.badge(), "EN VIVO");
+  for (const [master, why] of [["black", "Negro"], ["clearText", "Texto limpio"], ["logo", "Logo"], ["freeze", "Congelado"]]) {
+    await m.confirm({ blocks, master });
+    assert.equal(m.badge(), `OCULTO · ${why}`, master);
+  }
+  await m.confirm({ blocks, master: "live" });   // pulsar el atajo otra vez vuelve a Live
+  assert.equal(m.badge(), "EN VIVO");
+  await m.unmount();
+});
+
+test("H5: salida en pausa o cerrada: no es EN VIVO aunque el slide sea el actual", async () => {
+  const m = await mount();
+  const blocks = await projectOne(m);
+  await m.confirm({ blocks, isPaused: true });
+  assert.equal(m.badge(), "OCULTO · Salida en pausa");
+  await m.confirm({ blocks, isOpen: false });
+  assert.equal(m.badge(), "OCULTO · Salida cerrada");
+  await m.confirm({ blocks });
+  assert.equal(m.badge(), "EN VIVO");
+  await m.unmount();
+});
+
+test("H5: texto enviado desde Diagnóstico o quitado con clearContent: la insignia vuelve a LISTO", async () => {
+  const m = await mount();
+  const blocks = await projectOne(m);
+  await m.confirm({ blocks });
+  assert.equal(m.badge(), "EN VIVO");
+  await m.confirm({ blocks: ["Texto de prueba de Diagnóstico", "segundo bloque"] });   // otro slide sustituyó al del versículo
+  assert.equal(m.badge(), "LISTO");
+  await m.confirm({ blocks });
+  await m.confirm({ blocks: null });                                                      // output.clearContent: no queda slide
+  assert.equal(m.badge(), "LISTO");
+  await m.unmount();
+});
+
+test("H5: otra página del mismo pasaje no cuenta como EN VIVO (se compara el contenido exacto de la página)", async () => {
+  const m = await mount({ cap: 200, backend: { longVerses: new Set(["1:1:3"]) } });
+  await m.type("alfa 1:3");
+  await m.settle();
+  await until(() => m.controller.store.getState().built !== null);
+  await m.press("Enter", {}, m.input());
+  await until(() => m.backend.sent("output.showContent").length === 1);
+  const first = m.backend.lastContent().blocks;
+  await m.confirm({ blocks: first });
+  assert.equal(m.badge(), "EN VIVO");
+  await m.press("ArrowRight");                           // página 2: se proyecta y el backend aún no lo confirmó
+  await until(() => m.backend.sent("output.showContent").length === 2);
+  assert.equal(m.badge(), "LISTO");
+  await m.confirm({ blocks: m.backend.lastContent().blocks });
+  assert.equal(m.badge(), "EN VIVO");
+  await m.unmount();
+});
+
+test("H5: bibleLiveStatus (función pura) sin estado o sin página es LISTO", async () => {
+  const { bibleLiveStatus } = await loadTs("/src/control/bible/liveStatus.ts");
+  assert.deepEqual(bibleLiveStatus(null, ["x"]), { kind: "ready" });
+  assert.deepEqual(bibleLiveStatus({ state: { master: "live", content: { slide: { blocks: [{ text: "x" }] } } }, window: { isOpen: true, isPaused: false } }, null), { kind: "ready" });
+  assert.deepEqual(bibleLiveStatus({ state: { master: "live", content: { slide: { blocks: [{ text: "x" }] } } }, window: { isOpen: true, isPaused: false } }, ["x"]), { kind: "live" });
+  assert.deepEqual(bibleLiveStatus({ state: { master: "live", content: { slide: { blocks: [{ text: "x" }] } } }, window: { isOpen: true, isPaused: false } }, ["x", "y"]), { kind: "ready" });
 });

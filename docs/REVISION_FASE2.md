@@ -12,8 +12,8 @@ Pruebas al momento de la revisión: C# 1021 correctas y 1 omitida; JS 166 correc
 | 2 | Importante | Reaplicar el mismo archivo tras un fallo no reintenta | corregido (prompt A): protocolo v9 (`retry`, `output.retryBackground`), botón «Reintentar» en todas las pestañas; verificado en la app real |
 | 3 | Importante | Texto recortado con otro escalado de monitor | pendiente (prompt C) |
 | 4 | Importante | Una referencia enorme congela el panel | pendiente (prompt D) |
-| 5 | Importante | La insignia «EN VIVO» no refleja el estado de C# | pendiente (prompt B) |
-| 6 | Importante | `showContent` hace cola detrás de trabajo lento | pendiente (prompt B) |
+| 5 | Importante | La insignia «EN VIVO» no refleja el estado de C# | corregido (prompt B): la insignia se deriva del estado confirmado por el backend |
+| 6 | Importante | `showContent` hace cola detrás de trabajo lento | corregido (prompt B): tres carriles de entrada (prioridad, en vivo, lento); latencia real con un disco colgado y USB físico [A PROBAR] |
 | 7 | Menor | `fail()` de un medio saliente retira el fondo nuevo | corregido (prompt A) |
 | 8 | Menor | El `OutputErrorBoundary` remonta `BackgroundLayer` | corregido (prompt A): el fondo va fuera del boundary |
 | 9 | Menor | `MediaPathValidator` solo resuelve el enlace del archivo final | corregido (prompt A): ruta final + una comprobación en vuelo; unión de carpeta real probada |

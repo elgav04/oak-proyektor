@@ -6,9 +6,9 @@ using OakProyektor.Ipc.Messages;
 namespace OakProyektor.App;
 
 /// <summary>
-/// Procesa los mensajes entrantes en DOS carriles (hallazgo I5): los de prioridad (<see cref="IpcPriority"/>: controles maestros y
-/// recuperación de emergencia) tienen su propio consumidor y nunca esperan detrás de comandos lentos como <c>output.open</c>.
-/// Dentro de cada carril el orden es FIFO; entre carriles no hay orden garantizado. El enrutador solo interpreta y reparte
+/// Procesa los mensajes entrantes en TRES carriles (hallazgos I5 y H6; reparto y justificación en <see cref="IpcPriority"/>): prioridad (controles maestros y
+/// recuperación de emergencia), en vivo (proyectar/quitar contenido y consultas rápidas) y lento (fondos, abrir/cerrar la salida, importar, buscar texto).
+/// Cada carril tiene su propio consumidor, así que ninguno espera detrás de comandos lentos de otro. Dentro de cada carril el orden es FIFO; entre carriles no hay orden garantizado. El enrutador solo interpreta y reparte
 /// (microsegundos): nunca ejecuta handlers, así que no puede retrasar a nadie.
 /// </summary>
 internal sealed class InboundProcessor(
@@ -20,17 +20,20 @@ internal sealed class InboundProcessor(
 
     public Task[] Start(CancellationToken ct)
     {
-        var priority = Channel.CreateBounded<Work>(new BoundedChannelOptions(laneCapacity) { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
-        var normal = Channel.CreateBounded<Work>(new BoundedChannelOptions(laneCapacity) { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
+        Channel<Work> NewLane() => Channel.CreateBounded<Work>(new BoundedChannelOptions(laneCapacity) { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
+        var priority = NewLane();
+        var live = NewLane();
+        var slow = NewLane();
         return
         [
-            Task.Run(() => RouteAsync(priority.Writer, normal.Writer, ct), CancellationToken.None),
+            Task.Run(() => RouteAsync(priority.Writer, live.Writer, slow.Writer, ct), CancellationToken.None),
             Task.Run(() => WorkAsync("prioridad", priority.Reader, ct), CancellationToken.None),
-            Task.Run(() => WorkAsync("normal", normal.Reader, ct), CancellationToken.None),
+            Task.Run(() => WorkAsync("vivo", live.Reader, ct), CancellationToken.None),
+            Task.Run(() => WorkAsync("lento", slow.Reader, ct), CancellationToken.None),
         ];
     }
 
-    private async Task RouteAsync(ChannelWriter<Work> priority, ChannelWriter<Work> normal, CancellationToken ct)
+    private async Task RouteAsync(ChannelWriter<Work> priority, ChannelWriter<Work> live, ChannelWriter<Work> slow, CancellationToken ct)
     {
         try
         {
@@ -46,7 +49,7 @@ internal sealed class InboundProcessor(
                     // Se numera aquí, en el único hilo que lee la cola FIFO de entrada: el número refleja el orden de llegada real, aunque
                     // luego los dos carriles se procesen en otro orden (así «Mover / reabrir» seguido de «Recuperar control» se puede resolver).
                     envelope = envelope with { Order = clock.Next() };
-                    var lane = IpcPriority.IsHigh(envelope) ? priority : normal;
+                    var lane = IpcPriority.LaneOf(envelope) switch { IpcLane.Priority => priority, IpcLane.Slow => slow, _ => live };
                     if (!lane.TryWrite(new Work(source, envelope)))
                         RejectOverloaded(source, envelope);
                 }
@@ -58,7 +61,8 @@ internal sealed class InboundProcessor(
         finally
         {
             priority.TryComplete();
-            normal.TryComplete();
+            live.TryComplete();
+            slow.TryComplete();
         }
     }
 

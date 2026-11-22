@@ -2,13 +2,16 @@ import { useEffect, useRef } from "react";
 import { useStore } from "zustand";
 import { Button } from "@/components/ui/button";
 import { matchBibleShortcut, matchSearchKey, BIBLE_SHORTCUTS } from "../shortcuts";
+import type { OutputStateChangedPayload } from "@/ipc/protocol";
 import type { BibleController } from "./controller";
+import { bibleLiveStatus } from "./liveStatus";
 
 /**
  * Pestaña de Biblia. Todo el estado y la lógica están en el controlador (que habla con el backend); aquí solo se pinta y se conectan las teclas, que salen
  * del mapa único (`../shortcuts.ts`). Listas cortas (un capítulo ≤ 176 versículos, ≤ 50 resultados, ≤ 30 citas): no hace falta virtualizar.
  */
-export function BibleTab({ controller, connected, onOpenSettings }: { controller: BibleController; connected: boolean; onOpenSettings: () => void }) {
+/** `output` es la réplica del estado REAL que confirma el backend: de ahí sale la insignia «EN VIVO» (no de lo que el panel envió). */
+export function BibleTab({ controller, connected, output, onOpenSettings }: { controller: BibleController; connected: boolean; output: OutputStateChangedPayload | null; onOpenSettings: () => void }) {
   const s = useStore(controller.store);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -92,7 +95,7 @@ export function BibleTab({ controller, connected, onOpenSettings }: { controller
 
   const built = s.built;
   const page = built?.pages[s.pageIndex];
-  const live = s.projected !== null && built !== null && s.projected.reference === built.reference && s.projected.page === s.pageIndex;
+  const status = bibleLiveStatus(output, page);
   const lo = Math.min(s.anchor, s.active);
   const hi = Math.max(s.anchor, s.active);
 
@@ -213,7 +216,13 @@ export function BibleTab({ controller, connected, onOpenSettings }: { controller
         <section aria-label="En pantalla" className="flex flex-col gap-3 rounded-md border p-3">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">{built?.reference ?? "Selección"}</h2>
-            <span className={`rounded-full px-3 py-1 text-sm font-bold ${live ? "bg-green-600 text-white" : "bg-neutral-200 text-neutral-700"}`}>{live ? "EN VIVO" : "LISTO"}</span>
+            <span
+              data-testid="live-badge"
+              title={status.kind === "hidden" ? `Es lo que hay en el estado de la salida, pero no se ve: ${status.why}` : undefined}
+              className={`rounded-full px-3 py-1 text-sm font-bold ${status.kind === "live" ? "bg-green-600 text-white" : status.kind === "hidden" ? "bg-amber-200 text-amber-950" : "bg-neutral-200 text-neutral-700"}`}
+            >
+              {status.kind === "live" ? "EN VIVO" : status.kind === "hidden" ? `OCULTO · ${status.why}` : "LISTO"}
+            </span>
           </div>
           {built && page ? (
             <>
