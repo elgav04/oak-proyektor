@@ -54,15 +54,26 @@ export interface KeyInput {
 export interface KeyTarget {
   tagName?: string;
   isContentEditable?: boolean;
+  /** `type` de un `<input>` (text, checkbox…): solo los de texto cuentan como escritura. */
+  type?: string;
 }
 
 const TYPING_TAGS = new Set(["INPUT", "TEXTAREA", "SELECT"]);
 const BUTTON_TAGS = new Set(["BUTTON", "A"]);
 
-/** ¿El foco está en un control donde las teclas escriben o eligen (cuadro de texto, lista desplegable)? */
+/** `<input>` que NO son de escritura: pulsarlos deja el foco en ellos, pero las flechas, Enter, etc. no les sirven de nada (H12). */
+const NON_TYPING_INPUT_TYPES = new Set(["checkbox", "button", "submit", "reset", "image", "file", "color"]);
+
+/**
+ * ¿El foco está en un control donde las teclas escriben o eligen (cuadro de texto, lista desplegable)? Una casilla, un botón o un selector de color NO:
+ * tras pulsar «Proyectar al navegar» los atajos siguen funcionando. (La lista desplegable sí cuenta: ↑/↓ cambian su valor; por eso el selector de
+ * Biblia suelta el foco al elegir.)
+ */
 export function isTypingTarget(target: KeyTarget | null | undefined): boolean {
   if (!target) return false;
-  return TYPING_TAGS.has((target.tagName ?? "").toUpperCase()) || target.isContentEditable === true;
+  const tag = (target.tagName ?? "").toUpperCase();
+  if (tag === "INPUT") return !NON_TYPING_INPUT_TYPES.has((target.type ?? "text").toLowerCase());
+  return TYPING_TAGS.has(tag) || target.isContentEditable === true;
 }
 
 /**

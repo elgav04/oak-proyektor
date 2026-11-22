@@ -119,3 +119,30 @@ test("teclas del cuadro de búsqueda", () => {
   assert.equal(matchSearchKey(key("a")), null);
   assert.equal(matchSearchKey(key("Enter", { ctrlKey: true })), null);
 });
+
+test("H12: las casillas, botones y selectores de color NO cuentan como escritura; cuadros de texto, números, listas y rangos sí", () => {
+  const input = (type) => ({ tagName: "INPUT", type });
+  for (const type of ["checkbox", "button", "submit", "reset", "image", "file", "color", "CHECKBOX"]) assert.equal(isTypingTarget(input(type)), false, type);
+  for (const type of ["text", "search", "number", "email", "password", "url", "tel", "date", "radio", "range", undefined]) assert.equal(isTypingTarget(input(type)), true, String(type));
+  assert.equal(isTypingTarget({ tagName: "SELECT" }), true);
+  assert.equal(isTypingTarget({ tagName: "TEXTAREA" }), true);
+  assert.equal(isTypingTarget({ tagName: "DIV", isContentEditable: true }), true);
+  assert.equal(isTypingTarget({ tagName: "BUTTON" }), false);
+});
+
+test("H12: con el foco en una casilla los atajos de la pestaña se interpretan (↓, ↑, Mayús+↓, Enter, Esc, «/», → y ←)", () => {
+  const key = (k, over = {}) => ({ key: k, ctrlKey: false, altKey: false, metaKey: false, shiftKey: false, ...over });
+  const box = { tagName: "INPUT", type: "checkbox" };
+  assert.equal(matchBibleShortcut(key("ArrowDown"), box), "verseNext");
+  assert.equal(matchBibleShortcut(key("ArrowUp"), box), "versePrev");
+  assert.equal(matchBibleShortcut(key("ArrowDown", { shiftKey: true }), box), "extendNext");
+  assert.equal(matchBibleShortcut(key("Enter"), box), "project");
+  assert.equal(matchBibleShortcut(key("Escape"), box), "clear");
+  assert.equal(matchBibleShortcut(key("/"), box), "focusSearch");
+  assert.equal(matchBibleShortcut(key("ArrowRight"), box), "pageNext");
+  assert.equal(matchBibleShortcut(key("ArrowLeft"), box), "pagePrev");
+  // y con el foco en un cuadro de texto o en el selector, nada
+  for (const target of [{ tagName: "INPUT", type: "search" }, { tagName: "SELECT" }, { tagName: "TEXTAREA" }]) assert.equal(matchBibleShortcut(key("ArrowDown"), target), null);
+  // un botón se queda con Enter
+  assert.equal(matchBibleShortcut(key("Enter"), { tagName: "BUTTON" }), null);
+});

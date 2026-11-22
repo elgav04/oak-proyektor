@@ -13,6 +13,7 @@ for (const name of ["KeyboardEvent", "MouseEvent", "InputEvent", "HTMLInputEleme
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { BibleTab } = await loadTs("/src/control/bible/BibleTab.tsx");
+const { BibleSettingsView } = await loadTs("/src/control/bible/BibleSettings.tsx");
 const { createBibleController } = await loadTs("/src/control/bible/controller.ts");
 const { OutputScreen } = await loadTs("/src/output/OutputScreen.tsx");
 after(closeServer);
@@ -295,4 +296,109 @@ test("H5: bibleLiveStatus (función pura) sin estado o sin página es LISTO", as
   assert.deepEqual(bibleLiveStatus({ state: { master: "live", content: { slide: { blocks: [{ text: "x" }] } } }, window: { isOpen: true, isPaused: false } }, null), { kind: "ready" });
   assert.deepEqual(bibleLiveStatus({ state: { master: "live", content: { slide: { blocks: [{ text: "x" }] } } }, window: { isOpen: true, isPaused: false } }, ["x"]), { kind: "live" });
   assert.deepEqual(bibleLiveStatus({ state: { master: "live", content: { slide: { blocks: [{ text: "x" }] } } }, window: { isOpen: true, isPaused: false } }, ["x", "y"]), { kind: "ready" });
+});
+
+// ───── H12: casillas y selector de Biblia ─────
+
+test("H12: tras pulsar la casilla «Proyectar al navegar» los atajos siguen funcionando (↓, Enter y «/»)", async () => {
+  const m = await mount();
+  await m.type("alfa 1:2");
+  await m.settle();
+  await until(() => m.controller.store.getState().built !== null);
+  const box = m.q('input[type="checkbox"]');
+  await act(async () => { box.focus(); box.click(); await sleep(20); });
+  assert.equal(win.document.activeElement, box, "el foco se queda en la casilla (es lo que hace el navegador al pulsarla)");
+  const before = m.controller.store.getState().active;
+  await m.press("ArrowDown", {}, box);
+  assert.equal(m.controller.store.getState().active, before + 1, "↓ mueve el versículo aunque el foco esté en la casilla");
+  await m.press("Enter", {}, box);
+  await until(() => m.backend.sent("output.showContent").length >= 1);
+  await m.press("/", {}, box);
+  assert.equal(win.document.activeElement, m.input(), "«/» lleva el foco a la búsqueda");
+  await m.unmount();
+});
+
+test("H12: al elegir en el selector de Biblia el foco sale del selector (↓ ya no cambia de Biblia)", async () => {
+  const m = await mount();
+  const select = m.q("select");
+  await act(async () => { select.focus(); });
+  assert.equal(win.document.activeElement, select);
+  await act(async () => { select.value = "SIN"; select.dispatchEvent(new win.Event("change", { bubbles: true })); await sleep(10); });
+  assert.notEqual(win.document.activeElement, select, "el selector soltó el foco tras elegir");
+  await m.unmount();
+});
+
+test("H12: con el foco en el selector (sin haber elegido) los atajos no se interpretan: las flechas son del selector", async () => {
+  const m = await mount();
+  await m.type("alfa 1:2");
+  await m.settle();
+  await until(() => m.controller.store.getState().built !== null);
+  const select = m.q("select");
+  const before = m.controller.store.getState().active;
+  await act(async () => { select.focus(); });
+  await m.press("ArrowDown", {}, select);
+  assert.equal(m.controller.store.getState().active, before);
+  await m.unmount();
+});
+
+// ───── H11: guardar la configuración no pisa lo cambiado después de abrirla ─────
+
+test("H11: guardar la pantalla de configuración conserva el cambio hecho FUERA después de abrirla («Proyectar al navegar») y aplica solo lo cambiado aquí", async () => {
+  const backend = createFakeBackend();
+  const controller = createBibleController({ api: backend.client, createFit: fakeFit(400), searchDebounceMs: 5, recordDelayMs: 25, sendIntervalMs: 20 });
+  await controller.init();
+  const container = win.document.createElement("div");
+  win.document.body.appendChild(container);
+  const root = createRoot(container);
+  await act(async () => { root.render(createElement(BibleSettingsView, { controller, connected: true, onClose: () => undefined })); });
+
+  // 1. fuera de esta pantalla (la casilla de la pestaña) se activa «proyectar al navegar» y se guarda
+  assert.equal(controller.store.getState().settings.projectOnNavigate, false);
+  await act(async () => { await controller.saveSettings({ ...controller.store.getState().settings, projectOnNavigate: true }); });
+  assert.equal(backend.state.settings.projectOnNavigate, true);
+
+  // 2. en la pantalla (cuyo borrador se tomó al abrirla, con la casilla en false) se cambia SOLO el crossfade
+  const input = [...container.querySelectorAll('input[type="number"]')].find((el) => el.value === "280");
+  assert.ok(input, "campo del crossfade");
+  await act(async () => {
+    const set = Object.getOwnPropertyDescriptor(win.HTMLInputElement.prototype, "value").set;
+    set.call(input, "400");
+    input.dispatchEvent(new win.Event("input", { bubbles: true }));
+  });
+  const save = [...container.querySelectorAll("button")].find((b) => b.textContent.includes("Guardar configuración"));
+  await act(async () => { save.click(); await sleep(40); });
+
+  const saved = backend.sent("bible.setSettings").at(-1).payload;
+  assert.equal(saved.transitionMs, 400, "lo cambiado aquí se guarda");
+  assert.equal(saved.projectOnNavigate, true, "lo cambiado fuera NO se pisa con el borrador viejo");
+  assert.equal(backend.state.settings.projectOnNavigate, true);
+  await act(async () => { root.unmount(); });
+  controller.dispose();
+});
+
+test("H11: mergeSettings aplica solo lo que cambió el operador; el resto conserva el valor actual (tema, nombres cortos y opciones)", async () => {
+  const { mergeSettings } = await loadTs("/src/control/bible/settingsMerge.ts");
+  const base = {
+    defaultBible: null, projectOnNavigate: false, superscriptNumbers: true, showAttribution: false, transitionMs: 280,
+    theme: { fontFamily: "Arial", fontSize: 64, color: "#FFFFFF", outlineWidth: 2, outlineColor: "#000000", shadowBlur: 8, shadowOffset: 3, shadowColor: "#000000CC", align: "center", verticalAlign: "middle", lineHeight: 1.3, marginTop: 70, marginRight: 120, marginBottom: 70, marginLeft: 120, autoFit: true, minFontSize: 40 },
+    shortNames: [{ bible: "AAA", shortName: "A" }],
+  };
+  // sin cambios en el borrador: se queda con lo ACTUAL tal cual
+  const current = { ...base, projectOnNavigate: true, transitionMs: 500, theme: { ...base.theme, fontSize: 80 }, shortNames: [{ bible: "AAA", shortName: "Z" }, { bible: "BBB", shortName: "B" }] };
+  assert.deepEqual(mergeSettings(base, base, current), current);
+  // el operador cambió el color y el nombre corto de AAA y quitó el de otra: solo eso se aplica
+  const draft = { ...base, theme: { ...base.theme, color: "#FFFF00" }, shortNames: [{ bible: "AAA", shortName: "Mi nombre" }] };
+  const merged = mergeSettings(base, draft, current);
+  assert.equal(merged.theme.color, "#FFFF00");
+  assert.equal(merged.theme.fontSize, 80, "el tamaño que cambió fuera se conserva");
+  assert.equal(merged.projectOnNavigate, true);
+  assert.equal(merged.transitionMs, 500);
+  assert.deepEqual(merged.shortNames.find((n) => n.bible === "AAA"), { bible: "AAA", shortName: "Mi nombre" });
+  assert.deepEqual(merged.shortNames.find((n) => n.bible === "BBB"), { bible: "BBB", shortName: "B" }, "otra Biblia cambiada fuera se conserva");
+  // borrar un nombre corto en la pantalla lo borra también del resultado
+  const cleared = mergeSettings(base, { ...base, shortNames: [] }, current);
+  assert.equal(cleared.shortNames.find((n) => n.bible === "AAA"), undefined);
+  // la Biblia por defecto
+  assert.equal(mergeSettings(base, { ...base, defaultBible: "AAA" }, current).defaultBible, "AAA");
+  assert.equal(mergeSettings(base, base, { ...current, defaultBible: "CCC" }).defaultBible, "CCC");
 });

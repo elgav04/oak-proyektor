@@ -29,6 +29,11 @@ public sealed partial class BibleQueryService(ISqliteConnectionFactory connectio
     public const int DefaultSearchLimit = 50;
     public const int MaxSearchLimit = 200;
     public const int MaxAttributionLength = 4000;
+    /// <summary>Máximo de versículos por consulta de pasaje (un capítulo entero ≤ 176). «Sal 1-150» (≈ 2 500) se rechaza con <c>bible.rangeTooLarge</c> en vez de mandar un JSON enorme al panel (H4).</summary>
+    public const int MaxPassageVerses = 200;
+    /// <summary>Texto máximo que se procesa de una búsqueda y términos máximos de la consulta FTS (un pegado enorme no debe armar una consulta gigante; H13).</summary>
+    public const int MaxQueryChars = 1000;
+    public const int MaxQueryTerms = 32;
 
     private readonly BibleQueryOptions _options = options ?? BibleQueryOptions.Default;
 
@@ -69,7 +74,12 @@ public sealed partial class BibleQueryService(ISqliteConnectionFactory connectio
         if (bookId is not null)
         {
             foreach (var segment in parsedReference.Segments)
-                verses.AddRange(await ReadSegmentAsync(connection, bookId.Value, book, segment, cancellationToken).ConfigureAwait(false));
+            {
+                // Se pide como mucho UNO más que lo que queda de cupo: basta para saber que se pasó, sin leer miles de filas.
+                verses.AddRange(await ReadSegmentAsync(connection, bookId.Value, book, segment, MaxPassageVerses - verses.Count + 1, cancellationToken).ConfigureAwait(false));
+                if (verses.Count > MaxPassageVerses)
+                    throw new BibleException(BibleErrorCodes.RangeTooLarge, $"Rango demasiado grande: «{parsedReference.Format()}» tiene más de {MaxPassageVerses} versículos. Acótalo (por ejemplo, un capítulo o unos pocos versículos).");
+            }
         }
         var label = parsedReference.Format();
         if (verses.Count == 0)
@@ -89,7 +99,7 @@ public sealed partial class BibleQueryService(ISqliteConnectionFactory connectio
         var installed = await ResolveBibleAsync(connection, bible, cancellationToken).ConfigureAwait(false);
         var bookId = await connection.QuerySingleOrDefaultAsync<long?>(new CommandDefinition(
             "SELECT Id FROM Books WHERE BibleId = @bibleId AND BookNumber = @number", new { bibleId = installed.Id, number = bookNumber }, cancellationToken: cancellationToken)).ConfigureAwait(false);
-        var verses = bookId is null ? [] : await ReadSegmentAsync(connection, bookId.Value, book, new ReferenceSegment(chapter, null, chapter, null), cancellationToken).ConfigureAwait(false);
+        var verses = bookId is null ? [] : await ReadSegmentAsync(connection, bookId.Value, book, new ReferenceSegment(chapter, null, chapter, null), MaxPassageVerses + 1, cancellationToken).ConfigureAwait(false);
         var label = new ParsedReference(bookNumber, [new ReferenceSegment(chapter, null, chapter, null)]).Format();
         if (verses.Count == 0) throw new BibleException(BibleErrorCodes.PassageNotFound, $"{label} no existe en {installed.Abbreviation}.");
         return new BiblePassage(installed.Abbreviation, installed.Attribution, label, verses);
@@ -178,7 +188,7 @@ public sealed partial class BibleQueryService(ISqliteConnectionFactory connectio
         return first ?? throw new BibleException(BibleErrorCodes.NotFound, "No hay ninguna Biblia instalada.");
     }
 
-    private static async Task<IReadOnlyList<BibleVerse>> ReadSegmentAsync(SqliteConnection connection, long bookId, CanonicalBook book, ReferenceSegment s, CancellationToken ct)
+    private static async Task<IReadOnlyList<BibleVerse>> ReadSegmentAsync(SqliteConnection connection, long bookId, CanonicalBook book, ReferenceSegment s, int maxRows, CancellationToken ct)
     {
         string where;
         object parameters;
@@ -198,7 +208,7 @@ public sealed partial class BibleQueryService(ISqliteConnectionFactory connectio
             parameters = new { bookId, c1 = s.StartChapter, c2 = s.EndChapter, v1 = s.StartVerse, v2 = s.EndVerse };
         }
         var rows = await connection.QueryAsync<VerseRow>(new CommandDefinition(
-            $"SELECT Chapter, VerseNumber, Text FROM Verses WHERE BookId = @bookId AND {where} ORDER BY Chapter, VerseNumber", parameters, cancellationToken: ct)).ConfigureAwait(false);
+            $"SELECT Chapter, VerseNumber, Text FROM Verses WHERE BookId = @bookId AND {where} ORDER BY Chapter, VerseNumber LIMIT {maxRows.ToString(System.Globalization.CultureInfo.InvariantCulture)}", parameters, cancellationToken: ct)).ConfigureAwait(false);
         return [.. rows.Select(r => new BibleVerse(book.Number, book.Name, (int)r.Chapter, (int)r.VerseNumber, r.Text))];
     }
 
@@ -222,12 +232,17 @@ public sealed partial class BibleQueryService(ISqliteConnectionFactory connectio
     }
 
     /// <summary>
-    /// Expresión FTS5 segura a partir de lo que escribió el usuario: solo letras y dígitos (nunca operadores ni comillas sueltas). Las palabras
+    /// Expresión FTS5 segura a partir de lo que escribió el usuario: solo letras, dígitos y marcas combinantes (nunca operadores ni comillas sueltas). Las palabras
     /// sueltas se piden todas (AND); lo que va entre comillas dobles es una frase. Devuelve null si no queda ninguna palabra.
+    /// La entrada se normaliza a NFC (como el texto guardado: «e» + acento combinante = «é», que no parte la palabra), se procesan como mucho
+    /// <see cref="MaxQueryChars"/> caracteres y se arman como mucho <see cref="MaxQueryTerms"/> términos (H13).
     /// </summary>
     public static string? BuildMatch(string? query)
     {
         if (string.IsNullOrWhiteSpace(query)) return null;
+        if (query.Length > MaxQueryChars) query = query[..MaxQueryChars];
+        try { query = query.Normalize(NormalizationForm.FormC); }
+        catch (ArgumentException) { /* secuencia Unicode inválida (sustituto suelto): se busca tal cual */ }
         var terms = new List<string>();
         var rest = query;
         foreach (Match phrase in QuotedPhrase().Matches(query))
@@ -237,13 +252,14 @@ public sealed partial class BibleQueryService(ISqliteConnectionFactory connectio
             rest = rest.Replace(phrase.Value, " ", StringComparison.Ordinal);
         }
         terms.AddRange(Words().Matches(rest).Select(m => "\"" + m.Value + "\""));
+        if (terms.Count > MaxQueryTerms) terms.RemoveRange(MaxQueryTerms, terms.Count - MaxQueryTerms);
         return terms.Count == 0 ? null : string.Join(' ', terms);
     }
 
     [GeneratedRegex("\"([^\"]*)\"")]
     private static partial Regex QuotedPhrase();
 
-    [GeneratedRegex(@"[\p{L}\p{N}]+")]
+    [GeneratedRegex(@"[\p{L}\p{N}\p{M}]+")]
     private static partial Regex Words();
 
     // Dapper devuelve INTEGER como Int64 (ver CLAUDE.md): los DTO de lectura usan long.

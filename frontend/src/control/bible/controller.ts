@@ -33,6 +33,8 @@ export interface BibleControllerDeps {
   sendIntervalMs?: number;
   searchDebounceMs?: number;
   recordDelayMs?: number;
+  /** Tras cuánto sin cambiar la selección se calcula la vista previa de las páginas (por defecto 150 ms). Proyectar siempre calcula en el momento. */
+  previewDelayMs?: number;
 }
 
 export interface PassageView {
@@ -95,6 +97,19 @@ interface ProjectionMessage {
   blocks: string[];
 }
 
+/**
+ * Límites de la vista (H4). `MAX_SELECTION`: versículos que se pueden seleccionar a la vez (Mayús+flechas, clic con Mayús, un rango escrito): proyectar más no tiene
+ * sentido y paginar cientos de versículos en el hilo principal congelaría el panel. `MAX_LOOKUP_VERSES` = `BibleQueryService.MaxPassageVerses` del backend (que rechaza
+ * lo que pasa de ahí con `bible.rangeTooLarge`); aquí es una defensa por si llegara más.
+ */
+export const MAX_SELECTION = 30;
+export const MAX_LOOKUP_VERSES = 200;
+
+const rangeTooLargeMessage = (total?: number): string =>
+  `Rango demasiado grande${total === undefined ? "" : ` (${String(total)} versículos)`}: solo se pueden seleccionar ${String(MAX_SELECTION)} a la vez. Acótalo.`;
+
+const isCapMessage = (message: string | null): boolean => message !== null && message.includes("solo se pueden seleccionar");
+
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 const errorCode = (error: unknown): string => (typeof error === "object" && error !== null && "code" in error ? String(error.code) : "");
 
@@ -139,6 +154,7 @@ export function createBibleController(deps: BibleControllerDeps): BibleControlle
   let queryToken = 0;
   let queryTimer: unknown = null;
   let recordTimer: unknown = null;
+  let previewTimer: unknown = null;
   let lastRecorded = "";
   // Objeto (no variable suelta): TypeScript no estrecha `gone()` a «false» tras un await, que es justo cuando puede haber cambiado.
   const life = { disposed: false };
@@ -173,8 +189,8 @@ export function createBibleController(deps: BibleControllerDeps): BibleControlle
 
   const bibleInfo = (abbreviation: string): BibleDto | undefined => get().bibles.find((b) => b.abbreviation === abbreviation);
 
-  /** Páginas de la selección actual (medición real; memorizadas por pasaje y ajustes: moverse de ida y vuelta no vuelve a medir). */
-  const computeBuilt = (): BuiltPassage | null => {
+  /** Lo necesario para paginar la selección actual y su clave de memoria (sin medir nada). */
+  const buildInputs = (): { verses: BibleVerseDto[]; options: Parameters<typeof buildPassage>[1]; key: string; theme: BibleSettingsPayload["theme"] } | null => {
     const { passage, settings, anchor, active } = get();
     if (!passage || !settings || passage.verses.length === 0) return null;
     const lo = Math.min(anchor, active);
@@ -186,18 +202,53 @@ export function createBibleController(deps: BibleControllerDeps): BibleControlle
     const attribution = info?.attribution ?? passage.attribution;
     const options = { bibleName: shortName, attribution, showAttribution: settings.showAttribution, superscript: settings.superscriptNumbers };
     const key = JSON.stringify([passage.bible, verses.map((v) => [v.bookNumber, v.chapter, v.verseNumber]), options, themeKey(settings.theme)]);
-    const fits = fitFor(settings.theme);   // puede vaciar la memoria si cambió el tema
-    const cached = builtCache.get(key);
+    return { verses, options, key, theme: settings.theme };
+  };
+
+  /** Páginas de la selección actual YA calculadas (memoria), o null: NO mide nada. Moverse de ida y vuelta no vuelve a medir. */
+  const peekBuilt = (): BuiltPassage | null => {
+    const inputs = buildInputs();
+    return inputs ? (builtCache.get(inputs.key) ?? null) : null;
+  };
+
+  /** Páginas de la selección actual: las memorizadas o, si no hay, las calcula con la medición real (coste proporcional a la selección, ≤ `MAX_SELECTION` versículos). */
+  const computeBuilt = (): BuiltPassage | null => {
+    const inputs = buildInputs();
+    if (!inputs) return null;
+    const fits = fitFor(inputs.theme);   // puede vaciar la memoria si cambió el tema
+    const cached = builtCache.get(inputs.key);
     if (cached) return cached;
-    const built = buildPassage(verses, options, fits);
+    const built = buildPassage(inputs.verses, inputs.options, fits);
     if (builtCache.size > 60) builtCache.clear();
-    builtCache.set(key, built);
+    builtCache.set(inputs.key, built);
     return built;
   };
 
   const refreshBuilt = (): void => {
     const built = computeBuilt();
     set({ built, pageIndex: 0 });
+  };
+
+  /**
+   * La selección cambió (flecha, Mayús+flecha, clic): NO se pagina aquí (mantener Mayús+↓ no debe medir en cada pulsación). Se usa lo memorizado si lo hay;
+   * si no, `built` queda en null y la vista previa se calcula cuando la selección deja de cambiar (`previewDelayMs`). Proyectar o cambiar de página
+   * calculan en el momento (`ensureBuilt`).
+   */
+  const invalidateBuilt = (): void => {
+    set({ built: peekBuilt(), pageIndex: 0 });
+    if (previewTimer !== null) clock.clearTimeout(previewTimer);
+    previewTimer = clock.setTimeout(() => {
+      previewTimer = null;
+      if (!gone() && get().built === null) refreshBuilt();
+    }, deps.previewDelayMs ?? 150);
+  };
+
+  const ensureBuilt = (): BuiltPassage | null => {
+    const current = get().built;
+    if (current) return current;
+    const built = computeBuilt();
+    set({ built });
+    return built;
   };
 
   // ───────── proyección ─────────
@@ -218,7 +269,8 @@ export function createBibleController(deps: BibleControllerDeps): BibleControlle
   };
 
   const projectNow = (immediate: boolean): void => {
-    const { built, pageIndex, passage } = get();
+    const built = ensureBuilt();   // se pagina AL PROYECTAR (o ya estaba calculado)
+    const { pageIndex, passage } = get();
     const page = built?.pages[pageIndex];
     if (!built || !page || !passage) return;
     const message = { blocks: page };
@@ -230,10 +282,13 @@ export function createBibleController(deps: BibleControllerDeps): BibleControlle
 
   // ───────── carga de pasajes ─────────
 
-  const showPassage = (view: PassageView, anchor: number, active: number): void => {
-    set({ passage: view, anchor, active, suggestions: [], hits: [], canSearchText: false, message: null });
+  const showPassage = (view: PassageView, anchor: number, active: number, message: string | null = null): void => {
+    set({ passage: view, anchor, active, suggestions: [], hits: [], canSearchText: false, message });
     refreshBuilt();
   };
+
+  /** Acota un rango pedido a `MAX_SELECTION` versículos desde el inicio: [inicio, fin acotado, ¿se acotó?]. */
+  const capRange = (a: number, b: number): [number, number, boolean] => (b - a + 1 > MAX_SELECTION ? [a, a + MAX_SELECTION - 1, true] : [a, b, false]);
 
   const bibleArg = (): string | null => get().activeBible;
 
@@ -264,13 +319,18 @@ export function createBibleController(deps: BibleControllerDeps): BibleControlle
       return true;
     }
     if (token !== queryToken || gone() || passage.verses.length === 0) return true;
+    if (passage.verses.length > MAX_LOOKUP_VERSES) {
+      set({ message: `Rango demasiado grande (${String(passage.verses.length)} versículos): acótalo.`, suggestions: [], hits: [] });
+      return true;
+    }
     const asked = passage.verses;
     const first = asked[0];
     const last = asked[asked.length - 1];
     if (!first || !last) return true;
     const sameChapter = asked.every((v) => v.bookNumber === first.bookNumber && v.chapter === first.chapter);
     if (!sameChapter) {
-      showPassage({ bible: passage.bible, attribution: passage.attribution, verses: asked }, 0, asked.length - 1);
+      const [ca, cb, capped] = capRange(0, asked.length - 1);
+      showPassage({ bible: passage.bible, attribution: passage.attribution, verses: asked }, ca, cb, capped ? rangeTooLargeMessage(asked.length) : null);
       return true;
     }
     try {
@@ -278,9 +338,11 @@ export function createBibleController(deps: BibleControllerDeps): BibleControlle
       if (token !== queryToken || gone()) return true;
       const a = indexOfVerse(chapter.verses, first.chapter, first.verseNumber);
       const b = isWholeChapter(query, asked, chapter.verses) ? a : indexOfVerse(chapter.verses, last.chapter, last.verseNumber);
-      showPassage({ bible: chapter.bible, attribution: chapter.attribution, verses: chapter.verses }, a, b);
+      const [ca, cb, capped] = capRange(a, b);
+      showPassage({ bible: chapter.bible, attribution: chapter.attribution, verses: chapter.verses }, ca, cb, capped ? rangeTooLargeMessage(b - a + 1) : null);
     } catch {
-      showPassage({ bible: passage.bible, attribution: passage.attribution, verses: asked }, 0, asked.length - 1);
+      const [ca, cb, capped] = capRange(0, asked.length - 1);
+      showPassage({ bible: passage.bible, attribution: passage.attribution, verses: asked }, ca, cb, capped ? rangeTooLargeMessage(asked.length) : null);
     }
     return true;
   };
@@ -377,7 +439,9 @@ export function createBibleController(deps: BibleControllerDeps): BibleControlle
       void (async () => {
         if (/\d/.test(query)) {
           const handled = await lookupReference(query, token);
-          if (handled && token === queryToken && get().passage && !get().message) projectNow(true);
+          // Un error (referencia inexistente, rango enorme…) deja un mensaje y NO proyecta; el aviso de «se acotó la selección» sí deja proyectar lo seleccionado.
+          const blocking = get().message !== null && !isCapMessage(get().message);
+          if (handled && token === queryToken && get().passage && !blocking) projectNow(true);
           else if (!handled && token === queryToken) await runSearch(query, token);
         } else {
           await runSearch(query, token);
@@ -418,12 +482,19 @@ export function createBibleController(deps: BibleControllerDeps): BibleControlle
     },
 
     selectIndex(index, extend = false) {
-      const { passage, active, anchor } = get();
+      const { passage, active, anchor, message } = get();
       if (!passage) return;
-      const i = Math.max(0, Math.min(passage.verses.length - 1, index));
+      let i = Math.max(0, Math.min(passage.verses.length - 1, index));
+      if (extend && Math.abs(i - anchor) + 1 > MAX_SELECTION) {
+        // La selección no pasa de `MAX_SELECTION` versículos: se detiene ahí y se avisa (no se amplía más).
+        i = anchor + Math.sign(i - anchor) * (MAX_SELECTION - 1);
+        set({ message: rangeTooLargeMessage() });
+      } else if (message === rangeTooLargeMessage() || message?.startsWith("Rango demasiado grande")) {
+        set({ message: null });   // ya se acotó: el aviso deja de valer
+      }
       if (i === active && (extend || anchor === i)) return;
       set(extend ? { active: i } : { anchor: i, active: i });
-      refreshBuilt();
+      invalidateBuilt();
       if (get().settings?.projectOnNavigate) projectNow(false);
     },
 
@@ -436,7 +507,8 @@ export function createBibleController(deps: BibleControllerDeps): BibleControlle
     },
 
     pageBy(delta) {
-      const { built, pageIndex } = get();
+      const built = ensureBuilt();   // cambiar de página calcula en el momento si la vista previa aún no estaba
+      const { pageIndex } = get();
       if (!built) return;
       const next = Math.max(0, Math.min(built.pages.length - 1, pageIndex + delta));
       if (next === pageIndex) return;   // en el límite no pasa nada (ni se vuelve a proyectar)
@@ -481,9 +553,12 @@ export function createBibleController(deps: BibleControllerDeps): BibleControlle
             if (token !== queryToken || gone()) return;
             const a = indexOfVerse(chapter.verses, first.chapter, first.verseNumber);
             const lastV = verses[verses.length - 1] ?? first;
-            showPassage({ bible: chapter.bible, attribution: chapter.attribution, verses: chapter.verses }, a, indexOfVerse(chapter.verses, lastV.chapter, lastV.verseNumber));
+            const b = indexOfVerse(chapter.verses, lastV.chapter, lastV.verseNumber);
+            const [ca, cb, capped] = capRange(a, b);
+            showPassage({ bible: chapter.bible, attribution: chapter.attribution, verses: chapter.verses }, ca, cb, capped ? rangeTooLargeMessage(b - a + 1) : null);
           } else {
-            showPassage({ bible: passage.bible, attribution: passage.attribution, verses }, 0, verses.length - 1);
+            const [ca, cb, capped] = capRange(0, verses.length - 1);
+            showPassage({ bible: passage.bible, attribution: passage.attribution, verses }, ca, cb, capped ? rangeTooLargeMessage(verses.length) : null);
           }
           lastRecorded = "";   // volver a proyectar una cita la sube al principio del historial
           projectNow(true);
@@ -534,6 +609,7 @@ export function createBibleController(deps: BibleControllerDeps): BibleControlle
       sender.cancel();
       if (queryTimer !== null) clock.clearTimeout(queryTimer);
       if (recordTimer !== null) clock.clearTimeout(recordTimer);
+      if (previewTimer !== null) clock.clearTimeout(previewTimer);
       fitCache?.dispose();
       fitCache = null;
     },

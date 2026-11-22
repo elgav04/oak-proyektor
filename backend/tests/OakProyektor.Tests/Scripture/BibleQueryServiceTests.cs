@@ -257,6 +257,94 @@ public sealed class BibleQueryServiceTests : IAsyncLifetime
         Assert.Null(BibleQueryService.BuildMatch(null));
     }
 
+    [Fact]
+    public void The_match_expression_normalizes_to_NFC_so_decomposed_accents_do_not_split_words()
+    {
+        var nfc = "Jesús caminó";                       // «Jesús caminó» con las vocales ya compuestas
+        var nfd = "Jesús caminó";                    // la misma frase con acentos combinantes (u + ´, o + ´)
+        Assert.NotEqual(nfc, nfd);
+        Assert.Equal("\"Jesús\" \"caminó\"", BibleQueryService.BuildMatch(nfc));
+        Assert.Equal(BibleQueryService.BuildMatch(nfc), BibleQueryService.BuildMatch(nfd));   // antes la marca partía la palabra: «Jesu» + «s»
+        Assert.Equal("\"Jesús caminó\"", BibleQueryService.BuildMatch("\"" + nfd + "\""));
+        // una marca combinante suelta (sin base compuesta) se queda dentro de su palabra, no la parte
+        Assert.Equal("\"x́y\"", BibleQueryService.BuildMatch("x́y"));
+    }
+
+    [Fact]
+    public void The_match_expression_is_bounded_in_terms_and_in_processed_text()
+    {
+        var many = string.Join(' ', Enumerable.Range(1, 500).Select(i => "palabra" + i));
+        var match = BibleQueryService.BuildMatch(many)!;
+        var terms = match.Split(' ');
+        Assert.Equal(BibleQueryService.MaxQueryTerms, terms.Length);
+        Assert.Equal("\"palabra1\"", terms[0]);                      // se conservan los PRIMEROS términos
+        Assert.True(match.Length < 1000);
+
+        // un pegado de cientos de miles de caracteres no arma una consulta gigante ni tarda
+        var huge = new string('a', 300_000) + " " + string.Join(' ', Enumerable.Repeat("b", 100_000));
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var bounded = BibleQueryService.BuildMatch(huge)!;
+        Assert.True(sw.ElapsedMilliseconds < 500, $"tardó {sw.ElapsedMilliseconds} ms");
+        Assert.True(bounded.Length <= BibleQueryService.MaxQueryChars + 2 * BibleQueryService.MaxQueryTerms + 2);
+
+        // frases y palabras sueltas cuentan como términos, y también están acotadas
+        var phrases = string.Join(' ', Enumerable.Range(1, 100).Select(i => "\"dos" + i + " tres\""));
+        Assert.Equal(BibleQueryService.MaxQueryTerms, BibleQueryService.BuildMatch(phrases)!.Split("\" \"").Length);
+    }
+
+    [Fact]
+    public void The_match_expression_survives_invalid_unicode_and_hostile_input()
+    {
+        Assert.Null(BibleQueryService.BuildMatch("\ud800"));                      // sustituto suelto: no lanza
+        Assert.NotNull(BibleQueryService.BuildMatch("abc\ud800def"));
+        foreach (var hostile in new[] { "NEAR(a b)", "a OR b", "-x", "col:valor", "\"", "\"\"", "́́", "a\0b", "{a b}" })
+            Assert.Null(Record.Exception(() => BibleQueryService.BuildMatch(hostile)));
+    }
+
+    [Fact]
+    public async Task A_search_with_decomposed_accents_finds_the_stored_text()
+    {
+        await _env.ImportAsync([SyntheticBible.Verse(1, 1, 1, "Jesús caminaba junto al lago")], "NFC");
+        var hits = await Q.SearchAsync("Jesús", "NFC", 10, CancellationToken.None);     // escrito con el acento combinante
+        Assert.Single(hits.Hits);
+    }
+
+    // ───────────────────────────── rangos enormes (H4) ─────────────────────────────
+
+    [Fact]
+    public async Task A_range_over_the_per_query_limit_is_rejected_with_a_clear_error_and_never_truncated_silently()
+    {
+        // «Salmos» sintético: 3 capítulos de 100 versículos (300 en total).
+        await _env.ImportAsync(Enumerable.Range(1, 3).SelectMany(c => SyntheticBible.Chapter(19, c, 100)), "GRA");
+        Assert.Equal(200, BibleQueryService.MaxPassageVerses);
+
+        var two = await Q.LookupAsync("Sal 1-2", "GRA", false, CancellationToken.None);            // justo en el límite
+        Assert.Equal(200, two.Verses.Count);
+
+        var ex = await FailsAsync(() => Q.LookupAsync("Sal 1-3", "GRA", false, CancellationToken.None));
+        Assert.Equal(BibleErrorCodes.RangeTooLarge, ex.Code);
+        Assert.Contains("demasiado grande", ex.Message);
+        Assert.Contains("200", ex.Message);
+        Assert.Equal(BibleErrorCodes.RangeTooLarge, (await FailsAsync(() => Q.LookupAsync("Sal 1:1-3:100", "GRA", false, CancellationToken.None))).Code);
+        // varios segmentos que juntos pasan el límite también
+        Assert.Equal(BibleErrorCodes.RangeTooLarge, (await FailsAsync(() => Q.LookupAsync("Sal 1:1-100; 2:1-100; 3:1-5", "GRA", false, CancellationToken.None))).Code);
+        // un capítulo, un versículo o un rango corto siguen igual
+        Assert.Equal(100, (await Q.LookupAsync("Sal 3", "GRA", false, CancellationToken.None)).Verses.Count);
+        Assert.Equal(3, (await Q.LookupAsync("Sal 1:1-3", "GRA", false, CancellationToken.None)).Verses.Count);
+        Assert.Equal(100, (await Q.GetChapterAsync("GRA", 19, 2, CancellationToken.None)).Verses.Count);
+    }
+
+    [Fact]
+    public async Task A_huge_reference_like_psalms_1_to_150_answers_fast_without_reading_thousands_of_rows()
+    {
+        await _env.ImportAsync(Enumerable.Range(1, 150).SelectMany(c => SyntheticBible.Chapter(19, c, 16)), "PSA");   // 2 400 versículos
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var ex = await FailsAsync(() => Q.LookupAsync("Sal 1-150", "PSA", false, CancellationToken.None));
+        sw.Stop();
+        Assert.Equal(BibleErrorCodes.RangeTooLarge, ex.Code);
+        Assert.True(sw.ElapsedMilliseconds < 1000, $"tardó {sw.ElapsedMilliseconds} ms");
+        Assert.Empty(await Q.GetHistoryAsync(0, CancellationToken.None));          // un rechazo no se anota
+    }
     // ───────────────────────────── historial ─────────────────────────────
 
     [Fact]

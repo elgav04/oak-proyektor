@@ -11,7 +11,8 @@ export const BOOKS = [
 ];
 
 const WORDS = ["lumen", "arto", "senda", "viru", "tolen", "mara", "pelo", "dune", "karo", "nilo", "sobe", "tira"];
-export const CHAPTER_SIZES = { "1:1": 12, "1:2": 4, "2:1": 6, "3:1": 3 };
+// Gamma 2 (120 versículos) y Gamma 3 (250) existen para probar selecciones y rangos grandes.
+export const CHAPTER_SIZES = { "1:1": 12, "1:2": 4, "2:1": 6, "3:1": 3, "3:2": 120, "3:3": 250 };
 
 /** Texto inventado y determinista de un versículo; `long` = versículo largo (varias frases). */
 export function verseText(book, chapter, verse, sentences = 1) {
@@ -54,6 +55,9 @@ export function createFakeBackend(options = {}) {
   const fail = (req, code, message) => deliver(JSON.stringify({ v:9, id: req.id, kind: "reply", type: req.type, payload: { ok: false, result: null, error: { code, message } } }));
 
   const passage = (req, record) => {
+    // Como el backend real (H4): un rango de capítulos enorme se RECHAZA con bible.rangeTooLarge (nunca se recorta).
+    const chapterRange = /^\s*\S+\s+(\d+)\s*-\s*(\d+)\s*$/.exec(req.payload.reference);
+    if (chapterRange && Number(chapterRange[2]) - Number(chapterRange[1]) >= 2) return fail(req, "bible.rangeTooLarge", "Rango demasiado grande: tiene más de 200 versículos. Acótalo (por ejemplo, un capítulo o unos pocos versículos).");
     const m = /^\s*([^\d\s]+(?:\s+[^\d\s]+)?)\s*(\d+)(?:\s*[:.]\s*(\d+)(?:\s*-\s*(\d+))?)?\s*$/.exec(req.payload.reference);
     const book = m && findBook(m[1].trim().split(/\s+/)[0]);
     if (!m || !book) return fail(req, "bible.invalidReference", "No se entiende la referencia.");

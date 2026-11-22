@@ -21,6 +21,8 @@ public static class BibleErrorCodes
     public const string TooManyDeletions = "bible.tooManyDeletions";
     public const string ImportBusy = "bible.importBusy";
     public const string ImportFailed = "bible.importFailed";
+    /// <summary>La referencia pide más versículos de los que se devuelven por consulta (<see cref="BibleQueryService.MaxPassageVerses"/>): se rechaza, nunca se recorta en silencio.</summary>
+    public const string RangeTooLarge = "bible.rangeTooLarge";
 }
 
 /// <param name="Path">Archivo de la Biblia.</param>

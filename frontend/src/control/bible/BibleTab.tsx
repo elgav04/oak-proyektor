@@ -121,7 +121,10 @@ export function BibleTab({ controller, connected, output, onOpenSettings }: { co
             className="h-12 rounded-md border-2 p-2 text-base"
             value={s.activeBible ?? ""}
             disabled={!connected || s.bibles.length === 0}
-            onChange={(e) => { controller.setBible(e.target.value); }}
+            onChange={(e) => {
+              controller.setBible(e.target.value);
+              e.currentTarget.blur();   // H12: tras elegir, el foco sale del selector (si no, ↓ cambiaría de Biblia en vez de moverse por los versículos)
+            }}
           >
             {s.bibles.map((b) => (
               <option key={b.abbreviation} value={b.abbreviation}>
@@ -234,10 +237,10 @@ export function BibleTab({ controller, connected, output, onOpenSettings }: { co
               </div>
             </>
           ) : (
-            <p className="text-sm text-neutral-500">Elige un versículo.</p>
+            <p className="text-sm text-neutral-500">{s.passage ? "Calculando las páginas… (al proyectar se calculan al instante)" : "Elige un versículo."}</p>
           )}
           <div className="flex gap-3">
-            <Button size="lg" className="h-12 flex-1" disabled={!connected || !built} onClick={controller.project}>Proyectar (Enter)</Button>
+            <Button size="lg" className="h-12 flex-1" disabled={!connected || !s.passage} onClick={controller.project}>Proyectar (Enter)</Button>
             <Button size="lg" variant="outline" className="h-12" disabled={!connected} onClick={controller.clearProjection}>Limpiar (Esc)</Button>
           </div>
         </section>

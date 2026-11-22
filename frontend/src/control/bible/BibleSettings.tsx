@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useStore } from "zustand";
 import { Button } from "@/components/ui/button";
 import type { BibleSettingsPayload, TextAlign, TextTheme, VerticalAlign } from "@/ipc/protocol";
@@ -6,6 +6,7 @@ import { CANVAS_HEIGHT, CANVAS_WIDTH } from "@/output/canvas";
 import { themeBoxStyle, themeTextStyle } from "@/output/theme";
 import type { BibleController } from "./controller";
 import { BIBLE_DEFAULT_THEME } from "./defaults";
+import { mergeSettings } from "./settingsMerge";
 import { themeWithFontSize } from "./slide";
 import { toSuperscript } from "./superscript";
 
@@ -43,6 +44,8 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 export function BibleSettingsView({ controller, connected, onClose }: { controller: BibleController; connected: boolean; onClose: () => void }) {
   const s = useStore(controller.store);
   const [draft, setDraft] = useState<BibleSettingsPayload | null>(s.settings);
+  // Lo que había al abrir (o tras el último guardado): al guardar solo se aplica lo que se cambió AQUÍ y lo demás conserva el valor actual (H11).
+  const initialRef = useRef<BibleSettingsPayload | null>(s.settings);
   const [attributions, setAttributions] = useState<Record<string, string>>(() => Object.fromEntries(s.bibles.map((b) => [b.abbreviation, b.attribution])));
 
   if (!draft) {
@@ -60,6 +63,13 @@ export function BibleSettingsView({ controller, connected, onClose }: { controll
   const setShortName = (abbr: string, value: string): void => {
     const others = draft.shortNames.filter((n) => n.bible !== abbr);
     setDraft({ ...draft, shortNames: value.trim().length > 0 ? [...others, { bible: abbr, shortName: value }] : others });
+  };
+  const save = (): void => {
+    const current = controller.store.getState().settings ?? draft;   // el valor ACTUAL, no el de cuando se abrió la pantalla
+    const next = mergeSettings(initialRef.current ?? current, draft, current);
+    initialRef.current = next;
+    setDraft(next);                                                  // el formulario refleja lo que realmente se guardó (incluidos cambios hechos fuera)
+    void controller.saveSettings(next);
   };
   const colorsOk = HEX.test(theme.color) && HEX.test(theme.outlineColor) && HEX.test(theme.shadowColor);
   const valid = colorsOk && theme.fontSize >= 8 && theme.fontSize <= 400 && draft.transitionMs >= 0 && draft.transitionMs <= 5000;
@@ -181,7 +191,7 @@ export function BibleSettingsView({ controller, connected, onClose }: { controll
       </section>
 
       <div className="flex gap-3">
-        <Button size="lg" disabled={!connected || !valid} onClick={() => { void controller.saveSettings(draft); }}>Guardar configuración</Button>
+        <Button size="lg" disabled={!connected || !valid} onClick={() => { save(); }}>Guardar configuración</Button>
         {!valid && <p className="self-center text-sm text-red-700">Hay un valor inválido (colores #RRGGBB o #RRGGBBAA, tamaño 8–400, crossfade 0–5000).</p>}
       </div>
     </div>

@@ -112,9 +112,10 @@ test("Mayús+flecha amplía la selección a varios versículos y se proyectan ju
   await typeQuery(c, s, "alfa 1:4");
   await until(() => s().built !== null);
   c.moveSelection(1, true); c.moveSelection(1, true);
-  assert.equal(s().built.reference, "Alfa 1:4-6");
+  assert.equal(s().built, null, "H4: mover la selección NO pagina; se pagina al proyectar (o al quedar quieta)");
   c.project();
   await until(() => backend.sent("output.showContent").length === 1);
+  assert.equal(s().built.reference, "Alfa 1:4-6");
   assert.equal(backend.lastContent().blocks.length, 2);
   assert.equal(s().built.pages.length, 1);
 });
@@ -256,4 +257,139 @@ test("un fallo del backend se muestra como mensaje y no rompe el controlador", a
   assert.equal(s().passage, null);
   c.dismissMessage();
   assert.equal(s().message, null);
+});
+
+// ───── H4: referencias y selecciones enormes ─────
+
+/** Medición simulada que CUENTA cuántas veces se mide (cada llamada a `fits` es una medición). */
+function countingFit(cap = 400) {
+  const counter = { calls: 0 };
+  return { counter, createFit: () => ({ fits: (blocks) => { counter.calls++; return blocks.join(" ").length <= cap; }, dispose: () => undefined }) };
+}
+const BIG = "gamma 2:1";   // capítulo de 120 versículos del backend falso
+
+test("H4: mantener Mayús+↓ NO pagina en cada pulsación (0 mediciones durante la ráfaga) y la vista previa se calcula una vez al quedar quieta", async () => {
+  const { counter, createFit } = countingFit();
+  const { c, s } = await setup({ controller: { createFit, previewDelayMs: 40 } });
+  await typeQuery(c, s, BIG);
+  await until(() => s().built !== null);
+  const baseline = counter.calls;
+  for (let i = 0; i < 25; i++) c.moveSelection(1, true);       // la tecla mantenida
+  assert.equal(counter.calls, baseline, "ninguna medición durante la ráfaga");
+  assert.equal(s().built, null);
+  assert.equal(s().active - s().anchor, 25);
+  await until(() => s().built !== null);                        // quieta: ahora sí
+  assert.equal(s().built.reference, "Gamma 2:1-26");
+  assert.ok(counter.calls > baseline);
+});
+
+test("H4: el coste de una pulsación no crece con la selección (con la selección en 5 o en 29 versículos, la ráfaga cuesta 0 mediciones)", async () => {
+  const { counter, createFit } = countingFit();
+  const { c, s } = await setup({ controller: { createFit, previewDelayMs: 5000 } });
+  await typeQuery(c, s, BIG);
+  const costs = [];
+  for (const steps of [5, 24]) {
+    const before = counter.calls;
+    for (let i = 0; i < steps; i++) c.moveSelection(1, true);
+    costs.push(counter.calls - before);
+  }
+  assert.deepEqual(costs, [0, 0]);
+  assert.equal(s().active - s().anchor, 29);
+});
+
+test("H4: proyectar pagina en el momento aunque la vista previa aún no estuviera calculada", async () => {
+  const { counter, createFit } = countingFit();
+  const { backend, c, s } = await setup({ controller: { createFit, previewDelayMs: 5000 } });
+  await typeQuery(c, s, BIG);
+  for (let i = 0; i < 6; i++) c.moveSelection(1, true);
+  assert.equal(s().built, null);
+  const before = counter.calls;
+  c.project();
+  await until(() => backend.sent("output.showContent").length === 1);
+  assert.ok(counter.calls > before, "se midió al proyectar");
+  assert.match(backend.lastContent().blocks.at(-1), /^Gamma 2:1-7 /);
+  // cambiar de página también calcula si hace falta
+  c.moveSelection(1, true);
+  assert.equal(s().built, null);
+  c.pageBy(1);                                                  // no hay otra página: no pasa nada, pero no falla
+  assert.ok(s().built !== null);
+});
+
+test("H4: la selección con Mayús+flechas se detiene en 30 versículos y avisa (rango demasiado grande, acótalo)", async () => {
+  const { c, s } = await setup({ controller: { previewDelayMs: 5 } });
+  await typeQuery(c, s, BIG);
+  for (let i = 0; i < 100; i++) c.moveSelection(1, true);
+  assert.equal(s().active - s().anchor + 1, 30);
+  assert.match(s().message, /Rango demasiado grande/);
+  assert.match(s().message, /acótalo/i);
+  await until(() => s().built !== null);
+  assert.equal(s().built.reference, "Gamma 2:1-30");
+  // hacia arriba también, y el clic con Mayús (selectIndex extend) respeta el mismo tope
+  c.selectIndex(100);
+  c.selectIndex(0, true);
+  assert.equal(Math.abs(s().active - s().anchor) + 1, 30);
+  // una selección normal (sin Mayús) quita el aviso
+  c.selectIndex(3);
+  assert.equal(s().message, null);
+  assert.equal(s().anchor, s().active);
+});
+
+test("H4: un rango escrito de más de 30 versículos selecciona los 30 primeros, avisa, y Enter proyecta lo seleccionado", async () => {
+  const { backend, c, s } = await setup({ controller: { previewDelayMs: 5 } });
+  c.setQuery("gamma 2:1-100");
+  await tick(15);
+  await until(() => s().passage !== null);
+  assert.equal(s().passage.verses.length, 120);
+  assert.equal(Math.min(s().anchor, s().active), 0);
+  assert.equal(Math.max(s().anchor, s().active), 29);
+  assert.match(s().message, /Rango demasiado grande \(100 versículos\)/);
+  c.submitSearch();
+  await until(() => backend.sent("output.showContent").length === 1);
+  assert.match(backend.lastContent().blocks.at(-1), /^Gamma 2:1-30 /, "se proyectan los 30 seleccionados");
+});
+
+test("H4: «sal 1-150» (rango de capítulos enorme) responde al instante con el aviso del backend, sin tocar la lista ni proyectar", async () => {
+  const { backend, c, s } = await setup();
+  await typeQuery(c, s, "alfa 1:2");                            // ya hay un pasaje mostrado
+  const before = s().passage;
+  const t0 = Date.now();
+  c.setQuery("gamma 1-150");
+  await until(() => s().message !== null);
+  assert.ok(Date.now() - t0 < 500, "no se bloquea");
+  assert.match(s().message, /Rango demasiado grande/);
+  assert.match(s().message, /Acótalo/);
+  assert.equal(s().passage, before, "la lista anterior no se toca");
+  assert.equal(backend.sent("output.showContent").length, 0);
+  assert.deepEqual(s().hits, [], "y no se cae a una búsqueda de texto");
+  c.submitSearch();                                             // Enter con el rango enorme: tampoco proyecta
+  await tick(60);
+  assert.equal(backend.sent("output.showContent").length, 0);
+});
+
+test("H4: defensa por si el backend devolviera más de 200 versículos: aviso y no se muestra la lista gigante", async () => {
+  const { c, s } = await setup();
+  c.setQuery("gamma 3:1");
+  await tick(15);
+  await until(() => s().passage !== null);
+  const shown = s().passage;
+  c.setQuery("gamma 3");                                        // capítulo de 250 versículos
+  await tick(20);
+  await until(() => s().message !== null);
+  assert.match(s().message, /250 versículos/);
+  assert.equal(s().passage, shown);
+});
+
+test("H4: volver a una selección ya paginada usa la memoria (ida y vuelta sin medir)", async () => {
+  const { counter, createFit } = countingFit();
+  const { c, s } = await setup({ controller: { createFit, previewDelayMs: 10 } });
+  await typeQuery(c, s, BIG);
+  await until(() => s().built !== null);
+  c.moveSelection(1);
+  await until(() => s().built !== null && s().built.reference === "Gamma 2:2");
+  const measured = counter.calls;
+  c.moveSelection(-1);
+  assert.equal(s().built.reference, "Gamma 2:1", "ya estaba calculada: aparece al instante");
+  c.moveSelection(1);
+  assert.equal(s().built.reference, "Gamma 2:2");
+  assert.equal(counter.calls, measured);
 });
