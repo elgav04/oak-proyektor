@@ -527,11 +527,24 @@ public sealed class BibleImporter(ISqliteConnectionFactory connections, IDatabas
         foreach (var i in items)
             if (Hits(i.Book, i.Chapter, i.First, i.Last)) result.Add(new AffectedItem("playlist", i.Id, i.PlaylistId, Ref(i.Book, i.Chapter, i.First, i.Last)));
 
-        var history = await connection.QueryAsync<(long Id, long Book, long Chapter, long? First, long? Last)>(new CommandDefinition(
-            "SELECT Id, BookNumber, Chapter, VerseStart, VerseEnd FROM CitationHistory WHERE BibleAbbreviation = @abbreviation",
-            new { abbreviation }, transaction, cancellationToken: ct)).ConfigureAwait(false);
-        foreach (var h in history)
-            if (Hits(h.Book, h.Chapter, h.First, h.Last)) result.Add(new AffectedItem("history", h.Id, null, Ref(h.Book, h.Chapter, h.First, h.Last)));
+        // Historial: se comprueban TODOS los tramos de cada cita («Mt 5:3,5,7», «Gn 1-2», «Gn 1:30-2:3»), no solo el primero (H8).
+        var history = (await connection.QueryAsync<(long Id, long Book, long Chapter, long? First, long? Last, string Label)>(new CommandDefinition(
+            "SELECT Id, BookNumber, Chapter, VerseStart, VerseEnd, Label FROM CitationHistory WHERE BibleAbbreviation = @abbreviation",
+            new { abbreviation }, transaction, cancellationToken: ct)).ConfigureAwait(false)).ToList();
+        if (history.Count > 0)
+        {
+            var stored = (await connection.QueryAsync<(long HistoryId, long StartChapter, long? StartVerse, long EndChapter, long? EndVerse)>(new CommandDefinition(
+                "SELECT s.HistoryId, s.StartChapter, s.StartVerse, s.EndChapter, s.EndVerse FROM CitationHistorySegments s JOIN CitationHistory h ON h.Id = s.HistoryId WHERE h.BibleAbbreviation = @abbreviation ORDER BY s.HistoryId, s.Position",
+                new { abbreviation }, transaction, cancellationToken: ct)).ConfigureAwait(false))
+                .GroupBy(s => s.HistoryId)
+                .ToDictionary(g => g.Key, g => (IReadOnlyList<ReferenceSegment>)[.. g.Select(s => new ReferenceSegment((int)s.StartChapter, (int?)s.StartVerse, (int)s.EndChapter, (int?)s.EndVerse))]);
+            foreach (var h in history)
+            {
+                var segments = CitationHistoryStore.SegmentsOf(stored.GetValueOrDefault(h.Id), (int)h.Book, h.Label, (int)h.Chapter, (int?)h.First, (int?)h.Last);
+                var hit = deleted.Any(d => d.Book == (int)h.Book && CitationHistoryStore.Contains(segments, d.Chapter, d.Verse));
+                if (hit) result.Add(new AffectedItem("history", h.Id, null, h.Label));
+            }
+        }
         return result;
     }
 

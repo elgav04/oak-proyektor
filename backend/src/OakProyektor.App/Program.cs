@@ -12,6 +12,12 @@ internal static class Program
     private static int Main(string[] args) =>
         Cli.CliArguments.IsCliInvocation(args) ? Cli.CliHost.Run(args) : RunAsync().GetAwaiter().GetResult();
 
+    /// <summary>Lo que ve el operador si abre la aplicación gráfica mientras una orden de consola (p. ej. una importación) usa la misma carpeta de datos.</summary>
+    internal const string ConsoleOperationRunningMessage =
+        "Hay una orden de consola en curso (por ejemplo, la importación de una Biblia) usando la misma carpeta de datos.\n\n" +
+        "Espera a que termine, o cancélala con Ctrl+C en su ventana de consola, y vuelve a abrir Oak-Proyektor. " +
+        "No se pierde nada: una importación cancelada no cambia la base de datos.";
+
     private static async Task<int> RunAsync()
     {
         var temporaryLogs = Path.Combine(Path.GetTempPath(), ApplicationPaths.ProductFolderName, "logs");
@@ -34,6 +40,12 @@ internal static class Program
         // SÍNCRONO a propósito (ver SingleInstanceCoordinator): un await aquí sacaría la ventana del hilo STA. Si la primera instancia se está
         // cerrando, espera unos segundos a que suelte el candado y ARRANCA con normalidad; si hay una sana, la enfoca y sale.
         var instanceName = SingleInstanceGuard.NameFor(paths.DataDirectory);
+        // Una orden de consola de escritura (importar una Biblia, restaurar un respaldo) tiene la base: no se espera a ningún cierre ni se manda a nadie al Administrador de tareas.
+        if (SingleInstanceGuard.Exists(SingleInstanceGuard.ConsoleMarkerNameFor(paths.DataDirectory)))
+        {
+            StartupFailure.Show(ConsoleOperationRunningMessage, null);
+            return 1;
+        }
         var instance = SingleInstanceCoordinator.Acquire(
             () => SingleInstanceGuard.TryAcquire(instanceName),
             () => ExistingInstance.TryBringToFront(ApplicationHost.ControlWindowTitle, Environment.ProcessPath),

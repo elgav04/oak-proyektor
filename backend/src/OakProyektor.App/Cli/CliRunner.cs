@@ -27,6 +27,24 @@ internal sealed class CliRunner(ApplicationPaths paths, ILoggerFactory loggers, 
             if (command.Kind == CliCommandKind.ListBackups) return ListBackups(options);
             if (command.Kind == CliCommandKind.RestoreBackup) return await RestoreAsync(command, options, cancellationToken).ConfigureAwait(false);
 
+            // Las órdenes de SOLO LECTURA nunca migran ni crean la base: si falta o es de otra versión, error claro y se abre en solo lectura.
+            if (command.Kind is CliCommandKind.ListBibles or CliCommandKind.ShowVerse or CliCommandKind.VerifyBible)
+            {
+                if (await ReadOnlyDatabase.CheckAsync(options, paths.DataDirectory, cancellationToken).ConfigureAwait(false) is { } problem)
+                {
+                    error.WriteLine("Error: " + problem);
+                    return Failed;
+                }
+                var readOnly = new ReadOnlySqliteConnectionFactory(options);
+                var ready = new AlwaysReady();
+                return command.Kind switch
+                {
+                    CliCommandKind.VerifyBible => await VerifyAsync(command, readOnly, ready, cancellationToken).ConfigureAwait(false),
+                    CliCommandKind.ShowVerse => await ShowVerseAsync(command, readOnly, ready, cancellationToken).ConfigureAwait(false),
+                    _ => await ListAsync(readOnly, ready, cancellationToken).ConfigureAwait(false),
+                };
+            }
+
             var connections = new SqliteConnectionFactory(options);
             var readiness = new DatabaseReadiness(loggers.CreateLogger<DatabaseReadiness>());
             var initializer = new DatabaseInitializer(options, connections, loggers.CreateLogger<DatabaseInitializer>(), loggers);

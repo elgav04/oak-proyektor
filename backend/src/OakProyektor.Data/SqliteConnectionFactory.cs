@@ -53,3 +53,27 @@ public sealed class SqliteConnectionFactory(DatabaseOptions options) : ISqliteCo
         }
     }
 }
+
+/// <summary>
+/// Fábrica de conexiones SOLO LECTURA para las órdenes de consola que no escriben (<c>--list-bibles</c>, <c>--show-verse</c>, <c>--verify-bible</c>): nunca crea el archivo
+/// ni aplica migraciones, y cualquier intento de escribir falla. Está en este archivo porque solo aquí se crean <c>SqliteConnection</c> (ver <c>SourceRulesTests</c>).
+/// </summary>
+public sealed class ReadOnlySqliteConnectionFactory(DatabaseOptions options) : ISqliteConnectionFactory
+{
+    private readonly string _connectionString = new SqliteConnectionStringBuilder { DataSource = options.DatabasePath, Mode = SqliteOpenMode.ReadOnly }.ToString();
+
+    public async Task<SqliteConnection> OpenAsync(CancellationToken cancellationToken)
+    {
+        var connection = new SqliteConnection(_connectionString);
+        try
+        {
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            return connection;
+        }
+        catch
+        {
+            await connection.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+    }
+}

@@ -132,7 +132,12 @@ internal sealed class BibleEnv : IDisposable
     private readonly TestDatabase _db = new();
     private readonly string _files = Path.Combine(Path.GetTempPath(), "oak-proyektor-tests", "files-" + Guid.NewGuid().ToString("N"));
 
+    private BibleQueryOptions? _queryOptions;
+
     private BibleEnv() { }
+
+    /// <summary>Vuelve a armar <see cref="Query"/> con un anotador de historial (p. ej. el de segundo plano, H5).</summary>
+    public void UseRecorder(ICitationRecorder recorder) => Query = new BibleQueryService(_db.Connections, Readiness, _queryOptions, recorder);
 
     public DatabaseReadiness Readiness { get; } = new(NullLogger<DatabaseReadiness>.Instance);
     public ISqliteConnectionFactory Connections => _db.Connections;
@@ -150,6 +155,7 @@ internal sealed class BibleEnv : IDisposable
         var env = new BibleEnv();
         await env.Readiness.StartAsync(env._db.Initializer, CancellationToken.None);
         env.Importer = new BibleImporter(env._db.Connections, env.Readiness, NullLogger<BibleImporter>.Instance);
+        env._queryOptions = options;
         env.Query = new BibleQueryService(env._db.Connections, env.Readiness, options);
         env.CrossChecker = new BibleCrossChecker(env._db.Connections, env.Readiness);
         return env;
@@ -159,16 +165,16 @@ internal sealed class BibleEnv : IDisposable
 
     /// <summary>Importa <paramref name="verses"/> con la abreviatura dada (escribe el archivo sintético y lo importa).</summary>
     public Task<ImportReport> ImportAsync(IEnumerable<SyntheticBible.V> verses, string abbreviation = "SIN", string? profile = null,
-        string? attribution = null, bool allowLargeDeletion = false, IProgress<ImportProgress>? progress = null, string name = "Biblia sintética", bool allowLargeChange = false)
+        string? attribution = null, bool allowLargeDeletion = false, IProgress<ImportProgress>? progress = null, string name = "Biblia sintética", bool allowLargeChange = false, CancellationToken cancellationToken = default)
     {
         var path = SyntheticBible.WriteYouVersion(_files, verses, fileName: $"{abbreviation.Trim()}-{Guid.NewGuid():N}.json");
-        return ImportFileAsync(path, abbreviation, profile, attribution, allowLargeDeletion, progress, name, allowLargeChange);
+        return ImportFileAsync(path, abbreviation, profile, attribution, allowLargeDeletion, progress, name, allowLargeChange, cancellationToken);
     }
 
     /// <summary>Importa un archivo YA escrito (p. ej. uno mal armado a propósito).</summary>
     public Task<ImportReport> ImportFileAsync(string path, string abbreviation = "SIN", string? profile = null, string? attribution = null, bool allowLargeDeletion = false,
-        IProgress<ImportProgress>? progress = null, string name = "Biblia sintética", bool allowLargeChange = false) =>
-        Importer.ImportAsync(new BibleImportRequest(path, abbreviation, name, "es", null, profile, attribution, allowLargeDeletion, allowLargeChange, BackupsDirectory), progress, CancellationToken.None);
+        IProgress<ImportProgress>? progress = null, string name = "Biblia sintética", bool allowLargeChange = false, CancellationToken cancellationToken = default) =>
+        Importer.ImportAsync(new BibleImportRequest(path, abbreviation, name, "es", null, profile, attribution, allowLargeDeletion, allowLargeChange, BackupsDirectory), progress, cancellationToken);
 
     public void Dispose()
     {
@@ -182,4 +188,41 @@ internal sealed class RecordingProgress : IProgress<ImportProgress>
 {
     public List<ImportProgress> Reports { get; } = [];
     public void Report(ImportProgress value) => Reports.Add(value);
+}
+
+/// <summary>Un <see cref="IProgress{T}"/> síncrono que ejecuta una acción con cada informe (p. ej. cancelar a mitad de la escritura).</summary>
+internal sealed class ActionProgress(Action<ImportProgress> action) : IProgress<ImportProgress>
+{
+    public void Report(ImportProgress value) => action(value);
+}
+
+/// <summary>Registro en memoria de TODO lo que se loguea (mensaje formateado y la cadena de mensajes de cada excepción), para comprobar que no se filtra texto.</summary>
+internal sealed class CapturingLogger : Microsoft.Extensions.Logging.ILoggerProvider
+{
+    private readonly System.Collections.Concurrent.ConcurrentQueue<string> _lines = new();
+    public IReadOnlyList<string> Lines => [.. _lines];
+    public string All => string.Join("\n", _lines);
+
+    public Microsoft.Extensions.Logging.ILogger CreateLogger(string categoryName) => new L(_lines);
+    public void Dispose() { }
+
+    public Microsoft.Extensions.Logging.ILoggerFactory Factory() => new F(this);
+
+    private sealed class F(CapturingLogger owner) : Microsoft.Extensions.Logging.ILoggerFactory
+    {
+        public Microsoft.Extensions.Logging.ILogger CreateLogger(string categoryName) => owner.CreateLogger(categoryName);
+        public void AddProvider(Microsoft.Extensions.Logging.ILoggerProvider provider) { }
+        public void Dispose() { }
+    }
+
+    private sealed class L(System.Collections.Concurrent.ConcurrentQueue<string> lines) : Microsoft.Extensions.Logging.ILogger
+    {
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+        public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            lines.Enqueue(formatter(state, exception));
+            for (var e = exception; e is not null; e = e.InnerException) lines.Enqueue(e.GetType().Name + ": " + e.Message + "\n" + e.StackTrace);
+        }
+    }
 }

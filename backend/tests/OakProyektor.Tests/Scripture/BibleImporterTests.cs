@@ -257,7 +257,7 @@ public sealed class BibleImporterTests : IAsyncLifetime
         var report = await _env.ImportAsync(small, profile: "merge-ps47-3jn");
 
         Assert.Equal((0, 2, small.Count - 4, 2), (report.Inserted, report.Updated, report.Unchanged, report.Deleted));
-        Assert.Equal(["PSA 47:10", "PSA 47:9-10", "3JN 1:15", "PSA 47"], report.AffectedItems.Select(a => a.Reference));
+        Assert.Equal(["PSA 47:10", "PSA 47:9-10", "3JN 1:15", "Sal 47"], report.AffectedItems.Select(a => a.Reference));
         Assert.Equal(["playlist", "playlist", "playlist", "history"], report.AffectedItems.Select(a => a.Kind));
         Assert.All(report.AffectedItems.Where(a => a.Kind == "playlist"), a => Assert.Equal(playlistId, a.PlaylistId));
         Assert.Equal(4, report.Warnings.Count(w => w.Contains("Apuntaba a un versículo eliminado")));

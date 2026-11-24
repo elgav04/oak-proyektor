@@ -14,17 +14,17 @@ Alcance y aclaraciones:
 | 2 | Importante | El tope del 1 % deja borrar libros enteros | corregido: `bible.booksWouldDisappear` |
 | 3 | Importante | Reimportar sin `--numbering` cambia la numeración guardada | corregido: sin `--numbering` se conserva el perfil guardado |
 | 4 | Importante | Un libro repetido en el archivo duplica el texto de sus versículos | corregido: duplicados por (libro, capítulo) en todo el archivo, con aviso de los distintos |
-| 5 | Importante | Una importación puede frenar la proyección (bloqueo de escritura de SQLite) | pendiente [A PROBAR] |
-| 6 | Importante | Una referencia con miles de tramos inexistentes genera miles de consultas | pendiente [A PROBAR] |
-| 7 | Menor | «1° Juan 3:16», «1.ª Juan» y «1a Juan» no se reconocen | pendiente |
-| 8 | Menor | El aviso de afectados por el historial es incompleto | pendiente |
+| 5 | Importante | Una importación puede frenar la proyección (bloqueo de escritura de SQLite) | corregido: la anotación va en segundo plano (`BackgroundCitationRecorder`); medido que el `BEGIN` espera 30 s |
+| 6 | Importante | Una referencia con miles de tramos inexistentes genera miles de consultas | corregido: máximo 50 tramos |
+| 7 | Menor | «1° Juan 3:16», «1.ª Juan» y «1a Juan» no se reconocen | corregido: «°», «.ª», «a», «o» |
+| 8 | Menor | El aviso de afectados por el historial es incompleto | corregido: migración 8 con todos los tramos y aviso por tramo |
 | 9 | Menor | Un archivo en Windows-1252 da un error poco claro | corregido: validación UTF-8 y mensaje claro; verificado con tests y la consola |
 | 10 | Menor | Se aceptan capítulos fuera del canon y versículos mayores de 176 | corregido: se descartan con aviso y conteo |
 | 11 | Menor | La transacción de importación es diferida | corregido: `BEGIN IMMEDIATE`; el choque `SQLITE_BUSY_SNAPSHOT` en sí no se reprodujo, solo que el bloqueo de escritura se toma y se suelta [A PROBAR] |
-| 12 | Menor | Consola e instancia única: sin test, mensaje engañoso, órdenes de solo lectura migran | pendiente |
+| 12 | Menor | Consola e instancia única: sin test, mensaje engañoso, órdenes de solo lectura migran | corregido: `CliHost.Execute` probado, marca de consola, solo lectura sin migrar, Ctrl+C |
 | 13 | Menor | Abreviatura sensible a mayúsculas y con caracteres de control | corregido: recorte, sin caracteres de control y sin distinguir mayúsculas (sin migración) |
 | 14 | Menor | Memoria con un archivo de unos 24 MB sin medir | medido y reducido: 38,8 → 30,4 MB (primera) y 43-50 → 31,0 MB (reimportación) |
-| 15 | Menor | Honestidad de los tests | pendiente |
+| 15 | Menor | Honestidad de los tests | corregido: test de privacidad con logs y errores, y cancelación a mitad de escritura |
 
 ## Importante
 

@@ -26,7 +26,7 @@ public sealed class DatabaseInitializerTests : IDisposable
         var tables = (await c.QueryAsync<string>("SELECT name FROM sqlite_master WHERE type = 'table'")).ToHashSet();
         foreach (var table in ExpectedTables) Assert.Contains(table, tables);
         Assert.Equal((long)OakProyektor.Data.DatabaseInitializer.LatestSchemaVersion, await c.ExecuteScalarAsync<long>("PRAGMA user_version"));
-        Assert.Equal(7, OakProyektor.Data.DatabaseInitializer.LatestSchemaVersion);
+        Assert.Equal(8, OakProyektor.Data.DatabaseInitializer.LatestSchemaVersion);
     }
 
     [Fact]

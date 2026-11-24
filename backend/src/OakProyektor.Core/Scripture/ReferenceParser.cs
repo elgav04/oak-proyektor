@@ -31,6 +31,8 @@ public enum ReferenceErrorCode
     InvalidRange,
     UnexpectedText,
     IncompleteReference,
+    /// <summary>Más tramos que <see cref="ReferenceParser.MaxSegments"/>: una referencia así no es una cita, y cada tramo es una consulta a la BD.</summary>
+    TooManySegments,
 }
 
 /// <summary>Por qué no se pudo interpretar. <c>Message</c> está en español y es apto para el operador; nunca contiene texto bíblico.</summary>
@@ -59,6 +61,9 @@ public sealed record ReferenceParseResult(ParsedReference? Reference, ReferenceE
 /// </summary>
 public static class ReferenceParser
 {
+    /// <summary>Máximo de tramos de una referencia («Mt 5:3,5,7» tiene 3). Cada tramo es una consulta a la BD en el carril en vivo: «Jn 3:99,99,99,…» no debe armar miles (H6).</summary>
+    public const int MaxSegments = 50;
+
     public static ReferenceParseResult Parse(string? input)
     {
         if (string.IsNullOrWhiteSpace(input))
@@ -95,21 +100,40 @@ public static class ReferenceParser
     }
 
     /// <summary>
-    /// Separa el nombre del libro del resto («cap:ver…»). Un 1, 2 o 3 inicial pertenece al libro si lo sigue una letra («1 Co», «1co», «3 Jn»).
+    /// Separa el nombre del libro del resto («cap:ver…»). Un 1, 2 o 3 inicial pertenece al libro si lo sigue una letra («1 Co», «1co», «3 Jn») o un
+    /// indicador ordinal y luego una letra: «1° Juan», «1º», «1ª», «1.º», «1.ª», «1a Juan», «1o Juan» (las formas con «a»/«o» llevan un espacio antes del
+    /// nombre, para no confundirlas con las letras del propio nombre). El libro devuelto queda normalizado a «1 Juan».
     /// Pública para que el autocompletado use exactamente la misma regla.
     /// </summary>
     public static (string Book, string Remainder) SplitBookAndRest(string input)
     {
         var s = input.TrimStart();
         var i = 0;
+        string? ordinalBook = null;
         if (s.Length > 0 && s[0] is >= '1' and <= '3')
         {
             var j = 1;
+            // Indicador ordinal opcional justo después del dígito.
+            var marker = j;
+            if (j < s.Length && s[j] == '.' && j + 1 < s.Length && s[j + 1] is 'ª' or 'º' or '°') marker = j + 2;      // «1.ª», «1.º»
+            else if (j < s.Length && s[j] is 'ª' or 'º' or '°') marker = j + 1;                                            // «1ª», «1º», «1°»
+            else if (j + 1 < s.Length && s[j] is 'a' or 'A' or 'o' or 'O' && char.IsWhiteSpace(s[j + 1])) marker = j + 1; // «1a Juan», «1o Juan»
+            else if (j + 1 < s.Length && s[j] == '.' && char.IsWhiteSpace(s[j + 1])) marker = j + 1;                           // «1. Juan»
+            j = marker;
             while (j < s.Length && char.IsWhiteSpace(s[j])) j++;
-            if (j < s.Length && char.IsLetter(s[j])) i = j;
+            if (j < s.Length && char.IsLetter(s[j]))
+            {
+                i = j;
+                if (marker != 1)
+                {
+                    var end = j;
+                    while (end < s.Length && !char.IsDigit(s[end])) end++;
+                    ordinalBook = s[0] + " " + s[j..end].Trim();
+                }
+            }
         }
         while (i < s.Length && !char.IsDigit(s[i])) i++;
-        return (s[..i].Trim(), s[i..].Trim());
+        return (ordinalBook ?? s[..i].Trim(), s[i..].Trim());
     }
 
     // ───────────────────────────── lexer ─────────────────────────────
@@ -214,8 +238,7 @@ public static class ReferenceParser
                 if (CheckChapterError(endChapter) is { } endError) return endError;
                 if (endChapter < startChapter) return Fail(ReferenceErrorCode.InvalidRange, $"El rango de capítulos está al revés ({startChapter}-{endChapter}).");
             }
-            _segments.Add(new ReferenceSegment(startChapter, null, endChapter, null));
-            return null;
+            return AddSegment(new ReferenceSegment(startChapter, null, endChapter, null));
         }
 
         private ReferenceParseResult? ReadVerseRange(int chapter, int startVerse, bool bare = false)
@@ -248,8 +271,15 @@ public static class ReferenceParser
                     if (endVerse < startVerse) return Fail(ReferenceErrorCode.InvalidRange, $"El rango de versículos está al revés ({startVerse}-{endVerse}).");
                 }
             }
-            _segments.Add(new ReferenceSegment(chapter, startVerse, endChapter, endVerse));
             _verseChapter = endChapter;   // las comas que sigan son versículos de este capítulo
+            return AddSegment(new ReferenceSegment(chapter, startVerse, endChapter, endVerse));
+        }
+
+        private ReferenceParseResult? AddSegment(ReferenceSegment segment)
+        {
+            if (_segments.Count >= MaxSegments)
+                return Fail(ReferenceErrorCode.TooManySegments, $"Demasiados tramos en la referencia (máximo {MaxSegments}). Acórtala o divídela en varias consultas.");
+            _segments.Add(segment);
             return null;
         }
 

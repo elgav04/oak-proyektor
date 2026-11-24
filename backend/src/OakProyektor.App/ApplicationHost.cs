@@ -101,7 +101,12 @@ internal sealed class ApplicationHost : IAsyncDisposable
             var settings = sp.GetRequiredService<ISettingsStore>();
             return new Data.Scripture.BibleQueryOptions(() => settings.Current.DefaultBible, () => settings.Current.CitationHistoryLimit);
         });
-        services.AddSingleton<Data.Scripture.IBibleQueryService, Data.Scripture.BibleQueryService>();
+        // El historial de citas se anota en segundo plano: el carril en vivo no espera al bloqueo de escritura de SQLite (H5).
+        services.AddSingleton<Data.Scripture.BackgroundCitationRecorder>();
+        services.AddSingleton<Data.Scripture.ICitationRecorder>(sp => sp.GetRequiredService<Data.Scripture.BackgroundCitationRecorder>());
+        services.AddSingleton<Data.Scripture.IBibleQueryService>(sp => new Data.Scripture.BibleQueryService(
+            sp.GetRequiredService<ISqliteConnectionFactory>(), sp.GetRequiredService<IDatabaseReadiness>(),
+            sp.GetRequiredService<Data.Scripture.BibleQueryOptions>(), sp.GetRequiredService<Data.Scripture.ICitationRecorder>()));
         services.AddSingleton<Data.Scripture.BibleImporter>();
         services.AddSingleton<BibleImportService>();
         services.AddSingleton<IIpcHandler, Handlers.BibleListHandler>();

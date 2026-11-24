@@ -24,7 +24,7 @@ public interface IBibleQueryService
 }
 
 /// <summary>Consultas de Biblias. Toda conexión sale de la fábrica y espera a la BD (<c>OpenWhenReadyAsync</c>).</summary>
-public sealed partial class BibleQueryService(ISqliteConnectionFactory connections, IDatabaseReadiness readiness, BibleQueryOptions? options = null) : IBibleQueryService
+public sealed partial class BibleQueryService(ISqliteConnectionFactory connections, IDatabaseReadiness readiness, BibleQueryOptions? options = null, ICitationRecorder? recorder = null) : IBibleQueryService
 {
     public const int DefaultSearchLimit = 50;
     public const int MaxSearchLimit = 200;
@@ -85,7 +85,7 @@ public sealed partial class BibleQueryService(ISqliteConnectionFactory connectio
         if (verses.Count == 0)
             throw new BibleException(BibleErrorCodes.PassageNotFound, $"{label} no existe en {installed.Abbreviation}.");
 
-        if (recordHistory) await RecordHistoryAsync(connection, installed.Abbreviation, parsedReference, label, cancellationToken).ConfigureAwait(false);
+        if (recordHistory) await RecordHistoryAsync(connection, installed.Abbreviation, parsedReference, label, cancellationToken).ConfigureAwait(false);   // sin anotador: en línea (consola, pruebas); con él: en segundo plano (H5)
         return new BiblePassage(installed.Abbreviation, installed.Attribution, label, verses);
     }
 
@@ -212,23 +212,17 @@ public sealed partial class BibleQueryService(ISqliteConnectionFactory connectio
         return [.. rows.Select(r => new BibleVerse(book.Number, book.Name, (int)r.Chapter, (int)r.VerseNumber, r.Text))];
     }
 
-    /// <summary>Anota la cita (moviéndola al principio si ya estaba) y recorta el historial al límite configurado. Con límite 0 no se guarda nada.</summary>
+    /// <summary>
+    /// Anota la cita con TODOS sus tramos y recorta el historial al límite configurado (con límite 0 no se guarda nada). Con un <see cref="ICitationRecorder"/> en segundo plano
+    /// solo se encola (H5: el carril en vivo no espera al bloqueo de escritura de SQLite); sin él se escribe aquí, por la conexión de la consulta.
+    /// </summary>
     private async Task RecordHistoryAsync(SqliteConnection connection, string bible, ParsedReference reference, string label, CancellationToken ct)
     {
         var limit = Math.Clamp(_options.HistoryLimit(), 0, BibleQueryOptions.MaxHistoryLimit);
         if (limit == 0) return;
-        var first = reference.Segments[0];
-        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(ct).ConfigureAwait(false);
-        await connection.ExecuteAsync(new CommandDefinition("DELETE FROM CitationHistory WHERE BibleAbbreviation = @bible AND Label = @label",
-            new { bible, label }, transaction, cancellationToken: ct)).ConfigureAwait(false);
-        await connection.ExecuteAsync(new CommandDefinition(
-            "INSERT INTO CitationHistory (BibleAbbreviation, BookNumber, Chapter, VerseStart, VerseEnd, Label) VALUES (@bible, @book, @chapter, @start, @end, @label)",
-            new { bible, book = reference.BookNumber, chapter = first.StartChapter, start = first.StartVerse, end = first.StartChapter == first.EndChapter ? first.EndVerse : null, label },
-            transaction, cancellationToken: ct)).ConfigureAwait(false);
-        await connection.ExecuteAsync(new CommandDefinition(
-            "DELETE FROM CitationHistory WHERE Id NOT IN (SELECT Id FROM CitationHistory ORDER BY CitedAt DESC, Id DESC LIMIT @limit)",
-            new { limit }, transaction, cancellationToken: ct)).ConfigureAwait(false);
-        await transaction.CommitAsync(ct).ConfigureAwait(false);
+        var citation = new CitationToRecord(bible, reference, label, limit);
+        if (recorder is not null) { recorder.Record(citation); return; }
+        await CitationHistoryStore.WriteAsync(connection, citation, null, ct).ConfigureAwait(false);
     }
 
     /// <summary>

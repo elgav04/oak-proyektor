@@ -25,6 +25,20 @@ internal sealed class SingleInstanceGuard : IDisposable
         return $@"Local\Oak-Proyektor-{hash}";
     }
 
+    /// <summary>
+    /// Nombre de la MARCA de orden de consola (<c>--import-bible</c>, <c>--restore-backup</c>): la toma además del candado principal quien escribe desde la consola. Así, si luego se
+    /// abre la aplicación gráfica, puede explicar que hay una orden en curso en vez de decir que está «colgada».
+    /// </summary>
+    public static string ConsoleMarkerNameFor(string dataDirectory) => NameFor(dataDirectory) + "-console";
+
+    /// <summary>¿Hay un proceso que tenga ese nombre (una orden de consola de escritura en curso)? No toma nada.</summary>
+    public static bool Exists(string name)
+    {
+        if (!Mutex.TryOpenExisting(name, out var existing)) return false;
+        existing.Dispose();
+        return true;
+    }
+
     /// <returns>El guardián si esta es la primera instancia; null si ya hay otra.</returns>
     public static SingleInstanceGuard? TryAcquire(string name)
     {
