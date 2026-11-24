@@ -17,7 +17,7 @@ public class InboundProcessorTests
     }
 
     private static string Cmd(string type, string payload = "{}", string id = "x") =>
-        $$"""{"v":10,"id":"{{id}}","kind":"command","type":"{{type}}","payload":{{payload}}}""";
+        $$"""{"v":11,"id":"{{id}}","kind":"command","type":"{{type}}","payload":{{payload}}}""";
 
     private static (InboundQueue Intake, Outbox Outbox, InboundProcessor Processor) Create(params IIpcHandler[] handlers) =>
         CreateWithCapacity(InboundProcessor.DefaultLaneCapacity, handlers);
@@ -109,7 +109,7 @@ public class InboundProcessorTests
     [InlineData("query", "bible.search", IpcLane.Slow)]
     public void Every_message_belongs_to_the_lane_its_urgency_asks_for(string kind, string type, IpcLane lane)
     {
-        Assert.True(IpcSerializer.TryParse($$$"""{"v":10,"id":"x","kind":"{{{kind}}}","type":"{{{type}}}","payload":{}}""", out var env, out var err), err);
+        Assert.True(IpcSerializer.TryParse($$$"""{"v":11,"id":"x","kind":"{{{kind}}}","type":"{{{type}}}","payload":{}}""", out var env, out var err), err);
         Assert.Equal(lane, IpcPriority.LaneOf(env!));
     }
 
@@ -320,7 +320,7 @@ public class InboundProcessorTests
         Assert.Equal(Targets.Output, target1);
 
         // Una query descartada recibe un reply con error (no un command.failed), correlacionado por su id: el cliente la rechaza al instante.
-        intake.Enqueue(WindowKind.Control, """{"v":10,"id":"q9","kind":"query","type":"bible.search","payload":{}}""");
+        intake.Enqueue(WindowKind.Control, """{"v":11,"id":"q9","kind":"query","type":"bible.search","payload":{}}""");
         var (target2, reply) = await NextOutboundAsync(outbox);
         Assert.Equal(Targets.Control, target2);
         Assert.Equal(("reply", IpcTypes.BibleSearch, "q9"), (reply.Kind, reply.Type, reply.Id));

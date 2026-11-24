@@ -140,7 +140,10 @@ internal sealed class BibleEnv : IDisposable
     public BibleQueryService Query { get; private set; } = null!;
     public BibleCrossChecker CrossChecker { get; private set; } = null!;
     public string FilesDirectory => _files;
+    public DatabaseOptions DatabaseOptions => _db.Options;
     public string DataDirectory => Path.GetDirectoryName(_db.Options.DatabasePath)!;
+    /// <summary>Donde las reimportaciones dejan su copia previa (la misma carpeta de respaldos de la BD).</summary>
+    public string BackupsDirectory => _db.Options.BackupDirectory;
 
     public static async Task<BibleEnv> CreateAsync(BibleQueryOptions? options = null)
     {
@@ -156,11 +159,16 @@ internal sealed class BibleEnv : IDisposable
 
     /// <summary>Importa <paramref name="verses"/> con la abreviatura dada (escribe el archivo sintético y lo importa).</summary>
     public Task<ImportReport> ImportAsync(IEnumerable<SyntheticBible.V> verses, string abbreviation = "SIN", string? profile = null,
-        string? attribution = null, bool allowLargeDeletion = false, IProgress<ImportProgress>? progress = null, string name = "Biblia sintética")
+        string? attribution = null, bool allowLargeDeletion = false, IProgress<ImportProgress>? progress = null, string name = "Biblia sintética", bool allowLargeChange = false)
     {
-        var path = SyntheticBible.WriteYouVersion(_files, verses, fileName: $"{abbreviation}-{Guid.NewGuid():N}.json");
-        return Importer.ImportAsync(new BibleImportRequest(path, abbreviation, name, "es", null, profile, attribution, allowLargeDeletion), progress, CancellationToken.None);
+        var path = SyntheticBible.WriteYouVersion(_files, verses, fileName: $"{abbreviation.Trim()}-{Guid.NewGuid():N}.json");
+        return ImportFileAsync(path, abbreviation, profile, attribution, allowLargeDeletion, progress, name, allowLargeChange);
     }
+
+    /// <summary>Importa un archivo YA escrito (p. ej. uno mal armado a propósito).</summary>
+    public Task<ImportReport> ImportFileAsync(string path, string abbreviation = "SIN", string? profile = null, string? attribution = null, bool allowLargeDeletion = false,
+        IProgress<ImportProgress>? progress = null, string name = "Biblia sintética", bool allowLargeChange = false) =>
+        Importer.ImportAsync(new BibleImportRequest(path, abbreviation, name, "es", null, profile, attribution, allowLargeDeletion, allowLargeChange, BackupsDirectory), progress, CancellationToken.None);
 
     public void Dispose()
     {

@@ -12,10 +12,12 @@
  * comandos `output.setBackground`, `output.showContent`, `output.clearContent` y `output.reportBackgroundFailure` (este lo manda la salida);
  * evento `output.backgroundFailed`; errores `output.mediaRejected` y `output.invalidContent`.
  * v8: configuración de la proyección de Biblia: query `bible.getSettings` y comando `bible.setSettings` (en settings.json); error `bible.invalidSettings`.
+ * v11: `bible.import` lleva `allowLargeDeletion` y `allowLargeChange` (protecciones de la reimportación); su informe lleva `previousVerses`, `backupPath`, `numberingProfileKept`,
+ * `discardedVerses` y `duplicateChaptersDifferent`; un `numberingProfile` nulo CONSERVA el perfil guardado.
  * v10: query `settings.getStatus` (avisos de la carga de settings.json: bloques inválidos vueltos a su valor por defecto, archivo dañado).
  * v9: `BackgroundLayer.retry` (contador de reintentos del mismo medio) y comando `output.retryBackground` («Reintentar» el fondo que falló).
  */
-export const PROTOCOL_VERSION = 10;
+export const PROTOCOL_VERSION = 11;
 
 export type MessageKind = "command" | "event" | "query" | "reply";
 
@@ -418,8 +420,13 @@ export interface BibleImportPayload {
   abbreviation: string;
   name: string;
   language: string;
+  /** null = NO indicado: se conserva el perfil guardado de la Biblia (ninguno si es nueva); «none» = sin uniones, pedido de forma explícita. */
   numberingProfile: string | null;
   attribution: string | null;
+  /** Permite eliminar muchos versículos o que desaparezca un libro o capítulo entero (`bible.tooManyDeletions`, `bible.booksWouldDisappear`). */
+  allowLargeDeletion: boolean;
+  /** Permite cambiar muchos textos, el nombre de la Biblia o dejar textos vacíos (`bible.tooManyChanges`: otra traducción con la misma abreviatura). */
+  allowLargeChange: boolean;
 }
 
 /** `phase`: reading | cleaning | saving | validating. */
@@ -459,6 +466,16 @@ export interface BibleImportReportDto {
   affectedItems: AffectedItemDto[];
   warnings: string[];
   elapsedMs: number;
+  /** Versículos que tenía la Biblia antes de importar (0 si es nueva). */
+  previousVerses: number;
+  /** Copia (`VACUUM INTO`) hecha antes de modificar o borrar algo; null si no hizo falta. */
+  backupPath: string | null;
+  /** No se indicó perfil de numeración y se conservó el guardado. */
+  numberingProfileKept: boolean;
+  /** Versículos descartados por numeración inválida o fuera del canon. */
+  discardedVerses: number;
+  /** Capítulos repetidos en el archivo con texto distinto del primero. */
+  duplicateChaptersDifferent: number;
 }
 
 export interface BibleImportFinishedPayload {

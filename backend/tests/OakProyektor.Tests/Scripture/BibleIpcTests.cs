@@ -21,7 +21,7 @@ public sealed class BibleIpcTests : IAsyncLifetime
     {
         _env = await BibleEnv.CreateAsync();
         _outbox = new Outbox(NullLogger<Outbox>.Instance);
-        _imports = new BibleImportService(_env.Importer, _outbox, NullLogger<BibleImportService>.Instance);
+        _imports = new BibleImportService(_env.Importer, _env.DatabaseOptions, _outbox, NullLogger<BibleImportService>.Instance);
         IIpcHandler[] handlers =
         [
             new BibleListHandler(_env.Query), new BibleLookupHandler(_env.Query), new BibleChapterHandler(_env.Query), new BibleSearchHandler(_env.Query),
@@ -131,7 +131,7 @@ public sealed class BibleIpcTests : IAsyncLifetime
         var path = SyntheticBible.WriteYouVersion(_env.FilesDirectory, SyntheticBible.Small());
 
         var response = await _dispatcher.DispatchAsync(Msg(IpcKind.Command, IpcTypes.BibleImport,
-            new BibleImportPayload(path, "SIN", "Biblia sintética", "es", "merge-ps47-3jn", "Aviso inventado")), CancellationToken.None);
+            new BibleImportPayload(path, "SIN", "Biblia sintética", "es", "merge-ps47-3jn", "Aviso inventado", false, false)), CancellationToken.None);
         Assert.Null(response);                                                                     // el comando volvió: el trabajo sigue en otro hilo
 
         var events = await EventsUntilAsync(IpcTypes.BibleImportFinished);
@@ -157,7 +157,7 @@ public sealed class BibleIpcTests : IAsyncLifetime
     public async Task A_second_import_while_one_runs_is_refused_with_importBusy()
     {
         var path = SyntheticBible.WriteYouVersion(_env.FilesDirectory, SyntheticBible.Small());
-        var payload = new BibleImportPayload(path, "SIN", "N", "es", null, null);
+        var payload = new BibleImportPayload(path, "SIN", "N", "es", null, null, false, false);
 
         Assert.Null(await _dispatcher.DispatchAsync(Msg(IpcKind.Command, IpcTypes.BibleImport, payload), CancellationToken.None));
         var busy = await _dispatcher.DispatchAsync(Msg(IpcKind.Command, IpcTypes.BibleImport, payload), CancellationToken.None);
@@ -176,7 +176,7 @@ public sealed class BibleIpcTests : IAsyncLifetime
     public async Task A_failed_import_is_reported_in_the_finished_event_with_its_code()
     {
         Assert.Null(await _dispatcher.DispatchAsync(Msg(IpcKind.Command, IpcTypes.BibleImport,
-            new BibleImportPayload(Path.Combine(_env.FilesDirectory, "no-existe.json"), "SIN", "N", "es", null, null)), CancellationToken.None));
+            new BibleImportPayload(Path.Combine(_env.FilesDirectory, "no-existe.json"), "SIN", "N", "es", null, null, false, false)), CancellationToken.None));
 
         var finished = (await EventsUntilAsync(IpcTypes.BibleImportFinished))[^1].GetPayload<BibleImportFinishedPayload>();
 
@@ -185,4 +185,66 @@ public sealed class BibleIpcTests : IAsyncLifetime
         Assert.Null(finished.Report);
         Assert.False(string.IsNullOrWhiteSpace(finished.ErrorMessage));
     }
-}
+
+    // ───────────── protecciones de la reimportación (v11) ─────────────
+
+    private async Task<BibleImportFinishedPayload> ImportAndWaitAsync(string path, string abbreviation, string name, string? profile, bool allowDeletion = false, bool allowChange = false)
+    {
+        Assert.Null(await _dispatcher.DispatchAsync(Msg(IpcKind.Command, IpcTypes.BibleImport, new BibleImportPayload(path, abbreviation, name, "es", profile, null, allowDeletion, allowChange)), CancellationToken.None));
+        return (await EventsUntilAsync(IpcTypes.BibleImportFinished))[^1].GetPayload<BibleImportFinishedPayload>();
+    }
+
+    [Fact]
+    public async Task Importing_another_translation_with_the_same_abbreviation_is_refused_with_its_code_until_the_panel_allows_the_change()
+    {
+        var original = SyntheticBible.WriteYouVersion(_env.FilesDirectory, SyntheticBible.Small(), fileName: "original.json");
+        var other = SyntheticBible.WriteYouVersion(_env.FilesDirectory, SyntheticBible.Small().Select(v => v with { Text = "Otra traduccion inventada " + v.Verse }), fileName: "otra.json");
+        Assert.True((await ImportAndWaitAsync(original, "SIN", "Biblia sintética", "none")).Ok);
+
+        var refused = await ImportAndWaitAsync(other, "SIN", "Biblia sintética", null);
+        Assert.False(refused.Ok);
+        Assert.Equal(BibleErrorCodes.TooManyChanges, refused.ErrorCode);
+        Assert.Null(refused.Report);
+        Assert.Equal(SyntheticBible.TextOf(1, 1, 1), (await QueryAsync(IpcTypes.BibleChapter, new BibleChapterRequest("SIN", 1, 1))).ReplyResult<BiblePassagePayload>().Verses[0].Text);   // intacto
+
+        var allowed = await ImportAndWaitAsync(other, "SIN", "Biblia sintética", null, allowChange: true);
+        Assert.True(allowed.Ok);
+        var report = allowed.Report!;
+        Assert.Equal(SyntheticBible.Small().Count, report.Updated);
+        Assert.Equal(SyntheticBible.Small().Count, report.PreviousVerses);
+        Assert.False(string.IsNullOrEmpty(report.BackupPath));
+        Assert.True(File.Exists(report.BackupPath));
+        Assert.StartsWith(_env.BackupsDirectory, report.BackupPath);
+    }
+
+    [Fact]
+    public async Task A_book_that_disappears_is_refused_until_the_deletion_flag_arrives_and_a_null_profile_keeps_the_stored_one()
+    {
+        var full = SyntheticBible.WriteYouVersion(_env.FilesDirectory, SyntheticBible.Small(), fileName: "completa.json");
+        var withoutJudas = SyntheticBible.WriteYouVersion(_env.FilesDirectory, SyntheticBible.Small().Where(v => v.Book != 65), fileName: "sin-judas.json");
+        var first = await ImportAndWaitAsync(full, "SIN", "Biblia sintética", "merge-ps47-3jn");
+        Assert.Equal("merge-ps47-3jn", first.Report!.NumberingProfile);
+        Assert.False(first.Report.NumberingProfileKept);
+
+        var refused = await ImportAndWaitAsync(withoutJudas, "SIN", "Biblia sintética", null);
+        Assert.Equal(BibleErrorCodes.BooksWouldDisappear, refused.ErrorCode);
+
+        var allowed = await ImportAndWaitAsync(withoutJudas, "SIN", "Biblia sintética", null, allowDeletion: true);
+        Assert.True(allowed.Ok);
+        Assert.Equal("merge-ps47-3jn", allowed.Report!.NumberingProfile);                       // el perfil NO indicado se conservó
+        Assert.True(allowed.Report.NumberingProfileKept);
+        Assert.Equal(6, allowed.Report.Deleted);
+    }
+
+    [Fact]
+    public async Task The_extended_report_travels_without_any_bible_text()
+    {
+        var path = SyntheticBible.WriteYouVersion(_env.FilesDirectory, [.. SyntheticBible.Small(), SyntheticBible.Verse(1, 51, 1)], fileName: "con-extra.json");
+        var finished = await ImportAndWaitAsync(path, "SIN", "Biblia sintética", null);
+
+        Assert.True(finished.Ok);
+        Assert.Equal(1, finished.Report!.DiscardedVerses);
+        var raw = JsonSerializer.Serialize(finished, IpcSerializer.Options);
+        foreach (var banned in new[] { "Sintetico", "lorem", "ipsum", "dolor" })
+            Assert.DoesNotContain(banned, raw, StringComparison.OrdinalIgnoreCase);
+    }}

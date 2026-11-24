@@ -49,9 +49,11 @@ public sealed record BibleSetAttributionPayload(string Bible, string Attribution
 
 /// <summary>
 /// <c>bible.import</c>: importa una Biblia desde un archivo en segundo plano (el comando vuelve al instante; el avance llega como <c>bible.importProgress</c> y el
-/// resultado como <c>bible.importFinished</c>). <c>NumberingProfile</c> nulo o «none» = sin uniones de versículos. <c>Attribution</c> nulo = no tocar el actual.
+/// resultado como <c>bible.importFinished</c>). <c>NumberingProfile</c> nulo = NO indicado (se conserva el perfil guardado de la Biblia; ninguno si es nueva); «none» = sin uniones, pedido
+/// de forma explícita. <c>Attribution</c> nulo = no tocar el actual. <c>AllowLargeDeletion</c> permite eliminar muchos versículos o que desaparezca un libro o capítulo entero; <c>AllowLargeChange</c>
+/// permite cambiar muchos textos, el nombre de la Biblia o dejar textos vacíos (v11).
 /// </summary>
-public sealed record BibleImportPayload(string Path, string Abbreviation, string Name, string Language, string? NumberingProfile, string? Attribution);
+public sealed record BibleImportPayload(string Path, string Abbreviation, string Name, string Language, string? NumberingProfile, string? Attribution, bool AllowLargeDeletion, bool AllowLargeChange);
 
 /// <summary>Evento <c>bible.importProgress</c>. <c>Phase</c>: <c>reading</c> | <c>cleaning</c> | <c>saving</c> | <c>validating</c>.</summary>
 public sealed record BibleImportProgressPayload(string Abbreviation, string Phase, int Done, int Total);
@@ -64,7 +66,8 @@ public sealed record BibleImportReportDto(
     long BibleId, bool Created, string NumberingProfile,
     int SourceVerses, int Inserted, int Updated, int Unchanged, int Deleted, int CleanedVerses, int JoinedVerses,
     int Books, int Chapters, int Verses, int EmptyVerses, int VerseTotalDifference, bool FtsIntegrityOk,
-    IReadOnlyList<AffectedItemDto> AffectedItems, IReadOnlyList<string> Warnings, long ElapsedMs);
+    IReadOnlyList<AffectedItemDto> AffectedItems, IReadOnlyList<string> Warnings, long ElapsedMs,
+    int PreviousVerses, string? BackupPath, bool NumberingProfileKept, int DiscardedVerses, int DuplicateChaptersDifferent);
 
 /// <summary>Evento <c>bible.importFinished</c>: <c>Report</c> si salió bien; <c>ErrorCode</c> y <c>ErrorMessage</c> si falló.</summary>
 public sealed record BibleImportFinishedPayload(string Abbreviation, bool Ok, string? ErrorCode, string? ErrorMessage, BibleImportReportDto? Report);

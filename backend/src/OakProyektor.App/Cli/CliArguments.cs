@@ -21,7 +21,7 @@ internal static class CliArguments
     {
         "import-bible", "abbr", "name", "lang", "numbering", "attribution", "format", "against", "against-format", "show-verse", "bible",
     };
-    private static readonly HashSet<string> SwitchOptions = new(StringComparer.Ordinal) { "verify-bible", "list-bibles", "allow-large-deletion", "help" };
+    private static readonly HashSet<string> SwitchOptions = new(StringComparer.Ordinal) { "verify-bible", "list-bibles", "allow-large-deletion", "allow-large-change", "help" };
 
     /// <summary>true si alguno de los argumentos pide una orden de consola (entonces no se abre ninguna ventana).</summary>
     public static bool IsCliInvocation(string[] args) =>
@@ -71,7 +71,12 @@ internal static class CliArguments
 
           Importar una Biblia (actualiza en el sitio: conserva el BibleId):
             OakProyektor.App --import-bible <ruta> --abbr <ABREV> --name "<nombre>" --lang <idioma>
-                             [--numbering <perfil>] [--attribution "<aviso de derechos>"] [--format <formato>] [--allow-large-deletion]
+                             [--numbering <perfil>] [--attribution "<aviso de derechos>"] [--format <formato>]
+                             [--allow-large-deletion] [--allow-large-change]
+            Sin --numbering se CONSERVA el perfil guardado de la Biblia (``--numbering none`` lo quita de forma explícita).
+            Una reimportación se RECHAZA si elimina más del 1 % de los versículos o hace desaparecer un libro o capítulo entero (--allow-large-deletion), o si cambia más
+            del 1 % de los textos, cambia el nombre de la Biblia o deja vacíos textos que no lo están (--allow-large-change: otra traducción con la misma abreviatura).
+            Antes de modificar o borrar algo se hace una copia de seguridad en la carpeta backups (se conservan las últimas 5).
 
           Comparar una Biblia ya importada con otro archivo (no lo importa):
             OakProyektor.App --verify-bible --abbr <ABREV> --against <ruta> [--against-format <formato>]

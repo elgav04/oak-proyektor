@@ -3,7 +3,7 @@ import { useStore } from "zustand";
 import { Button } from "@/components/ui/button";
 import type { BibleImportReportDto } from "@/ipc/protocol";
 import type { BibleController } from "./controller";
-import { checkImportForm, EMPTY_FORM, MAX_ABBREVIATION_LENGTH, NUMBERING_PROFILES, type ImportController, type ImportForm } from "./importController";
+import { allowKindFor, checkImportForm, EMPTY_FORM, MAX_ABBREVIATION_LENGTH, NUMBERING_PROFILES, type ImportController, type ImportForm } from "./importController";
 
 const PHASE_LABELS: Record<string, string> = {
   reading: "Leyendo el archivo",
@@ -28,13 +28,25 @@ function ReportView({ report }: { report: BibleImportReportDto }) {
         {" — "}
         {report.verses.toLocaleString("es")} versículos en {report.books} libros y {report.chapters} capítulos ({(report.elapsedMs / 1000).toFixed(1)} s).
       </p>
+      {!report.created && (
+        <p data-testid="modified-count">
+          Textos modificados: <b>{report.updated.toLocaleString("es")}</b> de los {report.previousVerses.toLocaleString("es")} que había
+          {report.previousVerses > 0 ? ` (${((100 * report.updated) / report.previousVerses).toLocaleString("es", { maximumFractionDigits: 2 })} %)` : ""}.
+        </p>
+      )}
+      <p data-testid="backup-path">
+        {report.backupPath ? <>Copia de seguridad previa: <span className="break-all font-mono text-xs">{report.backupPath}</span> (se conservan las últimas 5).</> : "Copia de seguridad previa: no hizo falta (no se modificó ni borró nada)."}
+      </p>
       <ul className="list-disc pl-5">
         <li>De la fuente: {report.sourceVerses.toLocaleString("es")}. Nuevos: {report.inserted.toLocaleString("es")}. Actualizados: {report.updated.toLocaleString("es")}. Sin cambios: {report.unchanged.toLocaleString("es")}. Eliminados: {report.deleted.toLocaleString("es")}.</li>
         <li>
           Total frente al canon habitual ({STANDARD_TOTAL.toLocaleString("es")}):{" "}
           {difference === 0 ? "igual" : `${difference > 0 ? "+" : ""}${String(difference)} (numeración distinta o Biblia incompleta)`}.
         </li>
-        <li>Perfil de numeración: {report.numberingProfile}. Versículos limpiados: {report.cleanedVerses}. Unidos de varios trozos: {report.joinedVerses}. Vacíos: {report.emptyVerses}.</li>
+        <li data-testid="profile-line">Perfil de numeración aplicado: {report.numberingProfile}{report.numberingProfileKept ? " (conservado: no se indicó otro)" : ""}. Versículos limpiados: {report.cleanedVerses}. Unidos de varios trozos: {report.joinedVerses}. Vacíos: {report.emptyVerses}.
+          {report.discardedVerses > 0 ? ` Descartados (numeración inválida o fuera del canon): ${String(report.discardedVerses)}.` : ""}
+          {report.duplicateChaptersDifferent > 0 ? ` ¡${String(report.duplicateChaptersDifferent)} capítulo(s) repetido(s) con texto DISTINTO!` : ""}
+        </li>
         <li className={report.ftsIntegrityOk ? "" : "font-bold text-red-700"}>
           Índice de búsqueda: {report.ftsIntegrityOk ? "correcto" : "FALLÓ la comprobación (la búsqueda de texto puede dar resultados incompletos)"}.
         </li>
@@ -70,9 +82,12 @@ export function BibleImportSection({ importer, bibles: controller, connected }: 
   const installed = useStore(controller.store).bibles;
   const [form, setForm] = useState<ImportForm>(EMPTY_FORM);
   const [profileTouched, setProfileTouched] = useState(false);
+  // Confirmación para repetir una importación RECHAZADA saltándose la protección (se pide cada vez).
+  const [confirmRisk, setConfirmRisk] = useState(false);
 
   const abbreviation = form.abbreviation.trim();
-  const existing = installed.find((b) => b.abbreviation === abbreviation);
+  // Sin distinguir mayúsculas (como el backend): «rvr1960» es la MISMA Biblia que «RVR1960».
+  const existing = installed.find((b) => b.abbreviation === abbreviation) ?? installed.find((b) => b.abbreviation.toLowerCase() === abbreviation.toLowerCase());
   // Al actualizar una Biblia ya instalada se parte de SUS datos: nombre, idioma y, sobre todo, el perfil de numeración (reimportar sin él cambiaría la numeración guardada).
   const effective: ImportForm = {
     ...form,
@@ -117,9 +132,31 @@ export function BibleImportSection({ importer, bibles: controller, connected }: 
             <>
               <p className="font-bold">La importación de «{view.result.abbreviation}» falló. No se cambió nada.</p>
               <p className="text-sm">{view.result.errorMessage ?? "Error desconocido."} {view.result.errorCode && <span className="text-neutral-600">({view.result.errorCode})</span>}</p>
+              {view.canRetryAllowing && (
+                <div className="flex flex-col gap-2 rounded border-2 border-amber-600 bg-amber-50 p-3 text-sm" data-testid="override-box">
+                  <p>
+                    Esto es una <b>protección</b>: casi siempre significa que el archivo no es el correcto (otra traducción con la misma abreviatura, o un archivo incompleto). No se ha cambiado nada.
+                    Antes de modificar o borrar, el programa hace una copia de seguridad de la base de datos.
+                  </p>
+                  <label className="flex cursor-pointer items-start gap-2">
+                    <input type="checkbox" className="mt-1" checked={confirmRisk} onChange={(e) => { setConfirmRisk(e.target.checked); }} />
+                    <span>Sé lo que hago: el archivo es el correcto y quiero {allowKindFor(view.result.errorCode) === "deletion" ? "que se eliminen esos versículos o libros" : "sobrescribir los textos de esa Biblia"}.</span>
+                  </label>
+                  <Button
+                    variant="outline"
+                    className="w-fit"
+                    disabled={!connected || !confirmRisk}
+                    onClick={() => {
+                      if (importer.retryAllowing()) setConfirmRisk(false);
+                    }}
+                  >
+                    Importar de todos modos
+                  </Button>
+                </div>
+              )}
             </>
           )}
-          <Button variant="outline" className="w-fit" onClick={importer.dismiss}>Cerrar informe</Button>
+          <Button variant="outline" className="w-fit" onClick={() => { setConfirmRisk(false); importer.dismiss(); }}>Cerrar informe</Button>
         </div>
       )}
 

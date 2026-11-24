@@ -180,12 +180,12 @@ public sealed class BibleImporterTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_new_verse_in_the_source_is_inserted_and_the_name_and_language_follow_the_request()
+    public async Task A_new_verse_in_the_source_is_inserted_and_the_name_follows_the_request_when_the_change_is_allowed()
     {
         var small = SyntheticBible.Small();
         await _env.ImportAsync(small, name: "Nombre viejo");
 
-        var report = await _env.ImportAsync([.. small, SyntheticBible.Verse(1, 3, 1)], name: "Nombre nuevo");
+        var report = await _env.ImportAsync([.. small, SyntheticBible.Verse(1, 3, 1)], name: "Nombre nuevo", allowLargeChange: true);   // cambiar el nombre de una Biblia instalada es un cambio que hay que permitir
 
         Assert.Equal(1, report.Inserted);
         Assert.Equal("Nombre nuevo", await _env_Scalar<string>("SELECT Name FROM Bibles WHERE Abbreviation = 'SIN'", new { }));
@@ -277,7 +277,7 @@ public sealed class BibleImporterTests : IAsyncLifetime
         var small = SyntheticBible.Small();
         var merged = await _env.ImportAsync(small, profile: "merge-ps47-3jn");
 
-        var split = await _env.ImportAsync(small);
+        var split = await _env.ImportAsync(small, profile: "none");   // volver a «ninguno» hay que PEDIRLO: sin indicar perfil se conserva el guardado
 
         Assert.Equal(merged.BibleId, split.BibleId);
         Assert.Equal(2, split.Inserted);
@@ -307,25 +307,25 @@ public sealed class BibleImporterTests : IAsyncLifetime
     [Fact]
     public async Task A_reimport_that_would_delete_a_lot_is_refused_and_changes_nothing()
     {
-        var big = Enumerable.Range(1, 200).Select(v => SyntheticBible.Verse(1, 1, v)).ToList();
+        var big = Enumerable.Range(1, 150).Select(v => SyntheticBible.Verse(1, 1, v)).ToList();
         await _env.ImportAsync(big);
 
         var ex = await Assert.ThrowsAsync<BibleException>(() => _env.ImportAsync(big.Take(20)));
 
         Assert.Equal(BibleErrorCodes.TooManyDeletions, ex.Code);
-        Assert.Contains("180", ex.Message);
-        Assert.Equal(200, await CountAsync("SELECT COUNT(*) FROM Verses"));        // intacto
+        Assert.Contains("130", ex.Message);
+        Assert.Equal(150, await CountAsync("SELECT COUNT(*) FROM Verses"));        // intacto
     }
 
     [Fact]
     public async Task A_big_deletion_is_possible_when_explicitly_allowed()
     {
-        var big = Enumerable.Range(1, 200).Select(v => SyntheticBible.Verse(1, 1, v)).ToList();
+        var big = Enumerable.Range(1, 150).Select(v => SyntheticBible.Verse(1, 1, v)).ToList();
         await _env.ImportAsync(big);
 
         var report = await _env.ImportAsync(big.Take(20), allowLargeDeletion: true);
 
-        Assert.Equal(180, report.Deleted);
+        Assert.Equal(130, report.Deleted);
         Assert.Equal(20, await CountAsync("SELECT COUNT(*) FROM Verses"));
     }
 
@@ -442,9 +442,10 @@ public sealed class BibleImporterTests : IAsyncLifetime
     // ───────────────────────────── peticiones inválidas ─────────────────────────────
 
     [Theory]
-    [InlineData(" RVR ", "abreviatura")]
     [InlineData("", "abreviatura")]
+    [InlineData("   ", "abreviatura")]
     [InlineData("ABREVIATURA-DEMASIADO-LARGA-X", "abreviatura")]
+    [InlineData("RV\u0007R", "control")]
     public async Task A_bad_abbreviation_is_refused_before_touching_anything(string abbreviation, string expected)
     {
         var path = SyntheticBible.WriteYouVersion(_env.FilesDirectory, SyntheticBible.Small());

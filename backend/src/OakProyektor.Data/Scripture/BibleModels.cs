@@ -19,6 +19,10 @@ public static class BibleErrorCodes
     public const string FileMissing = "bible.fileMissing";
     public const string SourceInvalid = "bible.sourceInvalid";
     public const string TooManyDeletions = "bible.tooManyDeletions";
+    /// <summary>La reimportación cambiaría demasiados textos ya guardados, el nombre de la Biblia o dejaría vacíos textos que no lo están (¿otra traducción con la misma abreviatura?). Se permite con <c>AllowLargeChange</c>.</summary>
+    public const string TooManyChanges = "bible.tooManyChanges";
+    /// <summary>La reimportación haría desaparecer un libro o un capítulo entero de lo guardado (¿un archivo incompleto?). Se permite con <c>AllowLargeDeletion</c>.</summary>
+    public const string BooksWouldDisappear = "bible.booksWouldDisappear";
     public const string ImportBusy = "bible.importBusy";
     public const string ImportFailed = "bible.importFailed";
     /// <summary>La referencia pide más versículos de los que se devuelven por consulta (<see cref="BibleQueryService.MaxPassageVerses"/>): se rechaza, nunca se recorta en silencio.</summary>
@@ -27,12 +31,15 @@ public static class BibleErrorCodes
 
 /// <param name="Path">Archivo de la Biblia.</param>
 /// <param name="FormatId">Formato de la fuente (<c>IBibleSourceFormat.Id</c>); nulo = el aprobado (<see cref="OakProyektor.Core.Scripture.BibleSourceFormats.Default"/>).</param>
-/// <param name="NumberingProfileId">Perfil de numeración (<c>NumberingProfiles</c>); nulo o «none» = sin uniones.</param>
+/// <param name="NumberingProfileId">Perfil de numeración (<c>NumberingProfiles</c>). <b>Nulo = no se indicó: se CONSERVA el perfil guardado de la Biblia</b> (ninguno si es nueva); «none» = sin uniones, pedido de forma explícita.</param>
 /// <param name="Attribution">Aviso de derechos: nulo = no tocar el actual (vacío si es una Biblia nueva).</param>
-/// <param name="AllowLargeDeletion">Permite que una reimportación elimine muchos versículos (más del 1 %). Protege de importar un archivo equivocado o truncado.</param>
+/// <param name="AllowLargeDeletion">Permite que una reimportación elimine muchos versículos (más del 1 %) o haga desaparecer un libro o capítulo entero. Protege de importar un archivo equivocado o truncado.</param>
+/// <param name="AllowLargeChange">Permite que una reimportación cambie muchos textos ya guardados (más del 1 %), cambie el nombre de la Biblia o deje vacíos textos que no lo están. Protege de sobrescribir una Biblia con otra traducción por error de abreviatura.</param>
+/// <param name="BackupDirectory">Carpeta donde se hace la copia (<c>VACUUM INTO</c>) previa a una reimportación que vaya a modificar o borrar algo; se conservan las últimas <see cref="BibleImporter.BackupsToKeep"/>. Nulo = sin copia.</param>
 public sealed record BibleImportRequest(
     string Path, string Abbreviation, string Name, string Language,
-    string? FormatId = null, string? NumberingProfileId = null, string? Attribution = null, bool AllowLargeDeletion = false);
+    string? FormatId = null, string? NumberingProfileId = null, string? Attribution = null, bool AllowLargeDeletion = false,
+    bool AllowLargeChange = false, string? BackupDirectory = null);
 
 /// <param name="Phase"><c>reading</c> | <c>cleaning</c> | <c>saving</c> | <c>validating</c>.</param>
 public sealed record ImportProgress(string Phase, int Done, int Total);
@@ -55,7 +62,8 @@ public sealed record ImportReport(
     IReadOnlyList<string> MergesApplied, IReadOnlyList<string> MergesSkipped,
     IReadOnlyList<AffectedItem> AffectedItems,
     ValidationReport Validation, bool FtsIntegrityOk, string? FtsNote,
-    IReadOnlyList<string> Warnings, long ElapsedMs);
+    IReadOnlyList<string> Warnings, long ElapsedMs,
+    int PreviousVerses = 0, string? BackupPath = null, bool NumberingProfileKept = false, int DiscardedVerses = 0, int DuplicateChaptersDifferent = 0);
 
 public sealed record CrossCheckReport(
     string FormatId, string NumberingProfile,

@@ -16,9 +16,17 @@ internal static class CliReportWriter
         w.WriteLine();
         w.WriteLine($"== Informe de importación ==");
         w.WriteLine($"Biblia id {r.BibleId} ({(r.CreatedBible ? "creada" : "actualizada en el sitio")}); formato {r.FormatId}; perfil de numeración {r.NumberingProfile}");
+        w.WriteLine($"Perfil de numeración aplicado: {r.NumberingProfile}{(r.NumberingProfileKept ? " (conservado: no se indicó --numbering)" : "")}");
         w.WriteLine($"Versículos de la fuente (tras el perfil): {N(r.SourceVerses)}");
         w.WriteLine($"  nuevos {N(r.Inserted)}, actualizados {N(r.Updated)}, sin cambios {N(r.Unchanged)}, eliminados {N(r.Deleted)} (libros eliminados {N(r.BooksDeleted)})");
-        w.WriteLine($"Limpieza: {N(r.CleanedVerses)} versículos limpiados; {N(r.JoinedVerses)} unidos desde varios trozos; {N(r.DuplicateChaptersDiscarded)} capítulos repetidos descartados");
+        if (!r.CreatedBible)
+        {
+            var percent = r.PreviousVerses > 0 ? 100.0 * r.Updated / r.PreviousVerses : 0;
+            w.WriteLine($"Textos modificados: {N(r.Updated)} de los {N(r.PreviousVerses)} que había ({percent:0.##} %)");
+        }
+        w.WriteLine(r.BackupPath is null ? "Copia de seguridad previa: no hizo falta (no se modificó ni borró nada)" : $"Copia de seguridad previa: {r.BackupPath}");
+        if (r.DiscardedVerses > 0) w.WriteLine($"Versículos descartados (numeración inválida o fuera del canon): {N(r.DiscardedVerses)}");
+        w.WriteLine($"Limpieza: {N(r.CleanedVerses)} versículos limpiados; {N(r.JoinedVerses)} unidos desde varios trozos; {N(r.DuplicateChaptersDiscarded)} capítulos repetidos descartados{(r.DuplicateChaptersDifferent > 0 ? $" (¡{N(r.DuplicateChaptersDifferent)} con texto DISTINTO!)" : "")}");
         if (r.MergesApplied.Count > 0) w.WriteLine($"Uniones de numeración aplicadas: {string.Join(", ", r.MergesApplied)}");
         if (r.MergesSkipped.Count > 0) w.WriteLine($"Uniones de numeración NO aplicadas: {string.Join(", ", r.MergesSkipped)}");
         if (r.AffectedItems.Count > 0)

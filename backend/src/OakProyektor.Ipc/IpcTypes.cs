@@ -66,9 +66,11 @@ public static class IpcCatalog
     /// v8: configuración de la proyección de Biblia: query <c>bible.getSettings</c> y comando <c>bible.setSettings</c> (Biblia por defecto, nombres cortos, tema, opciones y crossfade; en <c>settings.json</c>);
     /// error <c>bible.invalidSettings</c>.
     /// v9: <c>BackgroundLayer</c> lleva <c>retry</c> (contador de reintentos del mismo medio); nuevo comando <c>output.retryBackground</c> («Reintentar» el fondo que falló).
+    /// v11: <c>bible.import</c> lleva <c>allowLargeDeletion</c> y <c>allowLargeChange</c> (las protecciones de la reimportación, que solo se saltan de forma explícita) y su informe lleva
+    /// <c>previousVerses</c>, <c>backupPath</c>, <c>numberingProfileKept</c>, <c>discardedVerses</c> y <c>duplicateChaptersDifferent</c>; un <c>numberingProfile</c> nulo ahora CONSERVA el perfil guardado.
     /// v10: query <c>settings.getStatus</c> (avisos de la carga de <c>settings.json</c>: bloques inválidos que volvieron a su valor por defecto o archivo dañado).
     /// </summary>
-    public const int ProtocolVersion = 10;
+    public const int ProtocolVersion = 11;
 
     public static IReadOnlyList<MessageDescriptor> Messages { get; } =
     [

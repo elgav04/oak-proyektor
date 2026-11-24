@@ -24,7 +24,8 @@ internal static class BibleIpc
         new(r.BibleId, r.CreatedBible, r.NumberingProfile, r.SourceVerses, r.Inserted, r.Updated, r.Unchanged, r.Deleted, r.CleanedVerses, r.JoinedVerses,
             r.Validation.Books, r.Validation.Chapters, r.Validation.Verses, r.Validation.EmptyVerses, r.Validation.DifferenceFromStandardVerseTotal, r.FtsIntegrityOk,
             [.. r.AffectedItems.Select(a => new AffectedItemDto(a.Kind, a.Id, a.PlaylistId, a.Reference))],
-            [.. r.Warnings.Concat(r.Validation.Warnings)], r.ElapsedMs);
+            [.. r.Warnings.Concat(r.Validation.Warnings)], r.ElapsedMs,
+            r.PreviousVerses, r.BackupPath, r.NumberingProfileKept, r.DiscardedVerses, r.DuplicateChaptersDifferent);
 }
 
 internal sealed class BibleListHandler(IBibleQueryService bibles) : IIpcHandler

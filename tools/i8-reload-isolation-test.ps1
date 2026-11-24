@@ -76,9 +76,9 @@ try {
     $control = $null
     for ($i = 0; $i -lt 40 -and -not $control; $i++) { Start-Sleep -Milliseconds 500; $control = Get-Page "index\.html" }
     $cws = Connect-Cdp $control.webSocketDebuggerUrl; Start-Sleep -Seconds 2
-    $list = Eval $cws '(async () => { const id = crypto.randomUUID(); return await new Promise((resolve) => { window.external.receiveMessage((raw) => { const m = JSON.parse(raw); if (m.id === id) resolve(JSON.stringify(m.payload)); }); window.external.sendMessage(JSON.stringify({ v:10, id, kind: "query", type: "display.list", payload: {} })); }); })()'
+    $list = Eval $cws '(async () => { const id = crypto.randomUUID(); return await new Promise((resolve) => { window.external.receiveMessage((raw) => { const m = JSON.parse(raw); if (m.id === id) resolve(JSON.stringify(m.payload)); }); window.external.sendMessage(JSON.stringify({ v:11, id, kind: "query", type: "display.list", payload: {} })); }); })()'
     $panelId = ((($list | ConvertFrom-Json).result.displays) | Where-Object { $_.hostsPanel } | Select-Object -First 1).id
-    [void](Eval $cws ("window.external.sendMessage(JSON.stringify({v:10,id:crypto.randomUUID(),kind:'command',type:'output.open',payload:{displayId:" + ($panelId | ConvertTo-Json -Compress) + "}}));true"))
+    [void](Eval $cws ("window.external.sendMessage(JSON.stringify({v:11,id:crypto.randomUUID(),kind:'command',type:'output.open',payload:{displayId:" + ($panelId | ConvertTo-Json -Compress) + "}}));true"))
     $output = $null
     for ($i = 0; $i -lt 40 -and -not $output; $i++) { Start-Sleep -Milliseconds 500; $output = Get-Page "output\.html" }
     $ows = Connect-Cdp $output.webSocketDebuggerUrl; Start-Sleep -Seconds 2

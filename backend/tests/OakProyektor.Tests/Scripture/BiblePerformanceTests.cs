@@ -78,7 +78,7 @@ public sealed class BiblePerformanceTests(ITestOutputHelper output) : IAsyncLife
         var edited = verses.Select((v, i) => i % 100 == 0 ? v with { Text = v.Text + " editado" } : v).ToList();
         var editedPath = SyntheticBible.WriteYouVersion(_env.FilesDirectory, edited, fileName: "editada.json");
         clock.Restart();
-        var third = await _env.Importer.ImportAsync(new BibleImportRequest(editedPath, "PRF", "Biblia sintética completa", "es", NumberingProfileId: "merge-ps47-3jn"), null, CancellationToken.None);
+        var third = await _env.Importer.ImportAsync(new BibleImportRequest(editedPath, "PRF", "Biblia sintética completa", "es", NumberingProfileId: "merge-ps47-3jn", AllowLargeChange: true), null, CancellationToken.None);   // 1 % + las uniones superan el tope: hay que permitirlo
         var thirdMs = clock.ElapsedMilliseconds;
         output.WriteLine($"Reimportación con 1 % de cambios y perfil: {thirdMs,6} ms — {third.Updated:N0} actualizados, {third.Deleted:N0} eliminados");
         Assert.Equal(2, third.Deleted);

@@ -43,6 +43,19 @@ public class CliArgumentsTests
     }
 
     [Fact]
+    public void The_allow_large_change_switch_parses_and_the_help_explains_the_protections()
+    {
+        var c = Ok("--import-bible", "x.json", "--abbr", "SIN", "--name", "N", "--lang", "es", "--allow-large-change", "--allow-large-deletion");
+        Assert.True(c.Has("allow-large-change"));
+        Assert.True(c.Has("allow-large-deletion"));
+        Assert.False(Ok("--import-bible", "x.json", "--abbr", "SIN", "--name", "N", "--lang", "es").Has("allow-large-change"));
+        var help = CliArguments.HelpText();
+        Assert.Contains("--allow-large-change", help);
+        Assert.Contains("CONSERVA el perfil", help);
+        Assert.Contains("copia de seguridad", help);
+    }
+
+    [Fact]
     public void Show_verse_verify_and_list_parse()
     {
         var show = Ok("--show-verse", "Sal 47:9", "--bible", "RVR1960");
@@ -154,6 +167,60 @@ public sealed class CliRunnerTests : IDisposable
         Assert.Equal(CliRunner.Ok, code);
         Assert.Contains("actualizada en el sitio", output);
         Assert.Contains($"sin cambios {SyntheticBible.Small().Count}", output.Replace(".", ""));
+    }
+
+    private static List<SyntheticBible.V> OtherTranslation() => [.. SyntheticBible.Small().Select(v => v with { Text = "Otra traduccion inventada " + v.Verse })];
+
+    [Fact]
+    public async Task Another_translation_with_the_same_abbreviation_exits_with_an_error_until_allow_large_change_and_then_makes_a_backup()
+    {
+        await RunAsync("--import-bible", File1(SyntheticBible.Small()), "--abbr", "SIN", "--name", "N", "--lang", "es");
+        var other = File1(OtherTranslation(), "otra.json");
+
+        var refused = await RunAsync("--import-bible", other, "--abbr", "SIN", "--name", "N", "--lang", "es");
+        Assert.Equal(CliRunner.Failed, refused.Code);
+        Assert.Contains("bible.tooManyChanges", refused.Error);
+        Assert.Contains("sobrescribiría", refused.Error);
+
+        var allowed = await RunAsync("--import-bible", other, "--abbr", "SIN", "--name", "N", "--lang", "es", "--allow-large-change");
+        Assert.Equal(CliRunner.Ok, allowed.Code);
+        Assert.Contains("Textos modificados:", allowed.Output);
+        var backupLine = allowed.Output.Split('\n').Single(l => l.StartsWith("Copia de seguridad previa:", StringComparison.Ordinal));
+        var backup = backupLine["Copia de seguridad previa:".Length..].Trim();
+        Assert.True(File.Exists(backup), backup);
+        Assert.StartsWith(Path.Combine(_root, "datos", "backups"), backup);
+        foreach (var word in SyntheticWords) Assert.DoesNotContain(word, allowed.Output + allowed.Error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task A_reimport_without_numbering_keeps_the_stored_profile_and_says_so_while_none_changes_it()
+    {
+        var file = File1(SyntheticBible.Small());
+        await RunAsync("--import-bible", file, "--abbr", "SIN", "--name", "N", "--lang", "es", "--numbering", "merge-ps47-3jn");
+
+        var kept = await RunAsync("--import-bible", file, "--abbr", "SIN", "--name", "N", "--lang", "es");
+        Assert.Equal(CliRunner.Ok, kept.Code);
+        Assert.Contains("Perfil de numeración aplicado: merge-ps47-3jn (conservado", kept.Output);
+
+        var none = await RunAsync("--import-bible", file, "--abbr", "SIN", "--name", "N", "--lang", "es", "--numbering", "none");
+        Assert.Equal(CliRunner.Ok, none.Code);
+        Assert.Contains("Perfil de numeración aplicado: none", none.Output);
+        Assert.DoesNotContain("conservado", none.Output.Split('\n').Single(l => l.StartsWith("Perfil de numeración aplicado", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task A_windows_1252_file_exits_with_a_clear_utf8_message_not_an_unexpected_error()
+    {
+        var path = Path.Combine(_root, "latin1.json");
+        File.WriteAllBytes(path, System.Text.Encoding.Latin1.GetBytes("""{"books":[{"usfm":"GEN","chapters":[{"usfm":"GEN.1","items":[{"type":"verse","verse_numbers":[1],"lines":["acentuado: áéíóú"]}]}]}]}"""));
+
+        var result = await RunAsync("--import-bible", path, "--abbr", "SIN", "--name", "N", "--lang", "es");
+
+        Assert.Equal(CliRunner.Failed, result.Code);
+        Assert.Contains("bible.sourceInvalid", result.Error);
+        Assert.Contains("no está en UTF-8", result.Error);
+        Assert.DoesNotContain("inesperado", result.Error);
+        Assert.Contains("No hay Biblias instaladas", (await RunAsync("--list-bibles")).Output);
     }
 
     [Fact]

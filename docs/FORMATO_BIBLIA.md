@@ -96,8 +96,25 @@ La importación **actualiza en el sitio** y conserva el `BibleId`. Los versícul
 `DELETE` explícito dentro de la misma transacción** (nunca por reemplazo), y el informe **avisa de cada elemento de `PlaylistItems` o del historial de citas que
 apuntaba a un versículo eliminado** (`AffectedItems`). Los pasajes se guardan por referencia canónica, así que no se pierden: el rango se resuelve con lo que quede.
 
-Protección: una reimportación que eliminaría más del 1 % de los versículos (mínimo 10) se **rechaza** (`bible.tooManyDeletions`) salvo `--allow-large-deletion`.
-Casi siempre es un archivo equivocado o truncado.
+### Protecciones de una reimportación
+
+Todo esto se comprueba **antes de escribir nada**; un rechazo no cambia la base de datos ni hace copia. El informe lleva SOLO conteos y referencias.
+
+| Qué se detecta | Código | Se permite con |
+|---|---|---|
+| Se eliminarían más del 1 % de los versículos (mínimo 10) | `bible.tooManyDeletions` | `--allow-large-deletion` |
+| **Desaparece un libro o capítulo entero**, sean cuantos sean los versículos (un archivo incompleto) | `bible.booksWouldDisappear` | `--allow-large-deletion` |
+| **Cambian más del 1 % de los textos guardados** (mínimo 10, y nunca más de la mitad), **cambia el nombre** de la Biblia, o textos con contenido quedarían **vacíos**: lo que pasa al importar OTRA traducción con la misma abreviatura (no se borra nada, así que el tope de eliminación no lo ve) | `bible.tooManyChanges` | `--allow-large-change` |
+
+Una reimportación idéntica da **0 cambios** (y no hace copia); una corrección pequeña (unos pocos versículos) pasa sin indicadores. El informe dice cuántos textos se modificaron.
+
+* **Perfil de numeración:** sin `--numbering` se **conserva** el perfil guardado de la Biblia; `--numbering none` lo quita de forma explícita. El informe dice qué perfil se aplicó y si se conservó.
+* **Copia previa:** antes de una reimportación que vaya a modificar o borrar algo (textos, nombre, perfil, aviso de derechos o versículos) se hace `VACUUM INTO` en `backups/oak-proyektor.bible-import.<fecha>.<abreviatura>.db` (la carpeta `backups` de los datos) y se conservan las **5 últimas**; no toca las copias de las migraciones. Si la copia falla, **no se importa nada**. La ruta sale en el informe.
+* **Abreviatura:** se recortan los espacios, no admite caracteres de control y se compara **sin distinguir mayúsculas** (`rvr1960` es la misma Biblia que `RVR1960`; se conserva la abreviatura guardada).
+* **Duplicados:** un capítulo repetido en CUALQUIER parte del archivo (mismo libro y capítulo) se descarta y se conserva la primera aparición; se cuentan, y se avisa si el repetido tenía texto **distinto** (dos exportaciones mezcladas). Los libros de un solo capítulo repiten el capítulo: es normal y no avisa.
+* **Codificación:** el archivo debe ser UTF-8 (con o sin BOM). Uno en Windows-1252, Latin-1 o UTF-16 se rechaza con «el archivo no está en UTF-8» (`bible.sourceInvalid`) antes de leer nada.
+* **Canon:** se descartan, con aviso, conteo y referencias, los versículos de un capítulo que el libro no tiene, los mayores de 176 y los de numeración inválida (cero, negativa, libro inexistente): el parser de referencias no podría consultarlos.
+* La transacción de escritura es `BEGIN IMMEDIATE`.
 
 ## 4. Validación tras importar (`BibleValidator`)
 

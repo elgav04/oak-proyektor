@@ -11,7 +11,7 @@ for (const name of ["KeyboardEvent", "MouseEvent", "InputEvent", "HTMLInputEleme
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { createStore } = await import("zustand/vanilla");
-const { checkImportForm, createImportController, EMPTY_FORM, NUMBERING_PROFILES } = await loadTs("/src/control/bible/importController.ts");
+const { allowKindFor, checkImportForm, createImportController, EMPTY_FORM, NUMBERING_PROFILES } = await loadTs("/src/control/bible/importController.ts");
 const { BibleImportSection } = await loadTs("/src/control/bible/BibleImport.tsx");
 after(closeServer);
 
@@ -58,9 +58,20 @@ test("PROTECCIÓN: una abreviatura ya instalada exige confirmar la actualizació
   assert.deepEqual(checkImportForm(good({ abbreviation: "RVR1960", confirmUpdate: true }), installed).errors, []);
 });
 
-test("PROTECCIÓN: una abreviatura que solo difiere en mayúsculas se rechaza aunque se confirme (crearía una Biblia gemela)", () => {
-  const c = checkImportForm(good({ abbreviation: "rvr1960", confirmUpdate: true }), [bible("RVR1960")]);
-  assert.ok(c.errors.some((e) => /Ya existe «RVR1960»/.test(e)));
+test("una abreviatura que solo difiere en mayúsculas es la MISMA Biblia: exige la misma confirmación y no crea una gemela", () => {
+  const installed = [bible("RVR1960")];
+  const sin = checkImportForm(good({ abbreviation: "rvr1960" }), installed);
+  assert.equal(sin.existing?.abbreviation, "RVR1960", "se identifica la Biblia guardada");
+  assert.ok(sin.errors.some((e) => /confirmación/.test(e)));
+  assert.deepEqual(checkImportForm(good({ abbreviation: "rvr1960", confirmUpdate: true }), installed).errors, []);
+  assert.deepEqual(checkImportForm(good({ abbreviation: "  Rvr1960 ", confirmUpdate: true }), installed).errors, [], "los espacios de los extremos no cuentan");
+});
+
+test("allowKindFor: cada rechazo del backend se salta con SU indicador; los demás errores no se pueden saltar", () => {
+  assert.equal(allowKindFor("bible.tooManyChanges"), "change");
+  assert.equal(allowKindFor("bible.tooManyDeletions"), "deletion");
+  assert.equal(allowKindFor("bible.booksWouldDisappear"), "deletion");
+  for (const code of ["bible.fileMissing", "bible.sourceInvalid", "bible.importBusy", "bible.importFailed", "bible.invalidRequest", "internal", "", null, undefined]) assert.equal(allowKindFor(code), null, String(code));
 });
 
 test("cambiar el perfil de numeración de una Biblia instalada avisa", () => {
@@ -77,11 +88,11 @@ test("los perfiles de numeración ofrecidos son los del backend", () => {
 
 // ───── controlador ─────
 
-test("start manda bible.import con la ruta limpia, perfil null si es «none» y aviso null si está vacío; solo una a la vez", () => {
+test("start manda bible.import con la ruta limpia, el perfil SIEMPRE explícito (también «none»), aviso null si está vacío y sin indicadores; solo una a la vez", () => {
   const { api, sent } = fakeApi();
   const c = createImportController(api);
   assert.equal(c.start(good({ path: "  \"C:\\x\\v.json\"  ", abbreviation: " NVI ", name: " Nueva ", attribution: "   " })), true);
-  assert.deepEqual(sent, [{ type: "bible.import", payload: { path: "C:\\x\\v.json", abbreviation: "NVI", name: "Nueva", language: "es", numberingProfile: null, attribution: null } }]);
+  assert.deepEqual(sent, [{ type: "bible.import", payload: { path: "C:\\x\\v.json", abbreviation: "NVI", name: "Nueva", language: "es", numberingProfile: "none", attribution: null, allowLargeDeletion: false, allowLargeChange: false } }]);
   assert.equal(c.store.getState().status, "running");
   assert.equal(c.start(good()), false, "una segunda mientras corre no se manda");
   assert.equal(sent.length, 1);
@@ -170,7 +181,7 @@ test("VISTA: el botón Importar se habilita solo con el formulario válido y man
   assert.equal(m.importButton().disabled, false);
   await act(async () => { m.importButton().click(); });
   assert.equal(m.sent.length, 1);
-  assert.deepEqual(m.sent[0].payload, { path: "C:\\Biblias\\nueva.json", abbreviation: "NVI", name: "Nueva versión sintética", language: "es", numberingProfile: null, attribution: null });
+  assert.deepEqual(m.sent[0].payload, { path: "C:\\Biblias\\nueva.json", abbreviation: "NVI", name: "Nueva versión sintética", language: "es", numberingProfile: "none", attribution: null, allowLargeDeletion: false, allowLargeChange: false });
   assert.ok(m.q('[data-testid="import-progress"]'), "se ve el avance");
   assert.equal(m.importButton().disabled, true, "mientras corre no se puede lanzar otra");
   await m.unmount();
@@ -246,5 +257,123 @@ test("VISTA: desconectado, el formulario y el botón están desactivados", async
   const m = await mountSection({ connected: false });
   assert.equal(m.q("fieldset").disabled, true);
   assert.equal(m.importButton().disabled, true);
+  await m.unmount();
+});
+
+// ───── protecciones de la reimportación (v11) ─────
+
+test("un rechazo que se puede saltar ofrece repetir con SU indicador; el resto de errores no", () => {
+  const { api, sent, emit } = fakeApi();
+  const c = createImportController(api);
+  c.start(good({ abbreviation: "RVR1960", confirmUpdate: true, numberingProfile: "merge-ps47-3jn" }));
+  emit("bible.importFinished", { abbreviation: "RVR1960", ok: false, errorCode: "bible.tooManyChanges", errorMessage: "sobrescribiría", report: null });
+  assert.equal(c.store.getState().canRetryAllowing, true);
+
+  assert.equal(c.retryAllowing(), true);
+  assert.equal(sent.length, 2);
+  assert.deepEqual([sent[1].payload.allowLargeChange, sent[1].payload.allowLargeDeletion], [true, false], "solo el indicador que corresponde");
+  assert.equal(sent[1].payload.numberingProfile, "merge-ps47-3jn", "y el MISMO formulario (perfil incluido)");
+  assert.equal(c.store.getState().status, "running");
+  assert.equal(c.store.getState().canRetryAllowing, false);
+
+  emit("bible.importFinished", { abbreviation: "RVR1960", ok: false, errorCode: "bible.booksWouldDisappear", errorMessage: "desaparecería", report: null });
+  assert.equal(c.retryAllowing(), true);
+  assert.deepEqual([sent[2].payload.allowLargeChange, sent[2].payload.allowLargeDeletion], [false, true]);
+
+  emit("bible.importFinished", { abbreviation: "RVR1960", ok: false, errorCode: "bible.sourceInvalid", errorMessage: "no es UTF-8", report: null });
+  assert.equal(c.store.getState().canRetryAllowing, false);
+  assert.equal(c.retryAllowing(), false, "un archivo ilegible no se «fuerza»");
+  assert.equal(sent.length, 3);
+  c.dispose();
+});
+
+test("sin una importación rechazada no hay nada que repetir, y mientras corre otra tampoco", () => {
+  const { api, sent, emit } = fakeApi();
+  const c = createImportController(api);
+  assert.equal(c.retryAllowing(), false);
+  c.start(good());
+  assert.equal(c.retryAllowing(), false);
+  emit("bible.importFinished", { abbreviation: "NVI", ok: true, errorCode: null, errorMessage: null, report: { created: true } });
+  assert.equal(c.retryAllowing(), false, "una importación que salió bien no se repite");
+  assert.equal(sent.length, 1);
+  c.dispose();
+});
+
+test("VISTA: tras un rechazo aparece el recuadro de protección; el botón exige marcar la confirmación y manda el indicador", async () => {
+  const m = await mountSection({ installed: [bible("RVR1960", { name: "Reina-Valera sintética" })] });
+  await m.fill("C:\\Biblias\\version.json", "C:\\Biblias\\otra.json");
+  await m.fill("NVI", "RVR1960");
+  await act(async () => { m.q('[data-testid="confirm-update"] input').click(); });
+  await act(async () => { m.importButton().click(); });
+  await act(async () => { m.emit("bible.importFinished", { abbreviation: "RVR1960", ok: false, errorCode: "bible.tooManyChanges", errorMessage: "Esta importación sobrescribiría RVR1960: cambiaría el texto de 31.102 versículos.", report: null }); });
+
+  assert.match(m.q('[data-testid="import-result"]').textContent, /No se cambió nada/);
+  const box = m.q('[data-testid="override-box"]');
+  assert.ok(box, "recuadro de protección");
+  const forceButton = () => [...box.querySelectorAll("button")].find((b) => b.textContent.includes("Importar de todos modos"));
+  assert.equal(forceButton().disabled, true, "sin confirmar no se puede");
+  await act(async () => { box.querySelector('input[type="checkbox"]').click(); });
+  assert.equal(forceButton().disabled, false);
+  await act(async () => { forceButton().click(); });
+  assert.equal(m.sent.length, 2);
+  assert.deepEqual([m.sent[1].payload.allowLargeChange, m.sent[1].payload.allowLargeDeletion], [true, false]);
+  assert.equal(m.sent[1].payload.abbreviation, "RVR1960");
+  assert.ok(m.q('[data-testid="import-progress"]'));
+  await m.unmount();
+});
+
+test("VISTA: un error que no se puede saltar (archivo ilegible) NO ofrece forzar", async () => {
+  const m = await mountSection();
+  await m.fill("C:\\Biblias\\version.json", "C:\\Biblias\\latin1.json");
+  await m.fill("NVI", "NVI");
+  await m.fill("Nueva Versión Internacional", "Nueva");
+  await act(async () => { m.importButton().click(); });
+  await act(async () => { m.emit("bible.importFinished", { abbreviation: "NVI", ok: false, errorCode: "bible.sourceInvalid", errorMessage: "El archivo no está en UTF-8.", report: null }); });
+  assert.equal(m.q('[data-testid="override-box"]'), null);
+  assert.match(m.q('[data-testid="import-result"]').textContent, /no está en UTF-8/);
+  await m.unmount();
+});
+
+test("VISTA: la abreviatura en minúsculas de una Biblia instalada muestra el recuadro de confirmación (misma Biblia)", async () => {
+  const m = await mountSection({ installed: [bible("RVR1960", { numberingProfile: "merge-ps47-3jn" })] });
+  await m.fill("C:\\Biblias\\version.json", "C:\\Biblias\\otra.json");
+  await m.fill("NVI", "rvr1960");
+  assert.ok(m.q('[data-testid="confirm-update"]'));
+  assert.equal(m.importButton().disabled, true);
+  await act(async () => { m.q('[data-testid="confirm-update"] input').click(); });
+  await act(async () => { m.importButton().click(); });
+  assert.equal(m.sent[0].payload.abbreviation, "rvr1960");
+  assert.equal(m.sent[0].payload.numberingProfile, "merge-ps47-3jn", "se parte del perfil de la Biblia guardada");
+  await m.unmount();
+});
+
+test("VISTA: el informe de una reimportación muestra los textos modificados, la copia previa y el perfil conservado", async () => {
+  const m = await mountSection({ installed: [bible("RVR1960")] });
+  await m.fill("C:\\Biblias\\version.json", "C:\\Biblias\\version.json");
+  await m.fill("NVI", "RVR1960");
+  await act(async () => { m.q('[data-testid="confirm-update"] input').click(); });
+  await act(async () => { m.importButton().click(); });
+  const report = { bibleId: 1, created: false, numberingProfile: "merge-ps47-3jn", sourceVerses: 31102, inserted: 0, updated: 12, unchanged: 31090, deleted: 0, cleanedVerses: 0, joinedVerses: 0, books: 66, chapters: 1189, verses: 31102, emptyVerses: 0, verseTotalDifference: 0, ftsIntegrityOk: true, affectedItems: [], warnings: [], elapsedMs: 900,
+    previousVerses: 31102, backupPath: "C:\\datos\\backups\\oak-proyektor.bible-import.20261124T000000000Z.RVR1960.db", numberingProfileKept: true, discardedVerses: 2, duplicateChaptersDifferent: 1 };
+  await act(async () => { m.emit("bible.importFinished", { abbreviation: "RVR1960", ok: true, errorCode: null, errorMessage: null, report }); });
+  assert.match(m.q('[data-testid="modified-count"]').textContent, /Textos modificados: 12 de los 31\.?102 que había \(0,04 %\)/);
+  assert.match(m.q('[data-testid="backup-path"]').textContent, /oak-proyektor\.bible-import\.20261124T000000000Z\.RVR1960\.db/);
+  assert.match(m.q('[data-testid="profile-line"]').textContent, /merge-ps47-3jn \(conservado/);
+  assert.match(m.q('[data-testid="import-result"]').textContent, /Descartados \(numeración inválida o fuera del canon\): 2/);
+  assert.match(m.q('[data-testid="import-result"]').textContent, /1 capítulo\(s\) repetido\(s\) con texto DISTINTO/);
+  await m.unmount();
+});
+
+test("VISTA: sin copia previa el informe lo dice", async () => {
+  const m = await mountSection();
+  await m.fill("C:\\Biblias\\version.json", "C:\\Biblias\\nueva.json");
+  await m.fill("NVI", "NVI");
+  await m.fill("Nueva Versión Internacional", "Nueva");
+  await act(async () => { m.importButton().click(); });
+  const report = { bibleId: 2, created: true, numberingProfile: "none", sourceVerses: 8, inserted: 8, updated: 0, unchanged: 0, deleted: 0, cleanedVerses: 0, joinedVerses: 0, books: 2, chapters: 2, verses: 8, emptyVerses: 0, verseTotalDifference: -31094, ftsIntegrityOk: true, affectedItems: [], warnings: [], elapsedMs: 100,
+    previousVerses: 0, backupPath: null, numberingProfileKept: false, discardedVerses: 0, duplicateChaptersDifferent: 0 };
+  await act(async () => { m.emit("bible.importFinished", { abbreviation: "NVI", ok: true, errorCode: null, errorMessage: null, report }); });
+  assert.match(m.q('[data-testid="backup-path"]').textContent, /no hizo falta/);
+  assert.equal(m.q('[data-testid="modified-count"]'), null, "una Biblia nueva no tiene «textos modificados»");
   await m.unmount();
 });

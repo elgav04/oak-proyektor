@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -10,8 +11,37 @@ public sealed record SourceVerse(int BookNumber, int Chapter, int VerseNumber, s
 
 /// <summary>Lo que lee una fuente. <c>Notes</c> son avisos de la lectura (nunca llevan texto bíblico, solo códigos y conteos).</summary>
 /// <param name="JoinedVerses">Versículos que la fuente trae en varios trozos (líneas o items) y que se unieron con un espacio.</param>
-/// <param name="DuplicateChaptersDiscarded">Capítulos repetidos en la fuente que se descartaron (se conserva la primera aparición).</param>
-public sealed record BibleSourceData(IReadOnlyList<SourceVerse> Verses, int JoinedVerses, int DuplicateChaptersDiscarded, IReadOnlyList<string> Notes);
+/// <param name="DuplicateChaptersDiscarded">Capítulos repetidos en la fuente (mismo libro y capítulo en CUALQUIER parte del archivo) que se descartaron (se conserva la primera aparición).</param>
+/// <param name="DuplicateChaptersDifferent">De esos, cuántos tenían un texto DISTINTO del de la primera aparición (señal de un archivo mal armado: dos exportaciones mezcladas).</param>
+public sealed record BibleSourceData(IReadOnlyList<SourceVerse> Verses, int JoinedVerses, int DuplicateChaptersDiscarded, IReadOnlyList<string> Notes, int DuplicateChaptersDifferent = 0);
+
+/// <summary>
+/// Comprobación de codificación de una fuente de texto. Un archivo en Windows-1252 o Latin-1 (o UTF-16) NO es UTF-8: el lector JSON lanzaría una excepción poco clara
+/// al transcodificar. Se valida ANTES de leer, en bloques (sin cargar el archivo entero), para dar un mensaje claro y no escribir nada en la base de datos.
+/// </summary>
+public static class SourceEncoding
+{
+    public const string NotUtf8Message = "El archivo no está en UTF-8 (probablemente Windows-1252, Latin-1 o UTF-16): vuelve a guardarlo como UTF-8 y repite la importación.";
+
+    public static async Task EnsureUtf8Async(string path, CancellationToken cancellationToken)
+    {
+        var decoder = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true).GetDecoder();
+        var bytes = new byte[81920];
+        var chars = new char[bytes.Length + 4];
+        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, bytes.Length, useAsync: true);
+        try
+        {
+            int read;
+            while ((read = await stream.ReadAsync(bytes, cancellationToken).ConfigureAwait(false)) > 0)
+                decoder.GetChars(bytes, 0, read, chars, 0, flush: false);
+            decoder.GetChars([], 0, 0, chars, 0, flush: true);   // una secuencia truncada al final del archivo también es inválida
+        }
+        catch (DecoderFallbackException)
+        {
+            throw new InvalidDataException(NotUtf8Message);
+        }
+    }
+}
 
 /// <summary>
 /// Un formato de archivo de Biblia. Para añadir otro formato (Zefania XML, otro JSON…) se escribe una clase que implemente esta interfaz y se añade a
@@ -44,8 +74,27 @@ public static class BibleSourceFormats
 /// </summary>
 public static class VerseCleaner
 {
+    /// <summary>¿Ya está limpio? (NFC, sin caracteres de control, solo espacios simples entre palabras y ninguno en los extremos.) Entonces `Clean` devuelve la MISMA cadena: no duplica el texto en memoria.</summary>
+    private static bool IsAlreadyClean(string raw)
+    {
+        if (raw.Length == 0) return true;
+        var previousSpace = true;   // el primer carácter no puede ser un espacio
+        foreach (var ch in raw)
+        {
+            if (char.IsControl(ch)) return false;
+            if (char.IsWhiteSpace(ch))
+            {
+                if (ch != ' ' || previousSpace) return false;
+                previousSpace = true;
+            }
+            else previousSpace = false;
+        }
+        return !previousSpace && raw.IsNormalized(NormalizationForm.FormC);
+    }
+
     public static string Clean(string raw)
     {
+        if (IsAlreadyClean(raw)) return raw;
         var normalized = raw.Normalize(NormalizationForm.FormC);
         var sb = new StringBuilder(normalized.Length);
         var pendingSpace = false;
@@ -76,6 +125,7 @@ public sealed class YouVersionJsonSource : IBibleSourceFormat
 
     public async Task<BibleSourceData> ReadAsync(string path, CancellationToken cancellationToken)
     {
+        await SourceEncoding.EnsureUtf8Async(path, cancellationToken).ConfigureAwait(false);
         Root? root;
         await using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true))
             root = await JsonSerializer.DeserializeAsync<Root>(stream, Options, cancellationToken).ConfigureAwait(false);   // las propiedades no declaradas (html…) se saltan
@@ -83,6 +133,10 @@ public sealed class YouVersionJsonSource : IBibleSourceFormat
 
         var pieces = new Dictionary<(int, int, int), List<string>>();
         var notes = new List<string>();
+        // Capítulos ya leídos en TODO el archivo (no solo dentro de un libro: un libro repetido o dos exportaciones concatenadas repiten capítulos) y la firma de su contenido,
+        // para saber si el repetido es idéntico (lo normal: los libros de un solo capítulo lo repiten) o DISTINTO (señal de un archivo mal armado).
+        var seenChapters = new Dictionary<(int Book, int Chapter), string>();
+        var differentRefs = new List<string>();
         var duplicateChapters = 0;
         var multiNumberItems = 0;
 
@@ -91,33 +145,64 @@ public sealed class YouVersionJsonSource : IBibleSourceFormat
             var canonical = CanonicalBooks.FindByUsfm(book.Usfm);
             if (canonical is null) { notes.Add($"Libro con código desconocido «{Safe(book.Usfm)}»: se ignora."); continue; }
 
-            var seenChapters = new HashSet<int>();
             foreach (var chapter in book.Chapters ?? [])
             {
                 if (!TryChapterNumber(chapter.Usfm, out var chapterNumber)) { notes.Add($"{canonical.Usfm}: capítulo con código «{Safe(chapter.Usfm)}» ilegible; se ignora."); continue; }
-                if (!seenChapters.Add(chapterNumber)) { duplicateChapters++; continue; }
 
+                // Los versículos de ESTE capítulo (un versículo puede venir en varios items o líneas).
+                var local = new SortedDictionary<int, List<string>>();
+                var multiInChapter = 0;
                 foreach (var item in chapter.Items ?? [])
                 {
                     if (item.Type != "verse" || item.VerseNumbers is not { Count: > 0 }) continue;
-                    if (item.VerseNumbers.Count > 1) multiNumberItems++;
-                    var key = (canonical.Number, chapterNumber, item.VerseNumbers[0]);
-                    if (!pieces.TryGetValue(key, out var list)) pieces[key] = list = [];
+                    if (item.VerseNumbers.Count > 1) multiInChapter++;
+                    if (!local.TryGetValue(item.VerseNumbers[0], out var list)) local[item.VerseNumbers[0]] = list = [];
                     foreach (var line in item.Lines ?? []) if (line is not null) list.Add(line);
+                }
+
+                var signature = Signature(local);
+                if (!seenChapters.TryAdd((canonical.Number, chapterNumber), signature))
+                {
+                    duplicateChapters++;
+                    if (seenChapters[(canonical.Number, chapterNumber)] != signature) differentRefs.Add($"{canonical.Usfm}.{chapterNumber.ToString(CultureInfo.InvariantCulture)}");
+                    continue;   // se conserva la primera aparición
+                }
+                multiNumberItems += multiInChapter;
+                foreach (var (verse, lines) in local)
+                {
+                    var key = (canonical.Number, chapterNumber, verse);
+                    if (!pieces.TryGetValue(key, out var list)) pieces[key] = list = [];
+                    list.AddRange(lines);
                 }
             }
         }
 
         if (multiNumberItems > 0) notes.Add($"{multiNumberItems} item(s) con varios números de versículo: el texto se asignó al primero.");
+        if (differentRefs.Count > 0)
+            notes.Add($"ATENCIÓN: {differentRefs.Count} capítulo(s) repetido(s) en el archivo tenían un texto DISTINTO del de su primera aparición (se conservó la primera; ¿dos exportaciones mezcladas?): " +
+                      string.Join(", ", differentRefs.Take(10)) + (differentRefs.Count > 10 ? ", …" : "") + ".");
 
         var verses = pieces
             .OrderBy(p => p.Key.Item1).ThenBy(p => p.Key.Item2).ThenBy(p => p.Key.Item3)
-            .Select(p => new SourceVerse(p.Key.Item1, p.Key.Item2, p.Key.Item3, string.Join(' ', p.Value)))
+            .Select(p => new SourceVerse(p.Key.Item1, p.Key.Item2, p.Key.Item3, p.Value.Count == 1 ? p.Value[0] : string.Join(' ', p.Value)))
             .ToList();
         var joined = pieces.Count(p => p.Value.Count > 1);
-        return new BibleSourceData(verses, joined, duplicateChapters, notes);
+        return new BibleSourceData(verses, joined, duplicateChapters, notes, differentRefs.Count);
     }
 
+    /// <summary>Huella exacta (SHA-256) del contenido de un capítulo: números de versículo y líneas, en orden de versículo.</summary>
+    private static string Signature(SortedDictionary<int, List<string>> chapter)
+    {
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        foreach (var (verse, lines) in chapter)
+        {
+            hash.AppendData(Encoding.UTF8.GetBytes(verse.ToString(CultureInfo.InvariantCulture)));
+            hash.AppendData([0]);
+            foreach (var line in lines) { hash.AppendData(Encoding.UTF8.GetBytes(line)); hash.AppendData([1]); }
+            hash.AppendData([2]);
+        }
+        return Convert.ToHexString(hash.GetHashAndReset());
+    }
     private static bool TryChapterNumber(string? usfm, out int chapter)
     {
         chapter = 0;
@@ -158,6 +243,7 @@ public sealed class NamedBooksJsonSource : IBibleSourceFormat
 
     public async Task<BibleSourceData> ReadAsync(string path, CancellationToken cancellationToken)
     {
+        await SourceEncoding.EnsureUtf8Async(path, cancellationToken).ConfigureAwait(false);
         await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
         using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
         if (document.RootElement.ValueKind != JsonValueKind.Object) throw new InvalidDataException("El archivo no es un objeto JSON: no es el formato esperado.");

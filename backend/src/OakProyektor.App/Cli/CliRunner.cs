@@ -35,7 +35,7 @@ internal sealed class CliRunner(ApplicationPaths paths, ILoggerFactory loggers, 
 
             return command.Kind switch
             {
-                CliCommandKind.ImportBible => await ImportAsync(command, connections, readiness, cancellationToken).ConfigureAwait(false),
+                CliCommandKind.ImportBible => await ImportAsync(command, connections, readiness, options.BackupDirectory, cancellationToken).ConfigureAwait(false),
                 CliCommandKind.VerifyBible => await VerifyAsync(command, connections, readiness, cancellationToken).ConfigureAwait(false),
                 CliCommandKind.ShowVerse => await ShowVerseAsync(command, connections, readiness, cancellationToken).ConfigureAwait(false),
                 CliCommandKind.ListBibles => await ListAsync(connections, readiness, cancellationToken).ConfigureAwait(false),
@@ -65,11 +65,11 @@ internal sealed class CliRunner(ApplicationPaths paths, ILoggerFactory loggers, 
         }
     }
 
-    private async Task<int> ImportAsync(CliCommand c, ISqliteConnectionFactory connections, IDatabaseReadiness readiness, CancellationToken ct)
+    private async Task<int> ImportAsync(CliCommand c, ISqliteConnectionFactory connections, IDatabaseReadiness readiness, string backupDirectory, CancellationToken ct)
     {
         var request = new BibleImportRequest(
             Path.GetFullPath(c.Get("import-bible")!), c.Get("abbr")!, c.Get("name")!, c.Get("lang")!,
-            c.Get("format"), c.Get("numbering"), c.Get("attribution"), c.Has("allow-large-deletion"));
+            c.Get("format"), c.Get("numbering"), c.Get("attribution"), c.Has("allow-large-deletion"), c.Has("allow-large-change"), backupDirectory);
         output.WriteLine($"Importando «{request.Abbreviation}» desde {request.Path}");
         output.WriteLine($"Carpeta de datos: {paths.DataDirectory}");
 
