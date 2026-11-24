@@ -251,6 +251,12 @@ Vista del panel (`frontend/src/control/bible/`) sobre el motor de capas y el mó
 - **Búsqueda** (`BibleQueryService.SearchAsync`): la entrada del usuario se normaliza a NFC y se reduce a palabras (`[\p{L}\p{N}\p{M}]+`: las marcas combinantes no parten la palabra) y frases entre comillas, con como mucho 1000 caracteres procesados y **32 términos** (`MaxQueryChars` / `MaxQueryTerms`); nunca llega un operador FTS5 a `MATCH`. Se lee con ADO a mano, no con Dapper: una consulta de columnas calculadas SIN filas (`snippet()`, `COUNT`) la declara como blob y el mapeo de Dapper a un record falla (descubierto con «ninguna Biblia instalada»). Las consultas que pueden no devolver filas leen con columnas reales o con ADO.
 - Verificado con un archivo sintético de la forma real (31 102 versículos): primera importación ≈ 1,5 s; reimportación sin cambios ≈ 0,4 s; búsquedas < 40 ms. **Memoria** (`BibleMemoryTests`, archivo sintético de ≈ 26 MB con el `html` de relleno por capítulo; sin paralelismo porque mide el proceso entero): pico de memoria gestionada sobre la línea base **38,8 MB → 30,4 MB** en la primera importación y **43-50 MB → 31,0 MB** en una reimportación (asignado en total 65 → 57 MB y 55 → 47 MB); se quitaron las copias del texto que vivían a la vez (el original leído junto al limpiado —ahora `VerseCleaner` devuelve la MISMA cadena si ya está limpia—, y los textos guardados, que ahora se comparan al leerlos y se descartan). El resto del pico es el propio lector JSON. La cota del test es 60 MB.
 
+## Canciones y derechos de autor
+
+- **Ninguna letra real de canciones con derechos de autor** en el repositorio, los tests, los logs, los eventos, los mensajes de error ni la documentación. Los tests, las pruebas de layout y los ejemplos usan letras SINTÉTICAS inventadas (`SyntheticSong`), sin parecido con obras reales. Las canciones reales del operador viven SOLO en su base de datos local (`data/` o `%LOCALAPPDATA%`), que nunca se versiona.
+- Los logs y errores del módulo de canciones llevan solo identificadores y conteos (`songId`, número de secciones), nunca texto de letra ni de título.
+- Ningún test depende de `data/`. Diseño del módulo (propuesta): `docs/DISENO_CANCIONES.md`.
+
 ## Alcance actual
 
 - **No implementar Stage Display.**
