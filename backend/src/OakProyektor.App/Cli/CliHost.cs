@@ -46,12 +46,12 @@ internal static partial class CliHost
         // Escribir en la BD mientras la aplicación gráfica está abierta con la misma carpeta de datos (o lanzar dos importaciones) es lo que la instancia única evita.
         // Las órdenes de solo lectura (mostrar, listar, verificar) no la necesitan.
         SingleInstanceGuard? guard = null;
-        if (command.Kind == CliCommandKind.ImportBible)
+        if (command.Kind is CliCommandKind.ImportBible or CliCommandKind.RestoreBackup)
         {
             guard = SingleInstanceGuard.TryAcquire(SingleInstanceGuard.NameFor(paths.DataDirectory));
             if (guard is null)
             {
-                error.WriteLine("Error: Oak-Proyektor (o otra importación) está abierto con esta carpeta de datos. Ciérralo y vuelve a intentarlo.");
+                error.WriteLine("Error: Oak-Proyektor (u otra orden de escritura) está abierto con esta carpeta de datos. Ciérralo y vuelve a intentarlo. No se cambió nada.");
                 return CliRunner.Failed;
             }
         }

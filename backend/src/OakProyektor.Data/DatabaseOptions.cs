@@ -5,7 +5,7 @@ public sealed record DatabaseOptions(string DatabasePath)
 {
     public const string FileName = "oak-proyektor.db";
 
-    /// <summary>Carpeta de las copias de seguridad previas a una migración (<c>data/backups</c>).</summary>
+    /// <summary>Carpeta de TODAS las copias de seguridad (diarias, previas a migraciones y a reimportaciones, anteriores a una restauración): <c>backups</c> junto a la base de datos.</summary>
     public string BackupDirectory => Path.Combine(Path.GetDirectoryName(Path.GetFullPath(DatabasePath))!, "backups");
 
     /// <summary>Opciones para <c>{dataDirectory}/oak-proyektor.db</c>.</summary>

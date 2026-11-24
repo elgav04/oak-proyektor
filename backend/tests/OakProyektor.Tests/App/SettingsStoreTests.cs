@@ -259,7 +259,7 @@ public sealed class SettingsStoreTests : IDisposable
     public async Task The_status_handler_returns_the_load_warnings_and_waits_for_the_load()
     {
         var fake = new InMemorySettings { Warnings = ["aviso uno"] };
-        var handler = new OakProyektor.App.Handlers.SettingsGetStatusHandler(fake);
+        var handler = new OakProyektor.App.Handlers.SettingsGetStatusHandler(fake, new OakProyektor.Tests.Data.NoBackupWarnings());
         var reply = (OakProyektor.Ipc.Messages.SettingsStatusPayload)(await handler.HandleAsync(new OakProyektor.Ipc.IpcEnvelope(OakProyektor.Ipc.IpcCatalog.ProtocolVersion, "q", "query", "settings.getStatus", default), CancellationToken.None))!;
         Assert.Equal(["aviso uno"], reply.Warnings);
     }

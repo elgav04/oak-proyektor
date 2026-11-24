@@ -46,7 +46,7 @@ public class HandlerTests
             new SettingsSetAutoRestoreHandler(new InMemorySettings(), output),
             new SettingsSetDisplayLostPolicyHandler(new InMemorySettings(), output),
             new SettingsSetPanelAlertOnOutputHandler(new InMemorySettings(), output),
-            new SettingsGetStatusHandler(new InMemorySettings()),
+            new SettingsGetStatusHandler(new InMemorySettings(), new OakProyektor.Tests.Data.NoBackupWarnings()),
             new DatabaseGetStatusHandler(new DatabaseStatusReporter(new FakeReadiness(), new Outbox(NullLogger<Outbox>.Instance))),
             // Biblias (v6): consultas contra un servicio que no tiene ninguna Biblia; la importación falla en su validación sin abrir la BD.
             new BibleListHandler(new NoBibles()),

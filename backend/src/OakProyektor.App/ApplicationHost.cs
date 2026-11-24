@@ -92,6 +92,8 @@ internal sealed class ApplicationHost : IAsyncDisposable
         services.AddSingleton<DatabaseReadiness>();
         services.AddSingleton<IDatabaseReadiness>(sp => sp.GetRequiredService<DatabaseReadiness>());
         services.AddSingleton<DatabaseStatusReporter>();
+        services.AddSingleton<Data.Backups.DatabaseBackupService>();
+        services.AddSingleton<Data.Backups.IBackupStatus>(sp => sp.GetRequiredService<Data.Backups.DatabaseBackupService>());
 
         // Biblias (protocolo v6). Los límites y la Biblia predeterminada se leen de settings.json en cada consulta.
         services.AddSingleton(sp =>
@@ -193,7 +195,9 @@ internal sealed class ApplicationHost : IAsyncDisposable
         // fallo llega al panel como evento (DatabaseStatusReporter). StartAsync no lanza: el fallo queda en el estado.
         _ = _services.GetRequiredService<DatabaseStatusReporter>();   // se suscribe antes de que cambie el estado
         var db = _services.GetRequiredService<DatabaseReadiness>().StartAsync(_services.GetRequiredService<IDatabaseInitializer>(), ct);
-        _background = [.. pump, startup, db];
+        // Respaldo diario: en segundo plano, tras una espera, sin lanzar nunca (todo fallo queda en el log y como aviso del panel).
+        var backup = Task.Run(() => _services.GetRequiredService<Data.Backups.DatabaseBackupService>().RunDailyAsync(ct), CancellationToken.None);
+        _background = [.. pump, startup, db, backup];
     }
 
     private void OnMainClosing()

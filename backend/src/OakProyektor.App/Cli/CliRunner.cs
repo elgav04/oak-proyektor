@@ -2,6 +2,7 @@ using System.Globalization;
 using Microsoft.Extensions.Logging;
 using OakProyektor.Core.Scripture;
 using OakProyektor.Data;
+using OakProyektor.Data.Backups;
 using OakProyektor.Data.Scripture;
 
 namespace OakProyektor.App.Cli;
@@ -22,6 +23,10 @@ internal sealed class CliRunner(ApplicationPaths paths, ILoggerFactory loggers, 
             if (command.Kind == CliCommandKind.Help) { output.WriteLine(CliArguments.HelpText()); return Ok; }
 
             var options = DatabaseOptions.ForDataDirectory(paths.DataDirectory);
+            // Los respaldos NO pasan por la inicialización de la BD: restaurar debe funcionar justo cuando la actual está dañada o no migra.
+            if (command.Kind == CliCommandKind.ListBackups) return ListBackups(options);
+            if (command.Kind == CliCommandKind.RestoreBackup) return await RestoreAsync(command, options, cancellationToken).ConfigureAwait(false);
+
             var connections = new SqliteConnectionFactory(options);
             var readiness = new DatabaseReadiness(loggers.CreateLogger<DatabaseReadiness>());
             var initializer = new DatabaseInitializer(options, connections, loggers.CreateLogger<DatabaseInitializer>(), loggers);
@@ -41,6 +46,11 @@ internal sealed class CliRunner(ApplicationPaths paths, ILoggerFactory loggers, 
                 CliCommandKind.ListBibles => await ListAsync(connections, readiness, cancellationToken).ConfigureAwait(false),
                 _ => BadArguments,
             };
+        }
+        catch (BackupException ex)
+        {
+            error.WriteLine("Error: " + ex.Message);
+            return Failed;
         }
         catch (BibleException ex)
         {
@@ -63,6 +73,33 @@ internal sealed class CliRunner(ApplicationPaths paths, ILoggerFactory loggers, 
             error.WriteLine("Error inesperado: " + ex.GetType().Name + ". Revisa el registro en " + paths.LogsDirectory);
             return Failed;
         }
+    }
+
+    private int ListBackups(DatabaseOptions options)
+    {
+        var backups = BackupCatalog.List(options.BackupDirectory);
+        output.WriteLine($"Carpeta de respaldos: {options.BackupDirectory}");
+        if (backups.Count == 0) { output.WriteLine("No hay copias."); return Ok; }
+        foreach (var group in backups.GroupBy(b => b.Kind))
+        {
+            output.WriteLine($"{BackupCatalog.Describe(group.Key)} (se conservan las últimas {BackupCatalog.Retention(group.Key)}):");
+            foreach (var b in group)
+                output.WriteLine($"  {b.Name}\t{b.LastWriteLocal.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)}\t{(b.Bytes / 1024.0 / 1024.0).ToString("0.0", CultureInfo.InvariantCulture)} MB");
+        }
+        output.WriteLine("Para restaurar: --restore-backup <nombre> (con la aplicación cerrada).");
+        return Ok;
+    }
+
+    private async Task<int> RestoreAsync(CliCommand c, DatabaseOptions options, CancellationToken ct)
+    {
+        var source = BackupCatalog.Resolve(options.BackupDirectory, c.Get("restore-backup")!);
+        output.WriteLine($"Restaurando {source}");
+        output.WriteLine($"Base actual: {options.DatabasePath}");
+        var result = await new DatabaseRestorer(options, logger: loggers.CreateLogger<DatabaseRestorer>()).RestoreAsync(source, ct).ConfigureAwait(false);
+        output.WriteLine($"Copia comprobada (PRAGMA integrity_check: {result.Verification.Detail}; esquema {result.Verification.SchemaVersion}).");
+        output.WriteLine(result.PreviousSavedAs is null ? "No había una base anterior." : $"La base anterior se guardó en: {result.PreviousSavedAs}");
+        output.WriteLine("Restauración terminada. Al abrir la aplicación se aplicarán las migraciones pendientes, si las hay.");
+        return Ok;
     }
 
     private async Task<int> ImportAsync(CliCommand c, ISqliteConnectionFactory connections, IDatabaseReadiness readiness, string backupDirectory, CancellationToken ct)

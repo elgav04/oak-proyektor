@@ -229,7 +229,7 @@ internal sealed class SettingsSetPanelAlertOnOutputHandler(ISettingsStore settin
 }
 
 /// <summary><c>settings.getStatus</c>: los avisos de la carga de settings.json. Espera (como mucho 2 s) a que la carga haya terminado para no responder «sin avisos» por llegar antes.</summary>
-internal sealed class SettingsGetStatusHandler(ISettingsStore settings) : IIpcHandler
+internal sealed class SettingsGetStatusHandler(ISettingsStore settings, Data.Backups.IBackupStatus backups) : IIpcHandler
 {
     public string Kind => IpcKind.Query;
     public string Type => IpcTypes.SettingsGetStatus;
@@ -237,7 +237,7 @@ internal sealed class SettingsGetStatusHandler(ISettingsStore settings) : IIpcHa
     {
         try { await settings.Loaded.WaitAsync(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false); }
         catch (TimeoutException) { /* la carga sigue: se responde con lo que haya */ }
-        return new SettingsStatusPayload(settings.Warnings);
+        return new SettingsStatusPayload([.. settings.Warnings, .. backups.Warnings]);   // los avisos de respaldos viajan aquí: no cambia el formato del protocolo
     }
 }
 
