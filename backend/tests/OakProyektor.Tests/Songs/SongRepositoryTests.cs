@@ -264,6 +264,82 @@ public sealed class SongRepositoryTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Twenty_saves_without_changes_do_not_consume_the_version_history()
+    {
+        var song = await NewSongAsync("Estable", ("Verso 1", "version 0"));
+        for (var i = 1; i <= 3; i++)   // tres versiones distintas = tres copias de versiones buenas
+        {
+            var current = (await _repo.GetAsync(song.Id, CancellationToken.None))!;
+            await _repo.SaveAsync(Update(current, r => r with { Sections = [r.Sections[0] with { Text = $"version {i}" }] }), CancellationToken.None);
+        }
+        var distinct = (await _repo.GetHistoryAsync(song.Id, CancellationToken.None)).Count;
+
+        for (var i = 0; i < 20; i++)
+        {
+            var current = (await _repo.GetAsync(song.Id, CancellationToken.None))!;
+            await _repo.SaveAsync(Update(current), CancellationToken.None);   // «Guardar» sin tocar nada
+        }
+
+        var history = await _repo.GetHistoryAsync(song.Id, CancellationToken.None);
+        Assert.Equal(3, distinct);
+        Assert.Equal(distinct + 1, history.Count);   // una sola copia más: la de la versión actual (la primera vez); las otras 19 coinciden con la última
+        await using var c = await _db.OpenAsync();
+        var snapshots = (await c.QueryAsync<string>("SELECT Snapshot FROM SongRevisions WHERE SongId = @id", new { id = song.Id })).ToList();
+        foreach (var version in new[] { "version 0", "version 1", "version 2" }) Assert.Contains(snapshots, s => s.Contains(version));
+        Assert.Equal(24, (await _repo.GetAsync(song.Id, CancellationToken.None))!.Revision);   // las revisiones sí suben; solo no se acumulan copias idénticas
+    }
+
+    [Fact]
+    public async Task Ten_undo_and_redo_round_trips_do_not_consume_the_version_history()
+    {
+        var song = await NewSongAsync("Ida y vuelta", ("Verso 1", "version 0"), ("Coro", "coro estable"));
+        for (var i = 1; i <= 5; i++)   // seis versiones: las copias de la 0 a la 4 y la actual es la 5
+        {
+            var current = (await _repo.GetAsync(song.Id, CancellationToken.None))!;
+            await _repo.SaveAsync(Update(current, r => r with { Sections = [r.Sections[0] with { Text = $"version {i}" }, r.Sections[1]] }), CancellationToken.None);
+        }
+        var before = (await _repo.GetHistoryAsync(song.Id, CancellationToken.None)).Count;
+        Assert.Equal(5, before);
+
+        for (var i = 0; i < 20; i++)   // diez idas y vueltas = veinte deshacer
+        {
+            var current = (await _repo.GetAsync(song.Id, CancellationToken.None))!;
+            await _repo.RestoreRevisionAsync(song.Id, null, current.Revision, CancellationToken.None);
+        }
+
+        var history = await _repo.GetHistoryAsync(song.Id, CancellationToken.None);
+        Assert.True(history.Count <= before + 1, $"el historial pasó de {before} a {history.Count} copias");
+        await using var c = await _db.OpenAsync();
+        var snapshots = (await c.QueryAsync<string>("SELECT Snapshot FROM SongRevisions WHERE SongId = @id", new { id = song.Id })).ToList();
+        foreach (var version in new[] { "version 0", "version 1", "version 2", "version 3" }) Assert.Contains(snapshots, s => s.Contains(version));   // ninguna versión buena se perdió
+        // Y deshacer sigue funcionando como ida y vuelta: los dos estados se alternan.
+        var states = new List<string>();
+        for (var i = 0; i < 4; i++)
+        {
+            var current = (await _repo.GetAsync(song.Id, CancellationToken.None))!;
+            states.Add(current.Sections[0].Text);
+            await _repo.RestoreRevisionAsync(song.Id, null, current.Revision, CancellationToken.None);
+        }
+        Assert.Equal(states[0], states[2]);
+        Assert.Equal(states[1], states[3]);
+        Assert.NotEqual(states[0], states[1]);
+    }
+
+    [Fact]
+    public async Task A_section_deleted_and_recreated_by_a_restore_still_counts_as_the_same_content()
+    {
+        var song = await NewSongAsync("Recreada", ("Verso 1", "uno"), ("Coro", "coro"));
+        await _repo.SaveAsync(Update(song, r => r with { Sections = [r.Sections[0]], Arrangement = [0] }), CancellationToken.None);   // el coro desaparece
+
+        for (var i = 0; i < 6; i++)
+        {
+            var current = (await _repo.GetAsync(song.Id, CancellationToken.None))!;
+            await _repo.RestoreRevisionAsync(song.Id, null, current.Revision, CancellationToken.None);   // el coro se recrea (otro id) y se vuelve a borrar
+        }
+
+        Assert.True((await _repo.GetHistoryAsync(song.Id, CancellationToken.None)).Count <= 2);
+    }
+    [Fact]
     public async Task The_previous_copy_reason_follows_the_save_reason()
     {
         var song = await NewSongAsync();

@@ -18,7 +18,7 @@ Basado en la lectura de las migraciones 1–8, `Models.cs`, `ISongRepository`, `
 
 ## Estado (2026-11-25): prompt 3 hecho — proyección de canciones
 
-La lista proyecta (Enter, flechas, Av/Re Pág, Esc), con insignia EN VIVO derivada del estado confirmado, fondo por canción por el carril lento (solo si lo tiene), ráfagas «la última gana» y sin escrituras en la BD. **Decisión sobre el final**: se queda en la última diapositiva con «FIN» (o limpia con tEnd: clear); nunca salta a otra canción. Detalles y pruebas en CLAUDE.md. **Pendiente**: servicios (listas de elementos) y el aviso de derechos en pantalla (descartado por ahora).
+La lista proyecta (Enter, flechas, Av/Re Pág, Esc), con insignia EN VIVO derivada del estado confirmado, fondo por canción por el carril lento (solo si lo tiene), ráfagas «la última gana» y sin escrituras en la BD. **Decisión sobre el final**: se queda en la última diapositiva con «FIN» (o limpia con `atEnd: clear); nunca salta a otra canción. Detalles y pruebas en CLAUDE.md. **Pendiente**: servicios (listas de elementos) y el aviso de derechos en pantalla (descartado por ahora).
 
 ---
 

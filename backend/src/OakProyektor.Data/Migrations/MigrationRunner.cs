@@ -146,6 +146,11 @@ public sealed class MigrationRunner
         try
         {
             await ExecuteAsync(connection, migration.Sql, transaction, ct).ConfigureAwait(false);
+            if (migration.After is { } step)
+            {
+                var summary = await step(connection, transaction, ct).ConfigureAwait(false);
+                if (summary is not null) _logger.LogInformation("Migración {Version}: {Summary}", migration.Version, summary);
+            }
 
             var violations = await ForeignKeyViolationsAsync(connection, transaction, ct).ConfigureAwait(false);
             if (violations.Count > 0)

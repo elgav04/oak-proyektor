@@ -236,10 +236,18 @@ public sealed class SongRepository(
         if (kept.Distinct().Count() != kept.Count)
             throw new SongException(SongErrorCodes.InvalidRequest, "Una sección aparece dos veces en la petición.");
 
-        // 1) Copia previa: el estado ACTUAL, antes de tocar nada.
+        // 1) Copia previa: el estado ACTUAL, antes de tocar nada. Sin repetir: si ese mismo contenido ya está en la última copia no se crea otra, y si está en una más antigua
+        //    se SUBE al final (se reemplaza por la nueva): guardar sin cambios o deshacer y rehacer una y otra vez no gasta las 20 copias de versiones distintas.
         var before = await LoadAsync(c, tx, id, ct).ConfigureAwait(false) ?? throw NotFound();
-        await c.ExecuteAsync(Write("INSERT INTO SongRevisions (SongId, Reason, Snapshot) VALUES (@id, @reason, @snapshot)",
-            new { id, reason = ReasonName(reason), snapshot = JsonSerializer.Serialize(Snapshot.Of(before), SnapshotJson) }, tx, ct)).ConfigureAwait(false);
+        var snapshot = Snapshot.Of(before);
+        var copies = (await c.QueryAsync<RevisionContent>(Write("SELECT Id, Snapshot FROM SongRevisions WHERE SongId = @id ORDER BY Id DESC", new { id }, tx, ct)).ConfigureAwait(false)).ToList();
+        var same = copies.Where(r => SameContent(r.Snapshot, snapshot)).Select(r => r.Id).ToList();
+        if (same.Count == 0 || same[0] != copies[0].Id)
+        {
+            foreach (var duplicate in same) await c.ExecuteAsync(Write("DELETE FROM SongRevisions WHERE Id = @duplicate", new { duplicate }, tx, ct)).ConfigureAwait(false);
+            await c.ExecuteAsync(Write("INSERT INTO SongRevisions (SongId, Reason, Snapshot) VALUES (@id, @reason, @snapshot)",
+                new { id, reason = ReasonName(reason), snapshot = JsonSerializer.Serialize(snapshot, SnapshotJson) }, tx, ct)).ConfigureAwait(false);
+        }
 
         var arrangementId = await c.ExecuteScalarAsync<long?>(Write("SELECT Id FROM SongArrangements WHERE SongId = @id AND IsDefault = 1", new { id }, tx, ct)).ConfigureAwait(false)
             ?? await c.ExecuteScalarAsync<long>(Write("INSERT INTO SongArrangements (SongId, Name, IsDefault) VALUES (@id, 'Principal', 1); SELECT last_insert_rowid();", new { id }, tx, ct)).ConfigureAwait(false);
@@ -445,6 +453,19 @@ public sealed class SongRepository(
             d.Background is { } b ? new SnapshotBackground(b.Kind, b.Path, b.Color, b.Muted) : null,
             [.. d.Sections.Select(s => new SnapshotSection(s.Id, s.Kind, s.Label, s.Text))], [.. d.Arrangement]);
     }
+
+    /// <summary>¿La copia guardada tiene el MISMO contenido que <paramref name="current"/>? Se ignoran los ids de sección (una sección borrada y vuelta a crear al restaurar tiene otro id).</summary>
+    private static bool SameContent(string stored, Snapshot current)
+    {
+        try
+        {
+            var other = JsonSerializer.Deserialize<Snapshot>(stored, SnapshotJson);
+            return other is not null && ContentKey(other) == ContentKey(current);
+        }
+        catch (JsonException) { return false; }
+    }
+
+    private static string ContentKey(Snapshot s) => JsonSerializer.Serialize(s with { Sections = [.. s.Sections.Select(x => x with { Id = 0 })] }, SnapshotJson);
 
     private sealed record SnapshotSection(long Id, string Kind, string Label, string Text);
     private sealed record SnapshotBackground(string Kind, string? Path, string? Color, bool Muted);

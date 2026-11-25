@@ -251,7 +251,7 @@ public static partial class SongTextParser
     /// Siempre en FORMA CANÓNICA (<see cref="SectionAliases.CanonicalLabel"/> lo deja igual: «Verso 1 (2)» se leería como «Verso 12»), con una clave que no choque con ninguna otra
     /// sección ni con una etiqueta escrita en el texto. Un contador por nombre: sin bucles cuadráticos.
     /// </summary>
-    private static string UniqueLabel(string label, HashSet<string> usedKeys, HashSet<string> explicitKeys, Dictionary<string, int> nextSuffix)
+    public static string UniqueLabel(string label, HashSet<string> usedKeys, HashSet<string> explicitKeys, Dictionary<string, int> nextSuffix)
     {
         var baseKey = SectionAliases.Key(label);
         var isAlias = SectionAliases.TryParseAlias(label, out var display, out _, out var number);

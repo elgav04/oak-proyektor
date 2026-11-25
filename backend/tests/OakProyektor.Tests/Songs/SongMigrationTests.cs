@@ -51,21 +51,22 @@ public sealed class SongMigrationTests : IDisposable
 
         var result = await _db.Initializer.InitializeAsync(CancellationToken.None);
 
-        Assert.Equal((8, 9), (result.FromVersion, result.ToVersion));
-        Assert.Equal([9], result.Applied);
+        Assert.Equal((8, 10), (result.FromVersion, result.ToVersion));
+        Assert.Equal([9, 10], result.Applied);
         Assert.NotNull(result.BackupPath);   // la copia previa a migrar, que ya existía
         await using var d = await _db.OpenAsync();
         var sections = (await d.QueryAsync<(long SongId, long Position, string Kind, string Label, string Text)>(
             "SELECT SongId, Position, Kind, Label, Text FROM SongSections ORDER BY SongId, Position")).ToList();
 
-        // Sin pérdida: cada diapositiva es una sección, con su texto TAL CUAL (sin limpiar), en su orden.
-        Assert.Equal(["linea a1\nlinea a2", "linea coro", "linea b1 \n\n  con espacios  y corte", "otro coro distinto"], sections.Where(s => s.SongId == plain).Select(s => s.Text));
+        // Sin pérdida: cada diapositiva es una sección, con su texto (la migración 10 solo normaliza espacios, como al guardar), en su orden.
+        Assert.Equal(["linea a1\nlinea a2", "linea coro", "linea b1\n\ncon espacios y corte", "otro coro distinto"], sections.Where(s => s.SongId == plain).Select(s => s.Text));
         Assert.Equal(["sin etiqueta uno", "sin etiqueta dos", "etiqueta en blanco"], sections.Where(s => s.SongId == usedInService).Select(s => s.Text));
         Assert.Equal([0L, 1, 2, 3], sections.Where(s => s.SongId == plain).Select(s => s.Position));
-        Assert.All(sections, s => Assert.Equal("other", s.Kind));
+        Assert.Equal(["verse", "chorus", "verse", "chorus"], sections.Where(s => s.SongId == plain).Select(s => s.Kind));   // el tipo se deriva del nombre (migración 10)
+        Assert.All(sections.Where(s => s.SongId == usedInService), s => Assert.Equal("other", s.Kind));
 
         // Etiquetas: la propia si es la primera con ese nombre; el resto se desambigua; las vacías se llaman «Sección n».
-        Assert.Equal(["Verso 1", "Coro", "Verso 2", "Coro (2)"], sections.Where(s => s.SongId == plain).Select(s => s.Label));
+        Assert.Equal(["Verso 1", "Coro", "Verso 2", "Coro 2"], sections.Where(s => s.SongId == plain).Select(s => s.Label));
         Assert.Equal(["Sección 1", "Sección 2", "Sección 3"], sections.Where(s => s.SongId == usedInService).Select(s => s.Label));
         foreach (var group in sections.GroupBy(s => s.SongId))
             Assert.Equal(group.Count(), group.Select(s => s.Label.ToLowerInvariant()).Distinct().Count());
@@ -74,7 +75,7 @@ public sealed class SongMigrationTests : IDisposable
         Assert.Equal(3L, await d.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM SongArrangements WHERE IsDefault = 1"));
         var order = (await d.QueryAsync<(long SongId, long Position, string Label)>(
             "SELECT a.SongId, i.Position, s.Label FROM SongArrangementItems i JOIN SongArrangements a ON a.Id = i.ArrangementId JOIN SongSections s ON s.Id = i.SectionId ORDER BY a.SongId, i.Position")).ToList();
-        Assert.Equal(["Verso 1", "Coro", "Verso 2", "Coro (2)"], order.Where(o => o.SongId == plain).Select(o => o.Label));
+        Assert.Equal(["Verso 1", "Coro", "Verso 2", "Coro 2"], order.Where(o => o.SongId == plain).Select(o => o.Label));
         Assert.DoesNotContain(order, o => o.SongId == withoutSlides);
 
         // SongSlides queda CONGELADA (con su contenido) y sin triggers.
@@ -90,7 +91,7 @@ public sealed class SongMigrationTests : IDisposable
         Assert.Equal((usedInService, 0L), (item.SongId, item.IsMissing));
         Assert.Empty(await d.QueryAsync("PRAGMA foreign_key_check"));
         Assert.Equal(1L, await d.ExecuteScalarAsync<long>("PRAGMA foreign_keys"));
-        Assert.Equal(9L, await d.ExecuteScalarAsync<long>("PRAGMA user_version"));
+        Assert.Equal(10L, await d.ExecuteScalarAsync<long>("PRAGMA user_version"));
     }
 
     [Fact]
@@ -185,4 +186,58 @@ public sealed class SongMigrationTests : IDisposable
         Assert.Equal([0, 1, 1], after.Arrangement);
         Assert.Equal(["verse", "chorus"], after.Sections.Select(s => s.Kind));   // al guardar, el tipo se deriva de la etiqueta
     }
-}
+
+    [Fact]
+    public async Task Every_converted_song_can_be_saved_afterwards_whatever_its_old_labels_and_text_were()
+    {
+        long same, verses, withEmpty, withBrackets, symbols;
+        await using (var c = await OpenVersion8Async())
+        {
+            same = await SongAsync(c, "Coros", (0, "Coro 2", "uno"), (1, "Coro", "dos"), (2, "Coro", "tres"));
+            verses = await SongAsync(c, "Versos", (0, "Verso 1", "a1"), (1, "Verso 1", "a2"));
+            withEmpty = await SongAsync(c, "Con vacia", (0, "Verso 1", "v1"), (1, "Coro", "   \n  "), (2, "Verso 2", "v2"));
+            withBrackets = await SongAsync(c, "Con corchetes", (0, "Verso 1", "antes\n[Coro]\ndespues\nOrden: V1 C"));
+            symbols = await SongAsync(c, "Con simbolos", (0, "A;B", "x"), (1, "Parte; A", "y"), (2, new string('x', 70), "z"));
+        }
+
+        await _db.Initializer.InitializeAsync(CancellationToken.None);
+
+        var repo = new SongRepository(_db.Connections, new AlwaysReady());
+        foreach (var id in new[] { same, verses, withEmpty, withBrackets, symbols })
+        {
+            var song = (await repo.GetAsync(id, CancellationToken.None))!;
+            // Guardar la canción tal como quedó (lo que hace el editor al pulsar «Guardar» sin tocar nada) NO debe fallar.
+            await repo.SaveAsync(new OakProyektor.Core.Songs.SongSaveRequest(id, song.Revision, song.Title, song.Author, null, null, null, null,
+                [.. song.Sections.Select(s => new OakProyektor.Core.Songs.SongSectionInput(s.Id, s.Label, null, s.Text))], song.Arrangement), CancellationToken.None);
+        }
+
+        Assert.Equal(["Coro 2", "Coro", "Coro 3"], (await repo.GetAsync(same, CancellationToken.None))!.Sections.Select(s => s.Label));
+        Assert.Equal(["Verso 1", "Verso 1 bis"], (await repo.GetAsync(verses, CancellationToken.None))!.Sections.Select(s => s.Label));   // y no «Verso 12»
+        var empty = (await repo.GetAsync(withEmpty, CancellationToken.None))!;
+        Assert.Equal(["v1", "v2"], empty.Sections.Select(s => s.Text));
+        Assert.Equal([0, 1], empty.Arrangement);
+        Assert.Equal("antes\n([Coro])\ndespues\n(Orden: V1 C)", (await repo.GetAsync(withBrackets, CancellationToken.None))!.Sections.Single().Text);
+        Assert.All((await repo.GetAsync(symbols, CancellationToken.None))!.Sections, s => Assert.Null(OakProyektor.Core.Songs.SongValidator.LabelProblem(s.Label)));
+        Assert.Equal(["verse", "verse"], (await repo.GetAsync(verses, CancellationToken.None))!.Sections.Select(s => s.Kind));
+    }
+
+    [Fact]
+    public async Task The_repair_is_part_of_the_migration_transaction_and_a_database_with_valid_songs_is_untouched()
+    {
+        // Una BD que ya estaba en la versión 9 con canciones guardadas por el editor: la migración 10 no cambia nada de ellas.
+        long id;
+        await using (var c = await OpenVersion8Async())
+            await new MigrationRunner([.. Embedded.Take(9)], _db.Options, NullLogger<MigrationRunner>.Instance).RunAsync(c, CancellationToken.None);
+        var repo = new SongRepository(_db.Connections, new AlwaysReady());
+        id = (await repo.SaveAsync(new OakProyektor.Core.Songs.SongSaveRequest(null, null, "Valida", null, null, null, null, null,
+            [new(null, "Verso 1", null, "uno\n\ndos"), new(null, "Coro", null, "coro")], [0, 1, 1]), CancellationToken.None)).SongId;
+        var before = (await repo.GetAsync(id, CancellationToken.None))!;
+
+        var result = await _db.Initializer.InitializeAsync(CancellationToken.None);
+
+        Assert.Equal([10], result.Applied);
+        var after = (await repo.GetAsync(id, CancellationToken.None))!;
+        Assert.Equal(before.Sections, after.Sections);
+        Assert.Equal(before.Arrangement, after.Arrangement);
+        Assert.Equal(before.Revision, after.Revision);
+    }}
