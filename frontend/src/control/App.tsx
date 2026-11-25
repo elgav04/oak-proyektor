@@ -290,7 +290,7 @@ export function App() {
           <BibleTab controller={bibleController} connected={connected} output={output} onOpenSettings={() => { setBibleSettingsOpen(true); }} />
         ))}
 
-      {tab === "songs" && <SongsTab controller={songController} connected={connected} />}
+      {tab === "songs" && <SongsTab controller={songController} connected={connected} output={output} />}
 
       {tab === "diagnostics" && <Diagnostics />}
 

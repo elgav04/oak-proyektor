@@ -32,7 +32,8 @@ test("escribiendo en un cuadro de texto no se interpreta ninguna otra tecla", ()
 test("lista: flechas, Enter, Supr, «/» (con o sin Mayús) y Ctrl+N", () => {
   assert.equal(sc.matchSongShortcut(key("ArrowDown"), body, list), "listNext");
   assert.equal(sc.matchSongShortcut(key("ArrowUp"), body, list), "listPrev");
-  assert.equal(sc.matchSongShortcut(key("Enter"), body, list), "listOpen");
+  assert.equal(sc.matchSongShortcut(key("Enter"), body, list), "slideProject", "Enter proyecta la diapositiva seleccionada");
+  assert.equal(sc.matchSongShortcut(key("e", { ctrlKey: true }), body, list), "listOpen", "editar es Ctrl+E");
   assert.equal(sc.matchSongShortcut(key("Delete"), body, list), "listDelete");
   assert.equal(sc.matchSongShortcut(key("/"), body, list), "focusSearch");
   assert.equal(sc.matchSongShortcut(key("/", { shiftKey: true }), body, list), "focusSearch", "en el teclado español «/» es Mayús+7");
@@ -44,7 +45,20 @@ test("editor: Esc cierra (si no se escribe) y las teclas de la lista no valen", 
   assert.equal(sc.matchSongShortcut(key("Escape"), body, editor), "closeEditor");
   assert.equal(sc.matchSongShortcut(key("ArrowDown"), body, editor), null);
   assert.equal(sc.matchSongShortcut(key("Delete"), body, editor), null, "Supr solo actúa sobre una fila del orden");
-  assert.equal(sc.matchSongShortcut(key("Escape"), body, list), null, "en la lista, Esc no hace nada");
+  for (const k of ["ArrowRight", "ArrowLeft", "PageDown", "PageUp", "Enter"]) assert.equal(sc.matchSongShortcut(key(k), body, editor), null, `${k}: las teclas de proyección no valen en el editor`);
+  assert.equal(sc.matchSongShortcut(key("Escape"), body, list), "slideClear", "en la lista, Esc quita el texto de la pantalla");
+});
+
+test("proyección: → y Av Pág siguiente, ← y Re Pág anterior; con Ctrl/Alt/Mayús no; los globales nunca; escribiendo no", () => {
+  assert.equal(sc.matchSongShortcut(key("ArrowRight"), body, list), "slideNext");
+  assert.equal(sc.matchSongShortcut(key("PageDown"), body, list), "slideNext");
+  assert.equal(sc.matchSongShortcut(key("ArrowLeft"), body, list), "slidePrev");
+  assert.equal(sc.matchSongShortcut(key("PageUp"), body, list), "slidePrev");
+  assert.equal(sc.matchSongShortcut(key("ArrowRight", { ctrlKey: true }), body, list), null);
+  assert.equal(sc.matchSongShortcut(key("ArrowRight", { altKey: true }), body, list), null);
+  assert.equal(sc.matchSongShortcut(key("ArrowRight", { shiftKey: true }), body, list), null);
+  for (const k of ["m", "b", "c", "l", "r", "Escape", "Enter"]) assert.equal(sc.matchSongShortcut(key(k, { ctrlKey: true, altKey: true, shiftKey: true }), body, list), null, `Ctrl+Alt+Shift+${k} es global`);
+  for (const k of ["ArrowRight", "ArrowLeft", "PageDown", "PageUp", "Enter", "Escape"]) assert.equal(sc.matchSongShortcut(key(k), input, list), null, `${k} escribiendo en la búsqueda`);
 });
 
 test("orden: con el foco en una fila, Alt+↑/↓ mueve, Supr quita, Ctrl+D repite y las flechas cambian de fila", () => {

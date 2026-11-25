@@ -16,6 +16,12 @@ Basado en la lectura de las migraciones 1–8, `Models.cs`, `ISongRepository`, `
 
 ---
 
+## Estado (2026-11-25): prompt 3 hecho — proyección de canciones
+
+La lista proyecta (Enter, flechas, Av/Re Pág, Esc), con insignia EN VIVO derivada del estado confirmado, fondo por canción por el carril lento (solo si lo tiene), ráfagas «la última gana» y sin escrituras en la BD. **Decisión sobre el final**: se queda en la última diapositiva con «FIN» (o limpia con tEnd: clear); nunca salta a otra canción. Detalles y pruebas en CLAUDE.md. **Pendiente**: servicios (listas de elementos) y el aviso de derechos en pantalla (descartado por ahora).
+
+---
+
 ## Estado (2026-11-25): prompt 2 hecho — pestaña «Canciones» con el editor
 
 Implementado y verificado en la app real (`tools\song-layout-test.ps1`): lista con búsqueda, editor de texto único con etiquetas, orden con `@dnd-kit` y alternativas de teclado, diapositivas derivadas con el tema real (cortes manuales y automáticos distintos), importación de .txt con vista previa y codificación, guardar con «×N», Ctrl+S, «sin guardar», salir con aviso en pantalla, deshacer y restaurar versiones, borrar con «usada en N servicios», ficha y fondo, y tema propio. **Decisiones al implementar**: (1) sin `beforeunload` (un diálogo del sistema podría bloquear la recarga de recuperación); en su lugar, borrador en `localStorage` (funciona en WebView2) y barra inline al salir; (2) el orden en el editor son referencias a secciones por identidad de la vista, reconciliadas al reinterpretar el texto (el texto del editor no lleva la línea «Orden:»); (3) `IpcClient.send` devuelve el id del comando para correlacionar `song.changed`. **Pendiente**: la pestaña de proyección (prompt 3).

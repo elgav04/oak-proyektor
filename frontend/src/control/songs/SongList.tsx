@@ -19,7 +19,7 @@ export function SongList({ controller, connected, searchRef }: { controller: Son
     if (event.ctrlKey || event.altKey || event.metaKey) return;
     if (event.key === "ArrowDown") { event.preventDefault(); controller.moveList(1); }
     else if (event.key === "ArrowUp") { event.preventDefault(); controller.moveList(-1); }
-    else if (event.key === "Enter") { event.preventDefault(); controller.openSelected(); event.currentTarget.blur(); }
+    else if (event.key === "Enter") { event.preventDefault(); controller.selectIndex(s.listIndex); event.currentTarget.blur(); }   // elige la canción; el siguiente Enter proyecta su diapositiva
     else if (event.key === "Escape") { event.preventDefault(); if (s.query.length > 0) controller.setQuery(""); else event.currentTarget.blur(); }
   };
 
@@ -69,7 +69,7 @@ export function SongList({ controller, connected, searchRef }: { controller: Son
                 data-song-id={String(song.id)}
                 className={`absolute inset-x-0 flex items-center gap-3 border-b px-3 ${active ? "bg-blue-100" : "hover:bg-neutral-50"}`}
                 style={{ top: index * ROW_HEIGHT, height: ROW_HEIGHT }}
-                onClick={() => { controller.store.setState({ listIndex: index }); }}
+                onClick={() => { controller.selectIndex(index); }}
                 onDoubleClick={() => { controller.openSong(song.id); }}
               >
                 <div className="min-w-0 flex-1">
@@ -79,9 +79,9 @@ export function SongList({ controller, connected, searchRef }: { controller: Son
                     {song.fragment ? <span className="ml-2 text-neutral-500">· {song.fragment}</span> : null}
                   </p>
                 </div>
-                <Button size="sm" variant="outline" disabled={!connected} onClick={() => { controller.openSong(song.id); }}>Abrir</Button>
-                <Button size="sm" variant="outline" disabled={!connected} onClick={() => { controller.duplicate(song.id); }}>Duplicar</Button>
-                <Button size="sm" variant="outline" disabled={!connected} onClick={() => { controller.askDelete(song.id); }}>Borrar</Button>
+                <Button size="sm" variant="outline" disabled={!connected} onClick={(e) => { e.stopPropagation(); controller.openSong(song.id); }}>Editar</Button>
+                <Button size="sm" variant="outline" disabled={!connected} onClick={(e) => { e.stopPropagation(); controller.duplicate(song.id); }}>Duplicar</Button>
+                <Button size="sm" variant="outline" disabled={!connected} onClick={(e) => { e.stopPropagation(); controller.askDelete(song.id); }}>Borrar</Button>
               </div>
             );
           })}

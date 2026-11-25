@@ -1,9 +1,11 @@
 import { useEffect, useRef } from "react";
 import { useStore } from "zustand";
 import { Button } from "@/components/ui/button";
+import type { OutputStateChangedPayload } from "@/ipc/protocol";
 import { SONG_SHORTCUTS, matchSongShortcut } from "../shortcuts";
 import type { SongController } from "./controller";
 import { ImportPanel } from "./ImportPanel";
+import { ProjectionPanel } from "./ProjectionPanel";
 import { SongEditor } from "./SongEditor";
 import { SongList } from "./SongList";
 import { SongThemeView } from "./SongTheme";
@@ -12,7 +14,7 @@ import { SongThemeView } from "./SongTheme";
  * Pestaña de Canciones: lista y búsqueda, editor (texto, orden, diapositivas derivadas), importación y tema. Todo el estado y la lógica están en el controlador (que habla
  * con el backend); aquí solo se pinta y se conectan las teclas del mapa único (`../shortcuts.ts`). NO proyecta ni toca la salida.
  */
-export function SongsTab({ controller, connected }: { controller: SongController; connected: boolean }) {
+export function SongsTab({ controller, connected, output = null }: { controller: SongController; connected: boolean; output?: OutputStateChangedPayload | null }) {
   const s = useStore(controller.store);
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -29,6 +31,8 @@ export function SongsTab({ controller, connected }: { controller: SongController
       const orderFocused = state.mode === "editor" && target?.closest("[data-order-row]") != null;
       const action = matchSongShortcut(event, target, { mode: state.mode, orderFocused });
       if (!action) return;
+      // Las flechas de diapositiva SÍ se repiten al mantenerlas (el envío ya agrupa la ráfaga); Enter y Esc no.
+      if (event.repeat && (action === "slideProject" || action === "slideClear")) { event.preventDefault(); return; }
       if (event.repeat && (action === "save" || action === "saveAndClose" || action === "listDelete" || action === "orderRemove" || action === "closeEditor" || action === "listOpen")) {
         event.preventDefault();
         return;
@@ -48,6 +52,10 @@ export function SongsTab({ controller, connected }: { controller: SongController
         case "listPrev": controller.moveList(-1); break;
         case "listNext": controller.moveList(1); break;
         case "listOpen": controller.openSelected(); break;
+        case "slideProject": controller.projectCursor(); break;
+        case "slideNext": controller.nextSlide(); break;
+        case "slidePrev": controller.prevSlide(); break;
+        case "slideClear": controller.clearProjection(); break;
         case "listDelete": controller.askDelete(); break;
         case "orderPrev": rowFocus(Math.max(0, index - 1)); break;
         case "orderNext": rowFocus(Math.min((state.editor?.order.length ?? 1) - 1, index + 1)); break;
@@ -110,6 +118,7 @@ export function SongsTab({ controller, connected }: { controller: SongController
       {s.mode === "list" ? (
         <div onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }} onDrop={(e) => { const f = e.dataTransfer.files[0]; if (f) { e.preventDefault(); dropFile(f); } }}>
           <SongList controller={controller} connected={connected} searchRef={searchRef} />
+          <ProjectionPanel controller={controller} connected={connected} output={output} />
           <p className="mt-2 text-xs text-neutral-500">Puedes soltar un archivo .txt sobre esta pantalla para importarlo.</p>
         </div>
       ) : (
@@ -123,7 +132,7 @@ export function SongsTab({ controller, connected }: { controller: SongController
             <li key={`${k.action}-${k.key}-${String(k.alt)}-${String(k.ctrl)}`}><kbd className="rounded border bg-neutral-100 px-1.5 font-mono">{k.label}</kbd> {k.description}</li>
           ))}
         </ul>
-        <p className="mt-2 text-xs text-neutral-500">Los atajos globales (Ctrl+Alt+Shift+M/B/C/L/R) no cambian y funcionan siempre. Esta pestaña no proyecta: solo edita.</p>
+        <p className="mt-2 text-xs text-neutral-500">Los atajos globales (Ctrl+Alt+Shift+M/B/C/L/R) no cambian y funcionan siempre. Los controles maestros (Negro, Limpiar, Logo, Congelar) funcionan igual con canciones.</p>
       </details>
     </div>
   );

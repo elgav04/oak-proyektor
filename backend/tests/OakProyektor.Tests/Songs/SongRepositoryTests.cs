@@ -395,6 +395,15 @@ public sealed class SongRepositoryTests : IAsyncLifetime
     // ───────────────────────────── lista y búsqueda ─────────────────────────────
 
     [Fact]
+    public async Task The_list_of_an_EMPTY_database_is_empty_not_an_internal_error()
+    {
+        // Primer arranque, sin canciones: la columna calculada sin filas hacía fallar a Dapper («Error interno» al abrir la pestaña).
+        var list = await _repo.ListAsync(CancellationToken.None);
+
+        Assert.Empty(list.Songs);
+        Assert.False(list.Truncated);
+    }
+    [Fact]
     public async Task The_list_is_ordered_by_title_ignoring_case_and_accents()
     {
         foreach (var title in new[] { "Zeta", "Él viaja", "ábaco", "Beta", "el", "Ñandú", "Nube" }) await NewSongAsync(title);

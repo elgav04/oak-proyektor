@@ -15,8 +15,9 @@ import type {
   SongSummaryDto,
   TextTheme,
 } from "@/ipc/protocol";
-import { realClock, type Clock } from "../bible/latest";
+import { createLatestSender, realClock, type Clock } from "../bible/latest";
 import { createBlocksMeasurer } from "../bible/measure";
+import { projectionTheme } from "../bible/slide";
 import { SONG_DEFAULT_SETTINGS } from "./defaults";
 import { decodeSongFile, MAX_FILE_BYTES, type ForcedEncoding } from "./fileDecoder";
 import { deriveSlides, paginateChunk, uniqueChunks, warmChunks, type SongSlide } from "./slides";
@@ -67,6 +68,10 @@ export interface SongControllerDeps {
   /** Trabajo máximo seguido al calcular diapositivas antes de ceder el hilo (ms). */
   sliceBudgetMs?: number;
   yieldNow?: () => Promise<void>;
+  /** Mínimo entre dos envíos de proyección al navegar con las teclas (la última siempre llega). */
+  sendIntervalMs?: number;
+  /** Cuánto tarda en cargarse la tira al moverse por la lista con las flechas. */
+  selectDelayMs?: number;
   now?: () => number;
   newUid?: () => string;
 }
@@ -128,6 +133,25 @@ export interface RecoveredDraft {
   title: string;
 }
 
+/**
+ * La canción SELECCIONADA para proyectar (distinta de la que se edita). `cursor` = diapositiva seleccionada (estado de VISTA: la que se proyectará con Enter);
+ * `requested` = la última que se PIDIÓ proyectar (null = todavía no se pidió nada de esta canción). Qué está EN PANTALLA no se guarda aquí: sale del estado que
+ * confirma el backend (`liveStatus.ts`).
+ */
+export interface ProjectionState {
+  songId: number;
+  title: string;
+  revision: number;
+  background: SongBackgroundDto | null;
+  slides: SongSlide[] | null;
+  busy: boolean;
+  cursor: number;
+  requested: number | null;
+  /** Se pulsó «siguiente» en la última diapositiva (la canción se queda en ella: «FIN»). */
+  atEnd: boolean;
+  error: string | null;
+}
+
 export interface SongViewState {
   loaded: boolean;
   settings: SongSettingsPayload | null;
@@ -140,6 +164,7 @@ export interface SongViewState {
   resultsTruncated: boolean;
   listIndex: number;
   editor: EditorState | null;
+  projection: ProjectionState | null;
   saving: boolean;
   conflict: boolean;
   confirmLeave: boolean;
@@ -161,6 +186,7 @@ const initialState: SongViewState = {
   resultsTruncated: false,
   listIndex: 0,
   editor: null,
+  projection: null,
   saving: false,
   conflict: false,
   confirmLeave: false,
@@ -204,6 +230,16 @@ export interface SongController {
   refreshList: () => Promise<void>;
   setQuery: (query: string) => void;
   moveList: (delta: number) => void;
+  /** Clic en una canción de la lista: la selecciona y muestra su tira de diapositivas (NO proyecta nada). */
+  selectIndex: (index: number) => void;
+  /** Enter: proyecta la diapositiva seleccionada. */
+  projectCursor: () => void;
+  /** Clic en una diapositiva de la tira: la selecciona y la proyecta. */
+  projectSlide: (index: number) => void;
+  nextSlide: () => void;
+  prevSlide: () => void;
+  /** Esc: quita el texto de la pantalla (`output.clearContent`) y descarta lo pendiente. */
+  clearProjection: () => void;
   openSelected: () => void;
   openSong: (id: number) => void;
   newSong: () => void;
@@ -306,21 +342,24 @@ export function createSongController(deps: SongControllerDeps): SongController {
   let slidesToken = 0;
   let slidesTimer: unknown = null;
 
+  /** Diapositivas de un trozo, memorizadas (el editor y la proyección comparten la memoria: un coro se mide una vez). */
+  const makePagesOf = (fits: BlocksFit) => (chunk: string): string[] => {
+    let pages = pagesCache.get(chunk);
+    if (!pages) {
+      pages = paginateChunk(chunk, (text) => fits([text]));
+      if (pagesCache.size > 600) pagesCache.clear();
+      pagesCache.set(chunk, pages);
+    }
+    return pages;
+  };
+
   const computeSlides = async (token: number): Promise<void> => {
     const e = get().editor;
     if (!e || gone()) return;
     const fits = fitFor(theme());
     const indexes = e.order.map((entry) => e.sections.findIndex((s) => s.uid === entry.uid)).filter((i) => i >= 0);
     const sources = e.sections.map((s) => ({ uid: s.uid, label: s.label, text: s.text }));
-    const pagesOf = (chunk: string): string[] => {
-      let pages = pagesCache.get(chunk);
-      if (!pages) {
-        pages = paginateChunk(chunk, (text) => fits([text]));
-        if (pagesCache.size > 600) pagesCache.clear();
-        pagesCache.set(chunk, pages);
-      }
-      return pages;
-    };
+    const pagesOf = makePagesOf(fits);
     const done = await warmChunks(uniqueChunks(sources, indexes), pagesOf, {
       budgetMs: deps.sliceBudgetMs ?? 12,
       now,
@@ -452,6 +491,7 @@ export function createSongController(deps: SongControllerDeps): SongController {
 
   const onChanged = (p: SongChangedPayload): void => {
     remember(recentChanged, p.commandId, p);
+    notifyProjection(p);
     const w = waiters.get(p.commandId);
     if (w) {
       clock.clearTimeout(w.timer);
@@ -465,6 +505,7 @@ export function createSongController(deps: SongControllerDeps): SongController {
   };
 
   const onFailed = (p: EventPayloads["command.failed"]): void => {
+    if (p.commandId === backgroundCommandId) appliedBackground = null;   // el fondo no se pudo aplicar: la próxima proyección de la canción lo reintenta
     const error = new CommandError(p.error.code, p.error.message);
     remember(recentFailed, p.commandId, error);
     const w = waiters.get(p.commandId);
@@ -472,6 +513,88 @@ export function createSongController(deps: SongControllerDeps): SongController {
     clock.clearTimeout(w.timer);
     waiters.delete(p.commandId);
     w.reject(error);
+  };
+
+  // ───────── proyección (la canción SELECCIONADA en la lista) ─────────
+
+  /** Las diapositivas se mandan por el carril en vivo con «el último gana»: una ráfaga de teclas muestra siempre la última. NO se escribe nada en la BD. */
+  const sender = createLatestSender<{ text: string }>(
+    ({ text }) => {
+      const s = get().settings ?? SONG_DEFAULT_SETTINGS;   // sin los ajustes cargados se proyecta con los de fábrica: nunca un «Enter» que no hace nada
+      api.send("output.showContent", { blocks: [text], theme: projectionTheme(s.theme), transitionMs: s.transitionMs });
+    },
+    deps.sendIntervalMs ?? 60,
+    clock,
+  );
+  let appliedBackground: string | null = null;
+  let backgroundCommandId: string | null = null;
+  let selectToken = 0;
+  let selectTimer: unknown = null;
+  const BACKGROUND_FADE_MS = 600;
+
+  const patchProjection = (changes: Partial<ProjectionState>): void => {
+    set((s) => (s.projection ? { projection: { ...s.projection, ...changes } } : s));
+  };
+
+  const deriveAsync = async (sources: { uid: string; label: string; text: string }[], indexes: number[], cancelled: () => boolean): Promise<SongSlide[] | null> => {
+    const pagesOf = makePagesOf(fitFor(theme()));
+    const done = await warmChunks(uniqueChunks(sources, indexes), pagesOf, { budgetMs: deps.sliceBudgetMs ?? 12, now, yieldNow, cancelled });
+    return done ? deriveSlides(sources, indexes, pagesOf) : null;
+  };
+
+  /** Carga la canción seleccionada y deriva su tira (en tandas, como el editor). `keep` conserva la diapositiva seleccionada si es la misma canción. */
+  const loadProjection = async (id: number, keep: boolean): Promise<void> => {
+    const token = ++selectToken;
+    const previous = get().projection;
+    if (keep && previous?.songId === id) patchProjection({ busy: true });
+    else set({ projection: { songId: id, title: "", revision: 0, background: null, slides: null, busy: true, cursor: 0, requested: null, atEnd: false, error: null } });
+    try {
+      const song = await api.request("song.get", { id });
+      if (gone() || token !== selectToken) return;
+      const sources = song.sections.map((s, i) => ({ uid: String(s.id ?? i), label: s.label, text: s.text }));
+      const slides = await deriveAsync(sources, song.arrangement, () => token !== selectToken || gone());
+      if (!slides || gone() || token !== selectToken) return;
+      const cursor = keep && previous?.songId === id ? Math.min(previous.cursor, Math.max(0, slides.length - 1)) : 0;
+      patchProjection({ title: song.title, revision: song.revision, background: song.background, slides, busy: false, cursor, error: null });
+    } catch (error) {
+      if (gone() || token !== selectToken) return;
+      if (errorCode(error) === "song.notFound") set({ projection: null });
+      else patchProjection({ busy: false, error: errorMessage(error) });
+    }
+  };
+
+  /** Si cambió (o se borró) la canción seleccionada —se guardó en el editor, otra ventana— se vuelve a leer su tira. */
+  function notifyProjection(p: SongChangedPayload): void {
+    const proj = get().projection;
+    if (!proj || proj.songId !== p.songId) return;
+    if (p.kind === "deleted") { selectToken++; set({ projection: null }); }
+    else void loadProjection(p.songId, true);
+  }
+
+  /** Fondo propio de la canción: si lo tiene y no es el que ya se aplicó, UN `output.setBackground` (carril lento, validado por el backend). Sin fondo propio NO toca el actual. */
+  const applyBackground = (p: ProjectionState): void => {
+    const bg = p.background;
+    if (!bg) return;
+    const key = `${String(p.songId)}:${JSON.stringify(bg)}`;
+    if (key === appliedBackground) return;
+    appliedBackground = key;
+    backgroundCommandId = api.send("output.setBackground", {
+      kind: bg.kind === "color" ? "color" : bg.kind === "image" ? "image" : "video",
+      path: bg.kind === "color" ? null : bg.path,
+      color: bg.color,
+      muted: bg.muted,
+      transitionMs: BACKGROUND_FADE_MS,
+    });
+  };
+
+  const projectAt = (index: number, immediate: boolean): void => {
+    const p = get().projection;
+    const slide = p?.slides?.[index];
+    if (!p || !slide) return;
+    applyBackground(p);   // antes que el texto (otro carril, sin orden garantizado: el fondo es una capa independiente)
+    patchProjection({ cursor: index, requested: index, atEnd: false });
+    if (immediate) sender.now({ text: slide.text });
+    else sender.push({ text: slide.text });
   };
 
   // ───────── cargar una canción en el editor ─────────
@@ -701,6 +824,61 @@ export function createSongController(deps: SongControllerDeps): SongController {
       const size = visible().length;
       if (size === 0) return;
       set({ listIndex: Math.max(0, Math.min(size - 1, get().listIndex + delta)) });
+      // La tira de la canción seleccionada se carga cuando dejas de moverte (recorrer la lista deprisa no pide cada canción).
+      if (selectTimer !== null) clock.clearTimeout(selectTimer);
+      selectTimer = clock.setTimeout(() => {
+        selectTimer = null;
+        const song = visible()[get().listIndex];
+        if (song && !gone() && get().projection?.songId !== song.id) void loadProjection(song.id, false);
+      }, deps.selectDelayMs ?? 120);
+    },
+
+    selectIndex(index) {
+      const song = visible()[index];
+      if (!song) return;
+      set({ listIndex: index });
+      if (selectTimer !== null) { clock.clearTimeout(selectTimer); selectTimer = null; }
+      const current = get().projection;
+      if (current?.songId === song.id && current.slides) return;
+      void loadProjection(song.id, false);
+    },
+
+    projectCursor() {
+      const p = get().projection;
+      if (p?.slides?.length) projectAt(Math.min(p.cursor, p.slides.length - 1), true);
+    },
+
+    projectSlide(index) {
+      projectAt(index, true);
+    },
+
+    nextSlide() {
+      const p = get().projection;
+      const count = p?.slides?.length ?? 0;
+      if (!p || count === 0) return;
+      if (p.requested === null) { projectAt(Math.min(p.cursor, count - 1), false); return; }   // todavía no se proyectó nada de esta canción: «siguiente» empieza por la seleccionada
+      if (p.cursor >= count - 1) {
+        // Al final: se queda en la última diapositiva (una pulsación de más no vacía la pantalla en un culto). Con «quitar el texto» en el tema, la limpia.
+        if (get().settings?.atEnd === "clear") controller.clearProjection();
+        else patchProjection({ atEnd: true });
+        return;
+      }
+      projectAt(p.cursor + 1, false);
+    },
+
+    prevSlide() {
+      const p = get().projection;
+      const count = p?.slides?.length ?? 0;
+      if (!p || count === 0) return;
+      if (p.requested === null) { projectAt(Math.min(p.cursor, count - 1), false); return; }
+      if (p.cursor <= 0) return;   // en el límite no pasa nada (ni se vuelve a proyectar)
+      projectAt(p.cursor - 1, false);
+    },
+
+    clearProjection() {
+      sender.cancel();
+      api.send("output.clearContent", { transitionMs: get().settings?.transitionMs ?? 400 });
+      patchProjection({ requested: null, atEnd: false });
     },
 
     openSelected() {
@@ -1022,6 +1200,8 @@ export function createSongController(deps: SongControllerDeps): SongController {
           set({ settings: confirmed });
           pagesCache.clear();
           if (get().editor) scheduleSlides();
+          const proj = get().projection;
+          if (proj) void loadProjection(proj.songId, true);   // otro tema = otras diapositivas
         }
       } catch (error) {
         if (!gone()) set({ message: errorMessage(error) });
@@ -1076,7 +1256,8 @@ export function createSongController(deps: SongControllerDeps): SongController {
 
     dispose() {
       life.disposed = true;
-      for (const timer of [queryTimer, parseTimer, slidesTimer, draftTimer, importTimer, listRefreshTimer]) if (timer !== null) clock.clearTimeout(timer);
+      sender.cancel();
+      for (const timer of [queryTimer, parseTimer, slidesTimer, draftTimer, importTimer, listRefreshTimer, selectTimer]) if (timer !== null) clock.clearTimeout(timer);
       for (const w of waiters.values()) clock.clearTimeout(w.timer);
       waiters.clear();
       for (const off of unsubscribers) off();

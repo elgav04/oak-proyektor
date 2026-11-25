@@ -40,8 +40,16 @@ public sealed class SongRepository(
     public async Task<SongListResult> ListAsync(CancellationToken cancellationToken)
     {
         await using var connection = await connections.OpenWhenReadyAsync(readiness, cancellationToken).ConfigureAwait(false);
-        var rows = (await connection.QueryAsync<SummaryRow>(new CommandDefinition(
-            "SELECT Id, Title, Author, COALESCE(UpdatedAt, CreatedAt) AS UpdatedAt FROM Songs", cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
+        // Con ADO a mano y no con Dapper: la columna calculada (COALESCE) no tiene tipo declarado y, con la tabla VACÍA (primer arranque), Dapper la toma por blob
+        // y falla al armar el registro («Error interno» al abrir la pestaña sin ninguna canción).
+        var rows = new List<SummaryRow>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "SELECT Id, Title, Author, COALESCE(UpdatedAt, CreatedAt) AS UpdatedAt FROM Songs";
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                rows.Add(new SummaryRow(reader.GetInt64(0), reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetString(2), reader.GetString(3)));
+        }
 
         // Orden por título sin distinguir mayúsculas ni tildes (el NOCASE de SQLite solo cubre ASCII): «Él» y «el» van juntos.
         var sorted = rows.Select(r => (Row: r, Key: SortKey(r.Title))).OrderBy(x => x.Key, StringComparer.Ordinal).ThenBy(x => x.Row.Id).Select(x => x.Row).ToList();

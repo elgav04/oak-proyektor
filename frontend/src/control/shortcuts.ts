@@ -124,6 +124,10 @@ export type SongAction =
   | "listNext"
   | "listOpen"
   | "listDelete"
+  | "slideProject"
+  | "slideNext"
+  | "slidePrev"
+  | "slideClear"
   | "orderPrev"
   | "orderNext"
   | "orderMoveUp"
@@ -153,9 +157,16 @@ export const SONG_SHORTCUTS: readonly SongShortcut[] = [
   { action: "closeEditor", key: "Escape", scope: "editor", label: "Esc", description: "Cerrar el editor (avisa si hay cambios sin guardar)" },
   { action: "newSong", key: "n", ctrl: true, scope: "list", label: "Ctrl+N", description: "Canción nueva" },
   { action: "focusSearch", key: "/", shift: "any", scope: "list", label: "/", description: "Ir al cuadro de búsqueda" },
-  { action: "listPrev", key: "ArrowUp", scope: "list", label: "↑", description: "Canción anterior de la lista" },
+  { action: "listPrev", key: "ArrowUp", scope: "list", label: "↑", description: "Canción anterior de la lista (muestra su tira de diapositivas; no proyecta)" },
   { action: "listNext", key: "ArrowDown", scope: "list", label: "↓", description: "Canción siguiente de la lista" },
-  { action: "listOpen", key: "Enter", scope: "list", label: "Enter", description: "Abrir la canción en el editor" },
+  { action: "listOpen", key: "e", ctrl: true, scope: "list", label: "Ctrl+E", description: "Editar la canción seleccionada (también: doble clic o el botón Editar)" },
+  // Proyección (pantalla de la lista): la diapositiva seleccionada de la canción seleccionada. Mismas teclas de página que la Biblia.
+  { action: "slideProject", key: "Enter", scope: "list", label: "Enter", description: "Proyectar la diapositiva seleccionada" },
+  { action: "slideNext", key: "ArrowRight", scope: "list", label: "→", description: "Diapositiva siguiente (la proyecta; al final se queda en la última: «FIN»)" },
+  { action: "slideNext", key: "PageDown", scope: "list", label: "Av Pág", description: "Diapositiva siguiente (la proyecta)" },
+  { action: "slidePrev", key: "ArrowLeft", scope: "list", label: "←", description: "Diapositiva anterior (la proyecta)" },
+  { action: "slidePrev", key: "PageUp", scope: "list", label: "Re Pág", description: "Diapositiva anterior (la proyecta)" },
+  { action: "slideClear", key: "Escape", scope: "list", label: "Esc", description: "Quitar el texto de la pantalla (output.clearContent)" },
   { action: "listDelete", key: "Delete", scope: "list", label: "Supr", description: "Borrar la canción (pide confirmación)" },
   { action: "orderPrev", key: "ArrowUp", scope: "order", label: "↑", description: "Elemento anterior del orden" },
   { action: "orderNext", key: "ArrowDown", scope: "order", label: "↓", description: "Elemento siguiente del orden" },

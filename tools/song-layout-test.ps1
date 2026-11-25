@@ -418,6 +418,53 @@ try {
     # El panel sigue respondiendo y recibe mensajes del backend (la sonda no estropeo el receptor de la aplicacion).
     $still = Invoke-Query $cws "song.list" @{}
     Check $still.ok "el panel dejo de recibir respuestas"
+    # 5b. PROYECCION real: lista -> tira -> Enter / flechas / maestros / Esc, con la salida real y el estado que confirma el backend
+    Write-Host "Paso 5: proyectar la cancion desde la lista (salida real)..." -ForegroundColor Cyan
+    if ($newSong) {
+        $outText = { (Eval $ows "[...document.querySelectorAll('.content-text')].map((n) => n.textContent).join('|')") }
+        $badgeNow = { Eval $cws "(() => { const b = document.querySelector('[data-testid=`"live-badge`"]'); return b ? b.textContent : null; })()" }
+        $liveIdx = { Eval $cws "(() => { const l = [...document.querySelectorAll('[aria-label=`"Diapositivas derivadas`"] li')]; const i = l.findIndex((x) => x.dataset.live === 'true'); return i; })()" }
+        $waitFor = { param($cond, [int]$ms = 4000) $end = (Get-Date).AddMilliseconds($ms); while ((Get-Date) -lt $end) { if (& $cond) { return $true }; Start-Sleep -Milliseconds 100 }; return $false }
+        Check (Eval $cws "window.__ui.key(null, 'Escape')") "no se pudo cerrar el editor"
+        Start-Sleep -Milliseconds 500
+        Check ([bool](Eval $cws "!!document.querySelector('[role=`"listbox`"]')")) "tras Esc deberia verse la lista de canciones"
+        Check (Eval $cws "(() => { const o = document.querySelector('[data-song-id=`"$($newSong.id)`"]'); if (!o) return false; o.click(); return true; })()") "no se encontro la cancion en la lista"
+        $t0 = Get-Date
+        $strip = & $waitFor { [int](Eval $cws "document.querySelectorAll('[aria-label=`"Diapositivas derivadas`"] li').length") -ge 60 } 8000
+        $result.proyTiraCargada = "tira de la cancion de 30 secciones en $([int]((Get-Date) - $t0).TotalMilliseconds) ms"
+        $dbgJs = '(() => { const p = document.querySelector("[data-testid=projection]"); return "proj=" + window.__oakSongProjection() + " " + (p ? p.innerText.slice(0, 300) : "(sin panel) " + document.body.innerText.slice(0, 500).replace(/\n/g, " / ")); })()'
+        Check $strip ("la tira de la cancion seleccionada deberia mostrar 60 diapositivas; panel: " + (Eval $cws $dbgJs))
+        Check ((& $badgeNow) -eq "LISTO") "elegir la cancion no debe dejarla EN VIVO (decia: $(& $badgeNow))"
+        Check ((& $outText) -notmatch "Linea sintetica") "elegir la cancion no debe proyectar nada"
+
+        Check (Eval $cws "window.__ui.key(null, 'Enter')") "no se pudo pulsar Enter"
+        Check (& $waitFor { (& $outText) -match "Linea sintetica numero 1-1" }) "Enter deberia proyectar la primera diapositiva en la salida real (salida: $(& $outText))"
+        Check (& $waitFor { (& $badgeNow) -eq "EN VIVO" }) "con la salida mostrando el texto, el panel deberia decir EN VIVO por lo que confirma el backend (decia: $(& $badgeNow))"
+        Check ((& $liveIdx) -eq 0) "la diapositiva en pantalla deberia ser la 0 (era $(& $liveIdx))"
+
+        Check (Eval $cws "window.__ui.key(null, 'ArrowRight')") "no se pudo pulsar la flecha"
+        Check (& $waitFor { (& $outText) -match "Segundo trozo de la parte 1\b" -and (& $outText) -notmatch "numero 1-1" }) "la flecha derecha deberia mostrar la segunda diapositiva (salida: $(& $outText))"
+
+        # Rafaga: 40 pulsaciones seguidas -> la salida termina en la ultima y el panel marca esa diapositiva
+        [void](Eval $cws "(() => { for (let i = 0; i < 40; i++) window.__ui.key(null, 'ArrowRight'); return true; })()")
+        Check (& $waitFor { (& $outText) -match "Segundo trozo de la parte 21\b" -and (& $liveIdx) -eq 41 } 6000) "tras 40 flechas seguidas la salida deberia mostrar la diapositiva 41 (salida: $(& $outText); marcada: $(& $liveIdx))"
+
+        # Controles maestros: ocultan lo proyectado y el panel lo dice; Live lo devuelve
+        Send-FromPanel $cws "output.setMaster" @{ master = "black" }
+        Check (& $waitFor { (& $badgeNow) -match "OCULTO .* Negro" }) "con Negro la insignia deberia decir OCULTO (decia: $(& $badgeNow))"
+        Send-FromPanel $cws "output.setMaster" @{ master = "live" }
+        Check (& $waitFor { (& $badgeNow) -eq "EN VIVO" }) "al volver a Live deberia decir EN VIVO (decia: $(& $badgeNow))"
+
+        # Hasta el final: se queda en la ultima con FIN y la salida no se vacia
+        [void](Eval $cws "(() => { for (let i = 0; i < 40; i++) window.__ui.key(null, 'ArrowRight'); return true; })()")
+        Check (& $waitFor { (& $outText) -match "Segundo trozo de la parte 30\b" -and [bool](Eval $cws "!!document.querySelector('[data-testid=`"end-marker`"]')") } 6000) "al final deberia quedar la ultima diapositiva con el indicador FIN (salida: $(& $outText))"
+
+        # Esc quita el texto
+        Check (Eval $cws "window.__ui.key(null, 'Escape')") "no se pudo pulsar Esc"
+        Check (& $waitFor { (& $outText) -notmatch "Linea sintetica|Segundo trozo" } 4000) "Esc deberia quitar el texto de la salida (salida: $(& $outText))"
+        Check (& $waitFor { (& $badgeNow) -eq "LISTO" }) "tras Esc la insignia deberia volver a LISTO (decia: $(& $badgeNow))"
+        $result.proyeccion = "Enter, flechas, rafaga de 40, Negro/Live, final con FIN y Esc: la salida real y la insignia coinciden con lo que confirma el backend"
+    }
     if ($newSong) { [void](Invoke-SongCommand $cws "song.delete" @{ id = $newSong.id }) }
 
     # 6. La letra no esta en el registro de la aplicacion

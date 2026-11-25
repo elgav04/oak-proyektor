@@ -133,6 +133,8 @@ export function createSongBackend(options = {}) {
     if (failure && failure.type === cmd.type) { const f = failure; failure = null; return emitFailed(cmd, f.code, f.message); }
     switch (cmd.type) {
       case "song.setSettings": state.settings = { ...cmd.payload }; return;
+      // Comandos de la salida: se registran (los valida el backend real, aquí solo interesa lo que el panel manda).
+      case "output.showContent": case "output.clearContent": case "output.setBackground": return;
       case "song.save": {
         const p = cmd.payload;
         if (p.title.trim() === "") return emitFailed(cmd, "song.invalidRequest", "Falta el título.");

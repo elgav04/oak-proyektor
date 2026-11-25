@@ -30,6 +30,18 @@ function safeStorage(): Storage | null {
  * (solo se desmonta la vista, y con ella los atajos).
  */
 export function getSongController(): SongController {
-  controller ??= createSongController({ api: ipc, storage: createLocalDraftStorage() });
+  if (!controller) {
+    controller = createSongController({ api: ipc, storage: createLocalDraftStorage() });
+    const created = controller;
+    // Solo para tools/song-layout-test.ps1 (depuración remota): un resumen SIN letra ni títulos de la proyección seleccionada.
+    if (typeof window !== "undefined") {
+      Object.defineProperty(window, "__oakSongProjection", {
+        value: () => {
+          const p = created.store.getState().projection;
+          return JSON.stringify(p ? { mode: created.store.getState().mode, songId: p.songId, slides: p.slides?.length ?? null, busy: p.busy, error: p.error, cursor: p.cursor, requested: p.requested, atEnd: p.atEnd } : null);
+        },
+      });
+    }
+  }
   return controller;
 }

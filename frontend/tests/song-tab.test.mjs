@@ -29,12 +29,19 @@ const SONG = {
 
 async function mount({ songs = [SONG], usedIn = {}, connected = true, storage = null } = {}) {
   const backend = createSongBackend({ songs, usedIn });
-  const controller = createSongController({ api: backend.client, createFit: fakeFit, storage, searchDebounceMs: 5, parseDebounceMs: 5, slidesDelayMs: 5, draftDelayMs: 5, saveTimeoutMs: 400 });
+  const controller = createSongController({ api: backend.client, createFit: fakeFit, storage, sendIntervalMs: 20, selectDelayMs: 10, searchDebounceMs: 5, parseDebounceMs: 5, slidesDelayMs: 5, draftDelayMs: 5, saveTimeoutMs: 400 });
   const container = win.document.createElement("div");
   win.document.body.appendChild(container);
   const root = createRoot(container);
-  await act(async () => { root.render(createElement(SongsTab, { controller, connected })); });
+  let output = null;
+  const render = async () => { await act(async () => { root.render(createElement(SongsTab, { controller, connected, output })); }); };
+  await render();
   await act(async () => { await sleep(40); });
+  /** Lo que CONFIRMA el backend (`output.stateChanged`): de aquí sale la insignia, no de lo que el panel envió. */
+  const confirm = async ({ blocks = null, master = "live", isOpen = true, isPaused = false } = {}) => {
+    output = { seq: (output?.seq ?? 0) + 1, state: { master, content: { slide: blocks ? { id: "s", blocks: blocks.map((text) => ({ text })), theme: {} } : null, transitionMs: 0 } }, window: { isOpen, isPaused } };
+    await render();
+  };
   const q = (sel) => container.querySelector(sel);
   const qa = (sel) => [...container.querySelectorAll(sel)];
   const settle = async (ms = 80) => { await act(async () => { await sleep(ms); }); };
@@ -59,10 +66,10 @@ async function mount({ songs = [SONG], usedIn = {}, connected = true, storage = 
   const buttonByText = (re) => qa("button").find((b) => re.test(b.textContent));
   const text = () => container.textContent;
   const editorReady = async () => { await until(() => controller.store.getState().editor?.slides); await settle(60); };
-  return { backend, controller, container, q, qa, settle, press, typeInto, click, buttonByText, text, editorReady, unmount: async () => { await act(async () => { root.unmount(); }); controller.dispose(); } };
+  return { backend, confirm, controller, container, q, qa, settle, press, typeInto, click, buttonByText, text, editorReady, unmount: async () => { await act(async () => { root.unmount(); }); controller.dispose(); } };
 }
 
-test("la lista muestra las canciones; «/» busca, ↓ y Enter abren la canción con el teclado", async () => {
+test("la lista muestra las canciones; «/» busca, ↓ elige y Ctrl+E abre la canción con el teclado", async () => {
   const m = await mount({ songs: [SONG, { title: "Otra pieza", sections: [{ label: "Verso 1", text: "nada que ver aquí" }] }] });
   try {
     assert.match(m.text(), /Canción sintética/);
@@ -83,10 +90,10 @@ test("la lista muestra las canciones; «/» busca, ↓ y Enter abren la canción
     win.document.activeElement.blur?.();
     await m.press("ArrowDown", {}, win.document.body);
     assert.equal(m.controller.store.getState().listIndex, 1);
-    await m.press("Enter", {}, win.document.body);
+    await m.press("e", { ctrlKey: true }, win.document.body);
     await until(() => m.controller.store.getState().mode === "editor");
     await m.editorReady();
-    assert.equal(m.q('input[aria-label="Título de la canción"]').value, "Otra pieza", "↓ bajó a la segunda canción de la lista y Enter la abrió");
+    assert.equal(m.q('input[aria-label="Título de la canción"]').value, "Otra pieza", "↓ bajó a la segunda canción de la lista y Ctrl+E la abrió");
   } finally {
     await m.unmount();
   }
@@ -327,7 +334,7 @@ test("extremo a extremo: canción nueva escrita desde cero → se guarda → se 
   await m.press("Escape", {}, win.document.body);
   await m.settle(60);
   assert.equal(m.controller.store.getState().mode, "list");
-  await m.click(m.buttonByText(/^Abrir$/));
+  await m.click(m.buttonByText(/^Editar$/));
   await m.editorReady();
   const e = m.controller.store.getState().editor;
   assert.deepEqual(e.order.map((o) => o.label), ["Verso 1", "Coro", "Coro"]);
@@ -335,4 +342,110 @@ test("extremo a extremo: canción nueva escrita desde cero → se guarda → se 
   // Las diapositivas: el coro tiene un corte MANUAL (línea en blanco) y se repite.
   assert.ok(e.slides.some((s) => s.boundary === "manual"));
   await m.unmount();
+});
+
+// ───── proyección desde la lista ─────
+const { OutputScreen } = await loadTs("/src/output/OutputScreen.tsx");
+
+test("PROYECCIÓN: clic en la canción muestra su tira; Enter proyecta; la insignia EN VIVO sale solo de lo que confirma el backend", async () => {
+  const m = await mount();
+  try {
+    await m.click(m.q('[role="option"]'));
+    await until(() => m.controller.store.getState().projection?.slides);
+    await m.settle(60);
+    assert.equal(m.qa('[aria-label="Diapositivas derivadas"] li').length, 5, "una miniatura por diapositiva, en el orden de reproducción (V1 C V2 C C)");
+    assert.equal(m.q('[data-testid="live-badge"]').textContent, "LISTO");
+    assert.equal(m.backend.sent("output.showContent").length, 0, "elegir la canción no proyecta");
+
+    const event = await m.press("Enter", {}, win.document.body);
+    assert.equal(event.defaultPrevented, true);
+    await until(() => m.backend.sent("output.showContent").length === 1);
+    await m.settle(40);
+    assert.equal(m.q('[data-testid="live-badge"]').textContent, "LISTO", "el panel envió, pero el backend todavía no confirmó: NO es «en vivo» (H5)");
+
+    const sent = m.backend.sent("output.showContent")[0].payload;
+    await m.confirm({ blocks: sent.blocks });
+    assert.equal(m.q('[data-testid="live-badge"]').textContent, "EN VIVO");
+    assert.equal(m.qa('li[data-live="true"]').length, 1);
+
+    await m.confirm({ blocks: sent.blocks, master: "black" });
+    assert.match(m.q('[data-testid="live-badge"]').textContent, /OCULTO · Negro/, "un control maestro oculta lo proyectado y la insignia lo dice");
+    await m.confirm({ blocks: sent.blocks, master: "live" });
+    assert.equal(m.q('[data-testid="live-badge"]').textContent, "EN VIVO", "volver a Live (atajo global) lo deja EN VIVO otra vez");
+
+    await m.confirm({ blocks: ["otro texto que ya estaba"] });
+    assert.equal(m.q('[data-testid="live-badge"]').textContent, "LISTO");
+    assert.equal(m.qa('li[data-live="true"]').length, 0);
+  } finally {
+    await m.unmount();
+  }
+});
+
+test("PROYECCIÓN: → ← Av Pág Re Pág navegan, el final marca FIN sin vaciar la pantalla, Esc quita el texto; el coro repetido marca SOLO la diapositiva pedida", async () => {
+  const m = await mount();
+  try {
+    await m.click(m.q('[role="option"]'));
+    await until(() => m.controller.store.getState().projection?.slides);
+    await m.press("Enter", {}, win.document.body);
+    const texts = () => m.backend.sent("output.showContent").map((c) => c.payload.blocks[0]);
+    const slides = m.controller.store.getState().projection.slides.map((s) => s.text);
+    await until(() => texts().length === 1);
+    for (const key of ["ArrowRight", "PageDown", "ArrowRight"]) { await m.press(key, {}, win.document.body); await m.settle(30); }
+    await until(() => texts().at(-1) === slides[3]);
+    await m.press("ArrowLeft", {}, win.document.body); await m.settle(30);
+    await m.press("PageUp", {}, win.document.body); await m.settle(30);
+    await until(() => texts().at(-1) === slides[1]);
+
+    // Va al final y pulsa de más.
+    await m.press("ArrowRight", {}, win.document.body); await m.settle(30);
+    await m.press("ArrowRight", {}, win.document.body); await m.settle(30);
+    await m.press("ArrowRight", {}, win.document.body); await m.settle(30);
+    await until(() => texts().at(-1) === slides[4]);
+    const sent = texts().length;
+    await m.confirm({ blocks: [slides[4]] });
+    await m.press("ArrowRight", {}, win.document.body);
+    await m.settle(60);
+    assert.equal(texts().length, sent, "una pulsación de más no manda nada");
+    assert.ok(m.q('[data-testid="end-marker"]'), "se ve el indicador de fin");
+    assert.equal(m.qa('li[data-live="true"]').length, 1, "el coro se repite 3 veces con el mismo texto y solo la pedida está marcada");
+    assert.equal(m.qa("li")[4].dataset.live, "true");
+
+    await m.press("Escape", {}, win.document.body);
+    await until(() => m.backend.sent("output.clearContent").length === 1);
+    await m.confirm({ blocks: null });
+    assert.equal(m.q('[data-testid="live-badge"]').textContent, "LISTO");
+    assert.equal(m.q('[data-testid="end-marker"]'), null);
+  } finally {
+    await m.unmount();
+  }
+});
+
+test("EXTREMO A EXTREMO: una canción sintética elegida en la lista y proyectada con Enter llega a la salida real (OutputScreen) con su letra y su tema", async () => {
+  const m = await mount();
+  try {
+    await m.click(m.q('[role="option"]'));
+    await until(() => m.controller.store.getState().projection?.slides);
+    await m.press("Enter", {}, win.document.body);
+    await m.press("ArrowRight", {}, win.document.body);
+    await until(() => m.backend.sent("output.showContent").length === 2);
+    const sent = m.backend.sent("output.showContent")[1].payload;
+    const state = {
+      schemaVersion: 1, revision: 0, master: "live",
+      background: { kind: "color", color: "#102030", mediaUrl: null, fileName: null, muted: true, transitionMs: 0, warning: null },
+      content: { slide: { id: "e2e", blocks: sent.blocks.map((text) => ({ text })), theme: sent.theme }, transitionMs: sent.transitionMs },
+      overlays: { items: [] },
+    };
+    const out = win.document.createElement("div");
+    win.document.body.appendChild(out);
+    const outRoot = createRoot(out, { onCaughtError: () => undefined });
+    await act(async () => { outRoot.render(createElement(OutputScreen, { state, seq: 1 })); });
+    await act(async () => { await sleep(80); });
+    const shown = [...out.querySelectorAll(".content-text")].map((n) => n.textContent).join("|");
+    assert.equal(sent.blocks.length, 1, "una diapositiva = un bloque");
+    assert.ok(shown.includes(line(2, 0)) && shown.includes(line(2, 1)), "se ve la letra del coro (sintética)");
+    assert.equal(sent.theme.fontSize, 60, "el tema de canciones");
+    await act(async () => { outRoot.unmount(); });
+  } finally {
+    await m.unmount();
+  }
 });
