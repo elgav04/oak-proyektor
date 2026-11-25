@@ -77,9 +77,14 @@ export class IpcClient {
     });
   }
 
-  /** Envía un comando (sin respuesta). Si falla en el servidor llega el evento `command.failed`. */
-  send<T extends CommandType>(type: T, payload: CommandPayloads[T]): void {
-    this.post({ v: PROTOCOL_VERSION, id: crypto.randomUUID(), kind: "command", type, payload });
+  /**
+   * Envía un comando (sin respuesta). Si falla en el servidor llega el evento `command.failed`. Devuelve el id del mensaje: los comandos cuyo RESULTADO llega como
+   * un evento correlacionado (`song.save` → `song.changed.commandId`) lo usan para saber cuál fue la respuesta a cuál.
+   */
+  send<T extends CommandType>(type: T, payload: CommandPayloads[T]): string {
+    const id = crypto.randomUUID();
+    this.post({ v: PROTOCOL_VERSION, id, kind: "command", type, payload });
+    return id;
   }
 
   /**

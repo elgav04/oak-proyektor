@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useStore } from "zustand";
 import { Button } from "@/components/ui/button";
 import { ipc } from "@/ipc/instance";
 import { MASTER_MODES, type DisplayInfo, type MasterMode, type OutputPauseReason } from "@/ipc/protocol";
@@ -6,6 +7,9 @@ import { BibleSettingsView } from "./bible/BibleSettings";
 import { BibleTab } from "./bible/BibleTab";
 import { getBibleController, getImportController } from "./bible/instance";
 import { Diagnostics } from "./Diagnostics";
+import { isDirty } from "./songs/controller";
+import { getSongController } from "./songs/instance";
+import { SongsTab } from "./songs/SongsTab";
 import { describeOutput, type OutputNotice } from "./outputNotice";
 import { connectControlStore, dismissBackgroundFailure, dismissFailure, dismissSettingsWarnings, reconnectControl, useControlStore } from "./store";
 
@@ -70,9 +74,12 @@ export function App() {
   // Elección del operador antes de abrir: ID del monitor, o null = automático. Es estado de la vista, no de negocio.
   const [selected, setSelected] = useState<string | null>(null);
   // Pestaña activa y si se ve la configuración de la Biblia: estado de la vista, no de negocio.
-  const [tab, setTab] = useState<"bible" | "output" | "diagnostics">("bible");
+  const [tab, setTab] = useState<"bible" | "songs" | "output" | "diagnostics">("bible");
   const [bibleSettingsOpen, setBibleSettingsOpen] = useState(false);
   const bibleController = getBibleController();
+  const songController = getSongController();
+  // Cambios sin guardar en el editor de canciones: se ven en la pestaña aunque estés en otra (el controlador vive con la página y no los pierde).
+  const songsDirty = useStore(songController.store, (s) => isDirty(s.editor));
 
   useEffect(() => {
     const connection = connectControlStore();
@@ -262,7 +269,7 @@ export function App() {
       </section>
 
       <nav aria-label="Secciones" className="flex gap-2 border-b">
-        {([["bible", "Biblia"], ["output", "Salida"], ["diagnostics", "Diagnóstico"]] as const).map(([key, label]) => (
+        {([["bible", "Biblia"], ["songs", "Canciones"], ["output", "Salida"], ["diagnostics", "Diagnóstico"]] as const).map(([key, label]) => (
           <button
             key={key}
             type="button"
@@ -271,6 +278,7 @@ export function App() {
             onClick={() => { setTab(key); }}
           >
             {label}
+            {key === "songs" && songsDirty && <span data-testid="songs-dirty" title="Hay cambios sin guardar en una canción" className="ml-1 text-amber-600">●</span>}
           </button>
         ))}
       </nav>
@@ -281,6 +289,8 @@ export function App() {
         ) : (
           <BibleTab controller={bibleController} connected={connected} output={output} onOpenSettings={() => { setBibleSettingsOpen(true); }} />
         ))}
+
+      {tab === "songs" && <SongsTab controller={songController} connected={connected} />}
 
       {tab === "diagnostics" && <Diagnostics />}
 

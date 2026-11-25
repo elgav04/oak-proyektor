@@ -16,6 +16,12 @@ Basado en la lectura de las migraciones 1–8, `Models.cs`, `ISongRepository`, `
 
 ---
 
+## Estado (2026-11-25): prompt 2 hecho — pestaña «Canciones» con el editor
+
+Implementado y verificado en la app real (`tools\song-layout-test.ps1`): lista con búsqueda, editor de texto único con etiquetas, orden con `@dnd-kit` y alternativas de teclado, diapositivas derivadas con el tema real (cortes manuales y automáticos distintos), importación de .txt con vista previa y codificación, guardar con «×N», Ctrl+S, «sin guardar», salir con aviso en pantalla, deshacer y restaurar versiones, borrar con «usada en N servicios», ficha y fondo, y tema propio. **Decisiones al implementar**: (1) sin `beforeunload` (un diálogo del sistema podría bloquear la recarga de recuperación); en su lugar, borrador en `localStorage` (funciona en WebView2) y barra inline al salir; (2) el orden en el editor son referencias a secciones por identidad de la vista, reconciliadas al reinterpretar el texto (el texto del editor no lleva la línea «Orden:»); (3) `IpcClient.send` devuelve el id del comando para correlacionar `song.changed`. **Pendiente**: la pestaña de proyección (prompt 3).
+
+---
+
 ## Estado de la implementación (prompt 1: backend) y desviaciones del diseño
 
 Hecho y probado: migración 9, repositorio, parser/formateador/validador, decodificador de .txt, búsqueda, copias previas, borrado con la política de `PlaylistItems`, ajustes `songDisplay` y los 11 mensajes de la v12. **Pendiente**: el editor (prompt 2) y la pestaña de proyección (prompt 3). Cambios respecto a lo escrito más abajo, decididos al implementar:

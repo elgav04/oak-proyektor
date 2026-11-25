@@ -108,3 +108,87 @@ export function matchSearchKey(event: KeyInput): SearchKeyAction | null {
       return null;
   }
 }
+
+// ───────────────────────── Pestaña de Canciones ─────────────────────────
+// Mismo criterio que la Biblia: nunca Ctrl+Alt+Shift (los globales del backend) y los modificadores deben coincidir EXACTAMENTE. Algunas llevan Ctrl o Alt porque
+// funcionan escribiendo en el cuadro de texto (guardar) o sobre una fila de la lista de orden (mover). Solo hay UNA pestaña montada a la vez, así que sus teclas
+// simples (flechas, Enter, Esc, «/») nunca coinciden con las de la Biblia al mismo tiempo; los atajos con Ctrl/Alt son propios de esta pestaña. Un test lo comprueba.
+
+export type SongAction =
+  | "save"
+  | "saveAndClose"
+  | "closeEditor"
+  | "newSong"
+  | "focusSearch"
+  | "listPrev"
+  | "listNext"
+  | "listOpen"
+  | "listDelete"
+  | "orderPrev"
+  | "orderNext"
+  | "orderMoveUp"
+  | "orderMoveDown"
+  | "orderRemove"
+  | "orderRepeat";
+
+/** Dónde vale cada atajo: `list` = lista de canciones; `editor` = editor abierto; `order` = el foco está en una fila del orden de reproducción. */
+export type SongScope = "list" | "editor" | "order";
+
+export interface SongShortcut {
+  action: SongAction;
+  key: string;
+  ctrl?: boolean;
+  alt?: boolean;
+  shift?: boolean | "any";
+  scope: SongScope;
+  /** true = también vale con el foco en un cuadro de texto (guardar). */
+  whileTyping?: boolean;
+  label: string;
+  description: string;
+}
+
+export const SONG_SHORTCUTS: readonly SongShortcut[] = [
+  { action: "save", key: "s", ctrl: true, scope: "editor", whileTyping: true, label: "Ctrl+S", description: "Guardar en la canción" },
+  { action: "saveAndClose", key: "Enter", ctrl: true, scope: "editor", whileTyping: true, label: "Ctrl+Enter", description: "Guardar y volver a la lista" },
+  { action: "closeEditor", key: "Escape", scope: "editor", label: "Esc", description: "Cerrar el editor (avisa si hay cambios sin guardar)" },
+  { action: "newSong", key: "n", ctrl: true, scope: "list", label: "Ctrl+N", description: "Canción nueva" },
+  { action: "focusSearch", key: "/", shift: "any", scope: "list", label: "/", description: "Ir al cuadro de búsqueda" },
+  { action: "listPrev", key: "ArrowUp", scope: "list", label: "↑", description: "Canción anterior de la lista" },
+  { action: "listNext", key: "ArrowDown", scope: "list", label: "↓", description: "Canción siguiente de la lista" },
+  { action: "listOpen", key: "Enter", scope: "list", label: "Enter", description: "Abrir la canción en el editor" },
+  { action: "listDelete", key: "Delete", scope: "list", label: "Supr", description: "Borrar la canción (pide confirmación)" },
+  { action: "orderPrev", key: "ArrowUp", scope: "order", label: "↑", description: "Elemento anterior del orden" },
+  { action: "orderNext", key: "ArrowDown", scope: "order", label: "↓", description: "Elemento siguiente del orden" },
+  { action: "orderMoveUp", key: "ArrowUp", alt: true, scope: "order", label: "Alt+↑", description: "Subir el elemento del orden" },
+  { action: "orderMoveDown", key: "ArrowDown", alt: true, scope: "order", label: "Alt+↓", description: "Bajar el elemento del orden" },
+  { action: "orderRemove", key: "Delete", scope: "order", label: "Supr", description: "Quitar el elemento del orden (la sección y su texto se conservan)" },
+  { action: "orderRepeat", key: "d", ctrl: true, scope: "order", label: "Ctrl+D", description: "Repetir la sección justo después (sin duplicar el texto)" },
+];
+
+export interface SongKeyContext {
+  /** Qué hay en pantalla: la lista o el editor. */
+  mode: "list" | "editor";
+  /** El foco está en una fila de la lista de orden. */
+  orderFocused: boolean;
+}
+
+/** Acción de la pestaña de Canciones para una pulsación, o null. Ctrl+Alt+Shift (los globales) nunca coincide con nada. */
+export function matchSongShortcut(event: KeyInput, target: KeyTarget | null | undefined, context: SongKeyContext): SongAction | null {
+  if (event.metaKey) return null;
+  if (event.ctrlKey && event.altKey) return null;   // incluye Ctrl+Alt+Shift+M/B/C/L/R, que son del backend
+  const typing = isTypingTarget(target);
+  const tag = (target?.tagName ?? "").toUpperCase();
+  const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+  for (const s of SONG_SHORTCUTS) {
+    if (s.key !== key) continue;
+    if ((s.ctrl ?? false) !== event.ctrlKey || (s.alt ?? false) !== event.altKey) continue;
+    if (s.shift !== "any" && (s.shift ?? false) !== event.shiftKey) continue;
+    if (s.scope === "list" && context.mode !== "list") continue;
+    if (s.scope === "editor" && context.mode !== "editor") continue;
+    if (s.scope === "order" && !(context.mode === "editor" && context.orderFocused)) continue;
+    if (typing && !s.whileTyping) continue;
+    if (s.key === "Enter" && !s.ctrl && BUTTON_TAGS.has(tag)) continue;   // Enter sobre un botón es del botón
+    return s.action;
+  }
+  return null;
+}
