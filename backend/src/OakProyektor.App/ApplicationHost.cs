@@ -119,6 +119,19 @@ internal sealed class ApplicationHost : IAsyncDisposable
         services.AddSingleton<IIpcHandler, Handlers.BibleImportHandler>();
         services.AddSingleton<IIpcHandler, Handlers.BibleGetSettingsHandler>();
         services.AddSingleton<IIpcHandler, Handlers.BibleSetSettingsHandler>();
+
+        // Canciones (protocolo v12): secciones, orden, copias previas y búsqueda. Las escrituras van por el carril lento; ningún registro lleva letra.
+        services.AddSingleton<Data.Repositories.ISongRepository, Data.Songs.SongRepository>();
+        services.AddSingleton<IIpcHandler, Handlers.SongSearchHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.SongListHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.SongGetHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.SongParseTextHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.SongHistoryHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.SongGetSettingsHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.SongSetSettingsHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.SongSaveHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.SongRestoreRevisionHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.SongDeleteHandler>();
         configureServices?.Invoke(services);
         _services = services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
         _logger = _services.GetRequiredService<ILogger<ApplicationHost>>();

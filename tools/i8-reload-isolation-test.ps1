@@ -1,4 +1,4 @@
-﻿# Recarga del panel (Ctrl+Alt+Shift+R) y aislamiento panel/salida, medidos con la aplicacion real (compilacion Debug) y pulsaciones reales de teclado.
+# Recarga del panel (Ctrl+Alt+Shift+R) y aislamiento panel/salida, medidos con la aplicacion real (compilacion Debug) y pulsaciones reales de teclado.
 # -Mode healthy: recarga con el panel sano y luego lo congela: la salida debe seguir.
 # -Mode frozen : repite N veces (-Cycles) «congelar el panel -> recargar con el atajo -> comprobar que se recupera y que la salida no se vio afectada».
 # Muestra, por ciclo: si el panel se recupera y en cuantos segundos, los renderizadores vivos con su CPU (un orfano atascado se veria al 100 %), y los fps de la salida
@@ -76,9 +76,9 @@ try {
     $control = $null
     for ($i = 0; $i -lt 40 -and -not $control; $i++) { Start-Sleep -Milliseconds 500; $control = Get-Page "index\.html" }
     $cws = Connect-Cdp $control.webSocketDebuggerUrl; Start-Sleep -Seconds 2
-    $list = Eval $cws '(async () => { const id = crypto.randomUUID(); return await new Promise((resolve) => { window.external.receiveMessage((raw) => { const m = JSON.parse(raw); if (m.id === id) resolve(JSON.stringify(m.payload)); }); window.external.sendMessage(JSON.stringify({ v:11, id, kind: "query", type: "display.list", payload: {} })); }); })()'
+    $list = Eval $cws '(async () => { const id = crypto.randomUUID(); return await new Promise((resolve) => { window.external.receiveMessage((raw) => { const m = JSON.parse(raw); if (m.id === id) resolve(JSON.stringify(m.payload)); }); window.external.sendMessage(JSON.stringify({ v:12, id, kind: "query", type: "display.list", payload: {} })); }); })()'
     $panelId = ((($list | ConvertFrom-Json).result.displays) | Where-Object { $_.hostsPanel } | Select-Object -First 1).id
-    [void](Eval $cws ("window.external.sendMessage(JSON.stringify({v:11,id:crypto.randomUUID(),kind:'command',type:'output.open',payload:{displayId:" + ($panelId | ConvertTo-Json -Compress) + "}}));true"))
+    [void](Eval $cws ("window.external.sendMessage(JSON.stringify({v:12,id:crypto.randomUUID(),kind:'command',type:'output.open',payload:{displayId:" + ($panelId | ConvertTo-Json -Compress) + "}}));true"))
     $output = $null
     for ($i = 0; $i -lt 40 -and -not $output; $i++) { Start-Sleep -Milliseconds 500; $output = Get-Page "output\.html" }
     $ows = Connect-Cdp $output.webSocketDebuggerUrl; Start-Sleep -Seconds 2

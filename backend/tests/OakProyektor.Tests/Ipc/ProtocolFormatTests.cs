@@ -1,4 +1,4 @@
-﻿using System.Reflection;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using OakProyektor.Core.Database;
 using OakProyektor.Core.Display;
 using OakProyektor.Core.Output;
+using OakProyektor.Core.Songs;
 using OakProyektor.Ipc;
 using OakProyektor.Ipc.Messages;
 
@@ -91,6 +92,25 @@ public partial class ProtocolFormatTests
         new(typeof(BibleShortNameDto), "BibleShortNameDto", Direction.FromBackend),
         new(typeof(BibleSettingsPayload), "BibleSettingsPayload", Direction.FromBackend),
         new(typeof(BibleSetSettingsPayload), "BibleSetSettingsPayload", Direction.ToBackend),
+        // Canciones (v12). SongSectionDto y SongSettingsPayload viajan en las dos direcciones: se comparan con la regla más estricta (la de lo que C# envía).
+        new(typeof(SongSectionDto), "SongSectionDto", Direction.FromBackend),
+        new(typeof(SongBackgroundDto), "SongBackgroundDto", Direction.FromBackend),
+        new(typeof(SongSummaryDto), "SongSummaryDto", Direction.FromBackend),
+        new(typeof(SongSearchRequest), "SongSearchRequest", Direction.ToBackend),
+        new(typeof(SongSearchPayload), "SongSearchPayload", Direction.FromBackend),
+        new(typeof(SongListPayload), "SongListPayload", Direction.FromBackend),
+        new(typeof(SongGetRequest), "SongGetRequest", Direction.ToBackend),
+        new(typeof(SongPayload), "SongPayload", Direction.FromBackend),
+        new(typeof(SongParseTextRequest), "SongParseTextRequest", Direction.ToBackend),
+        new(typeof(SongParseTextPayload), "SongParseTextPayload", Direction.FromBackend),
+        new(typeof(SongSavePayload), "SongSavePayload", Direction.ToBackend),
+        new(typeof(SongHistoryRequest), "SongHistoryRequest", Direction.ToBackend),
+        new(typeof(SongRevisionDto), "SongRevisionDto", Direction.FromBackend),
+        new(typeof(SongHistoryPayload), "SongHistoryPayload", Direction.FromBackend),
+        new(typeof(SongRestoreRevisionPayload), "SongRestoreRevisionPayload", Direction.ToBackend),
+        new(typeof(SongDeletePayload), "SongDeletePayload", Direction.ToBackend),
+        new(typeof(SongChangedPayload), "SongChangedPayload", Direction.FromBackend),
+        new(typeof(SongSettingsPayload), "SongSettingsPayload", Direction.FromBackend),
     ];
 
     /// <summary>Alias de tipo de protocol.ts → enum de C# que representa. <c>RecoverReason</c> es un SUBCONJUNTO de <c>OutputPauseReason</c> a propósito.</summary>
@@ -105,9 +125,10 @@ public partial class ProtocolFormatTests
         ["TextAlign"] = typeof(TextAlign),
         ["VerticalAlign"] = typeof(VerticalAlign),
         ["BackgroundFailureReason"] = typeof(BackgroundFailureReason),
+        ["SongAtEnd"] = typeof(SongAtEnd),
     };
 
-    private static readonly Type[] WireEnums = [typeof(MasterMode), typeof(DatabaseState), typeof(OutputPauseReason), typeof(DisplayLostPolicy), typeof(BackgroundKind), typeof(TextAlign), typeof(VerticalAlign), typeof(BackgroundFailureReason)];
+    private static readonly Type[] WireEnums = [typeof(MasterMode), typeof(DatabaseState), typeof(OutputPauseReason), typeof(DisplayLostPolicy), typeof(BackgroundKind), typeof(TextAlign), typeof(VerticalAlign), typeof(BackgroundFailureReason), typeof(SongAtEnd)];
 
     /// <summary>Nombre en protocol.ts de los tipos de C# cuyo nombre difiere.</summary>
     private static string TsNameOf(Type t) => t == typeof(IpcError) ? "IpcErrorPayload" : t.Name;
@@ -127,6 +148,7 @@ public partial class ProtocolFormatTests
         [9] = "a1a6972f80fdb5177c93cd8e415865b9db03ecea77d452e94d83d9f8efa8653b",
         [10] = "a5cbbb567e89373b8aab56fbc1a9308a3c77a08ab5030acc4df9938e180a706e",
         [11] = "1e85f51272a3adba8a86d955aa6e10d55fa963c30e8a580991b562f3233e9f46",
+        [12] = "ddfbc0343aba0ef5ccf4b884787576c66f8c2dc65b4dd044aff3be464cd50447",
     };
 
     // ───────────────────────────── lectura de C# ─────────────────────────────

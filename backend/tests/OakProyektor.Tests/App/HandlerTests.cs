@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging.Abstractions;
 using OakProyektor.App;
 using OakProyektor.App.Handlers;
 using OakProyektor.Core.Display;
@@ -25,11 +25,12 @@ internal sealed class NoBibles : OakProyektor.Data.Scripture.IBibleQueryService
 public class HandlerTests
 {
     private static string Msg(string kind, string type, string payload = "{}") =>
-        $$"""{"v":11,"id":"q1","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
+        $$"""{"v":12,"id":"q1","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
 
     private static (IpcDispatcher Dispatcher, FakeOutputController Output) Create(params DisplayInfo[] displays)
     {
         var output = new FakeOutputController();
+        var songs = new OakProyektor.Tests.Songs.NoSongs();
         IIpcHandler[] handlers =
         [
             new DisplayListHandler(new FakeDisplayManager(displays)),
@@ -64,6 +65,11 @@ public class HandlerTests
                     new FakeReadiness(), NullLogger<OakProyektor.Data.Scripture.BibleImporter>.Instance),
                 new OakProyektor.Data.DatabaseOptions(Path.Combine(Path.GetTempPath(), "oak-handler-test-never-opened.db")),
                 new Outbox(NullLogger<Outbox>.Instance), NullLogger<BibleImportService>.Instance)),
+            // Canciones (v12)
+            new SongSearchHandler(songs), new SongListHandler(songs), new SongGetHandler(songs), new SongParseTextHandler(), new SongHistoryHandler(songs),
+            new SongGetSettingsHandler(new InMemorySettings()), new SongSetSettingsHandler(new InMemorySettings()),
+            new SongSaveHandler(songs, new Outbox(NullLogger<Outbox>.Instance)), new SongRestoreRevisionHandler(songs, new Outbox(NullLogger<Outbox>.Instance)),
+            new SongDeleteHandler(songs, new Outbox(NullLogger<Outbox>.Instance)),
         ];
         return (new IpcDispatcher(handlers, NullLogger<IpcDispatcher>.Instance), output);
     }

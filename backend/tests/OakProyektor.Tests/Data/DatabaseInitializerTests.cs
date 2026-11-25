@@ -10,7 +10,7 @@ public sealed class DatabaseInitializerTests : IDisposable
 
     private static readonly string[] ExpectedTables =
     [
-        "Bibles", "Books", "Verses", "Songs", "SongSlides", "Playlists", "PlaylistItems", "Presentations", "PresentationSlides", "VersesFts", "SongsFts",
+        "Bibles", "Books", "Verses", "Songs", "SongSlides", "Playlists", "PlaylistItems", "Presentations", "PresentationSlides", "VersesFts", "SongsFts", "SongSections", "SongArrangements", "SongArrangementItems", "SongRevisions",
     ];
 
     [Fact]
@@ -26,7 +26,7 @@ public sealed class DatabaseInitializerTests : IDisposable
         var tables = (await c.QueryAsync<string>("SELECT name FROM sqlite_master WHERE type = 'table'")).ToHashSet();
         foreach (var table in ExpectedTables) Assert.Contains(table, tables);
         Assert.Equal((long)OakProyektor.Data.DatabaseInitializer.LatestSchemaVersion, await c.ExecuteScalarAsync<long>("PRAGMA user_version"));
-        Assert.Equal(8, OakProyektor.Data.DatabaseInitializer.LatestSchemaVersion);
+        Assert.Equal(9, OakProyektor.Data.DatabaseInitializer.LatestSchemaVersion);
     }
 
     [Fact]

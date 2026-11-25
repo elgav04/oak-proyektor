@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging.Abstractions;
 using OakProyektor.App;
 using OakProyektor.App.Handlers;
 using OakProyektor.Core.Output;
@@ -17,7 +17,7 @@ public class InboundProcessorTests
     }
 
     private static string Cmd(string type, string payload = "{}", string id = "x") =>
-        $$"""{"v":11,"id":"{{id}}","kind":"command","type":"{{type}}","payload":{{payload}}}""";
+        $$"""{"v":12,"id":"{{id}}","kind":"command","type":"{{type}}","payload":{{payload}}}""";
 
     private static (InboundQueue Intake, Outbox Outbox, InboundProcessor Processor) Create(params IIpcHandler[] handlers) =>
         CreateWithCapacity(InboundProcessor.DefaultLaneCapacity, handlers);
@@ -107,9 +107,20 @@ public class InboundProcessorTests
     [InlineData("command", "output.close", IpcLane.Slow)]
     [InlineData("command", "bible.import", IpcLane.Slow)]
     [InlineData("query", "bible.search", IpcLane.Slow)]
+    // Canciones: lo que solo lee memoria o consultas cortas va en vivo; TODA escritura (puede esperar el bloqueo de SQLite) y la búsqueda de texto van por el carril lento.
+    [InlineData("query", "song.list", IpcLane.Live)]
+    [InlineData("query", "song.get", IpcLane.Live)]
+    [InlineData("query", "song.parseText", IpcLane.Live)]
+    [InlineData("query", "song.history", IpcLane.Live)]
+    [InlineData("query", "song.getSettings", IpcLane.Live)]
+    [InlineData("command", "song.setSettings", IpcLane.Live)]
+    [InlineData("query", "song.search", IpcLane.Slow)]
+    [InlineData("command", "song.save", IpcLane.Slow)]
+    [InlineData("command", "song.restoreRevision", IpcLane.Slow)]
+    [InlineData("command", "song.delete", IpcLane.Slow)]
     public void Every_message_belongs_to_the_lane_its_urgency_asks_for(string kind, string type, IpcLane lane)
     {
-        Assert.True(IpcSerializer.TryParse($$$"""{"v":11,"id":"x","kind":"{{{kind}}}","type":"{{{type}}}","payload":{}}""", out var env, out var err), err);
+        Assert.True(IpcSerializer.TryParse($$$"""{"v":12,"id":"x","kind":"{{{kind}}}","type":"{{{type}}}","payload":{}}""", out var env, out var err), err);
         Assert.Equal(lane, IpcPriority.LaneOf(env!));
     }
 
@@ -118,7 +129,8 @@ public class InboundProcessorTests
     {
         // Lo que NO es Live se enumera a mano: si alguien añade un comando que toca disco o ventanas y lo olvida, queda en Live y este test lo obliga a decidir.
         var slow = IpcCatalog.Messages.Where(m => IpcPriority.LaneOf(new IpcEnvelope(IpcCatalog.ProtocolVersion, "x", m.Kind, m.Type, default)) == IpcLane.Slow).Select(m => m.Type).Distinct().Order().ToArray();
-        Assert.Equal(["bible.import", "bible.search", "output.close", "output.open", "output.retryBackground", "output.setBackground"], slow);
+        Assert.Equal(["bible.import", "bible.search", "output.close", "output.open", "output.retryBackground", "output.setBackground",
+                      "song.delete", "song.restoreRevision", "song.save", "song.search"], slow);
     }
 
     [Fact]
@@ -320,7 +332,7 @@ public class InboundProcessorTests
         Assert.Equal(Targets.Output, target1);
 
         // Una query descartada recibe un reply con error (no un command.failed), correlacionado por su id: el cliente la rechaza al instante.
-        intake.Enqueue(WindowKind.Control, """{"v":11,"id":"q9","kind":"query","type":"bible.search","payload":{}}""");
+        intake.Enqueue(WindowKind.Control, """{"v":12,"id":"q9","kind":"query","type":"bible.search","payload":{}}""");
         var (target2, reply) = await NextOutboundAsync(outbox);
         Assert.Equal(Targets.Control, target2);
         Assert.Equal(("reply", IpcTypes.BibleSearch, "q9"), (reply.Kind, reply.Type, reply.Id));

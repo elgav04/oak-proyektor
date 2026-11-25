@@ -64,7 +64,7 @@ internal static partial class CliHost
         // Escribir en la BD mientras la aplicación gráfica está abierta con la misma carpeta de datos (o lanzar dos importaciones) es lo que la instancia única evita.
         // Las órdenes de solo lectura (mostrar, listar, verificar) no la necesitan: abren la base en solo lectura.
         SingleInstanceGuard? guard = null, marker = null;
-        if (command.Kind is CliCommandKind.ImportBible or CliCommandKind.RestoreBackup)
+        if (command.Kind is CliCommandKind.ImportBible or CliCommandKind.RestoreBackup or CliCommandKind.ImportSong)
         {
             guard = tryAcquire(SingleInstanceGuard.NameFor(paths.DataDirectory));
             if (guard is null)

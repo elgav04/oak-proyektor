@@ -16,8 +16,10 @@
  * `discardedVerses` y `duplicateChaptersDifferent`; un `numberingProfile` nulo CONSERVA el perfil guardado.
  * v10: query `settings.getStatus` (avisos de la carga de settings.json: bloques inválidos vueltos a su valor por defecto, archivo dañado).
  * v9: `BackgroundLayer.retry` (contador de reintentos del mismo medio) y comando `output.retryBackground` («Reintentar» el fondo que falló).
+ * v12: módulo de canciones (`song.*`): queries `song.search`, `song.list`, `song.get`, `song.parseText`, `song.history` y `song.getSettings`; comandos `song.setSettings`, `song.save`,
+ * `song.restoreRevision` y `song.delete`; evento `song.changed` (resultado de guardar, restaurar o borrar). La letra viaja solo en las consultas y comandos que la necesitan.
  */
-export const PROTOCOL_VERSION = 11;
+export const PROTOCOL_VERSION = 12;
 
 export type MessageKind = "command" | "event" | "query" | "reply";
 
@@ -65,6 +67,23 @@ export const MESSAGE_CATALOG = [
   { type: "bible.importFinished", kind: "event" },
   { type: "bible.getSettings", kind: "query" },
   { type: "bible.getSettings", kind: "reply" },
+  { type: "song.search", kind: "query" },
+  { type: "song.search", kind: "reply" },
+  { type: "song.list", kind: "query" },
+  { type: "song.list", kind: "reply" },
+  { type: "song.get", kind: "query" },
+  { type: "song.get", kind: "reply" },
+  { type: "song.parseText", kind: "query" },
+  { type: "song.parseText", kind: "reply" },
+  { type: "song.history", kind: "query" },
+  { type: "song.history", kind: "reply" },
+  { type: "song.getSettings", kind: "query" },
+  { type: "song.getSettings", kind: "reply" },
+  { type: "song.setSettings", kind: "command" },
+  { type: "song.save", kind: "command" },
+  { type: "song.restoreRevision", kind: "command" },
+  { type: "song.delete", kind: "command" },
+  { type: "song.changed", kind: "event" },
   { type: "bible.setSettings", kind: "command" },
 ] as const;
 
@@ -515,6 +534,150 @@ export interface BibleSetSettingsPayload {
   shortNames: BibleShortNameDto[];
 }
 
+// ───────────── Canciones (v12) ─────────────
+
+/** Qué pasa al pulsar «siguiente» en la última diapositiva de una canción. */
+export type SongAtEnd = "stay" | "clear";
+
+/**
+ * Una sección. `id` null = nueva (al guardar) o sin guardar aún (resultado de `song.parseText`). `kind` se deriva de la etiqueta: al guardar se ignora lo que mande el panel.
+ * `text` lleva una línea en blanco por cada corte manual de diapositiva.
+ */
+export interface SongSectionDto {
+  id: number | null;
+  kind: string;
+  label: string;
+  text: string;
+}
+
+/** Fondo propio de una canción: `kind` = "image" | "video" | "color". Sin fondo (null) = no se toca el fondo actual de la salida. */
+export interface SongBackgroundDto {
+  kind: string;
+  path: string | null;
+  color: string | null;
+  muted: boolean;
+}
+
+/** Una canción de la lista o de una búsqueda; `fragment` (solo en `song.search`) lleva las coincidencias entre « y ». */
+export interface SongSummaryDto {
+  id: number;
+  title: string;
+  author: string | null;
+  updatedAt: string;
+  fragment: string | null;
+}
+
+/** `limit` <= 0 = 50; máximo 200. */
+export interface SongSearchRequest {
+  query: string;
+  limit: number;
+}
+
+export interface SongSearchPayload {
+  query: string;
+  truncated: boolean;
+  songs: SongSummaryDto[];
+}
+
+/** Todas las canciones por título (sin letra), como mucho 2000. */
+export interface SongListPayload {
+  truncated: boolean;
+  songs: SongSummaryDto[];
+}
+
+export interface SongGetRequest {
+  id: number;
+}
+
+/** `arrangement` son índices (posiciones) en `sections`; `text` es el texto único con etiquetas que reconstruye el backend. */
+export interface SongPayload {
+  id: number;
+  title: string;
+  author: string | null;
+  copyright: string | null;
+  ccliNumber: string | null;
+  notes: string | null;
+  revision: number;
+  createdAt: string;
+  updatedAt: string;
+  background: SongBackgroundDto | null;
+  sections: SongSectionDto[];
+  arrangement: number[];
+  text: string;
+  usedInServices: number;
+}
+
+export interface SongParseTextRequest {
+  text: string;
+  mergeIdenticalBlocks: boolean;
+}
+
+/** `detected`: "empty" | "brackets" | "aliasLines" | "blocks". `errors` impiden guardar; `warnings` solo informan. */
+export interface SongParseTextPayload {
+  sections: SongSectionDto[];
+  arrangement: number[];
+  warnings: string[];
+  errors: string[];
+  detected: string;
+}
+
+/** Crea (`id` null) o actualiza una canción COMPLETA; al actualizar `expectedRevision` es obligatorio. `reason`: "save" (por defecto) | "import". */
+export interface SongSavePayload {
+  id: number | null;
+  expectedRevision: number | null;
+  title: string;
+  author: string | null;
+  copyright: string | null;
+  ccliNumber: string | null;
+  notes: string | null;
+  background: SongBackgroundDto | null;
+  sections: SongSectionDto[];
+  arrangement: number[];
+  reason: string | null;
+}
+
+export interface SongHistoryRequest {
+  songId: number;
+}
+
+export interface SongRevisionDto {
+  id: number;
+  createdAt: string;
+  reason: string;
+  sectionCount: number;
+}
+
+export interface SongHistoryPayload {
+  revisions: SongRevisionDto[];
+}
+
+/** `revisionId` null = la copia más reciente («Deshacer último guardado»). */
+export interface SongRestoreRevisionPayload {
+  songId: number;
+  revisionId: number | null;
+  expectedRevision: number;
+}
+
+export interface SongDeletePayload {
+  id: number;
+}
+
+/** `kind`: "created" | "updated" | "restored" | "deleted". `commandId` = el id del comando que lo causó. Sin letra. */
+export interface SongChangedPayload {
+  commandId: string;
+  songId: number;
+  revision: number;
+  kind: string;
+  usedInServices: number;
+}
+
+/** Reply de `song.getSettings` y cuerpo de `song.setSettings`. */
+export interface SongSettingsPayload {
+  theme: TextTheme;
+  transitionMs: number;
+  atEnd: SongAtEnd;
+}
+
 /** Payload de cada comando (UI → C#). */
 export interface CommandPayloads {
   "output.open": OutputOpenPayload;
@@ -532,6 +695,10 @@ export interface CommandPayloads {
   "bible.import": BibleImportPayload;
   "bible.setAttribution": BibleSetAttributionPayload;
   "bible.setSettings": BibleSetSettingsPayload;
+  "song.setSettings": SongSettingsPayload;
+  "song.save": SongSavePayload;
+  "song.restoreRevision": SongRestoreRevisionPayload;
+  "song.delete": SongDeletePayload;
 }
 
 /** Payload de cada evento (C# → UI). */
@@ -543,6 +710,7 @@ export interface EventPayloads {
   "database.statusChanged": DatabaseStatusPayload;
   "bible.importProgress": BibleImportProgressPayload;
   "bible.importFinished": BibleImportFinishedPayload;
+  "song.changed": SongChangedPayload;
 }
 
 /** Payload de cada query y de su reply. */
@@ -558,6 +726,12 @@ export interface QueryPayloads {
   "bible.history": { request: BibleHistoryRequest; reply: BibleHistoryPayload };
   "bible.suggest": { request: BibleSuggestRequest; reply: BibleSuggestPayload };
   "bible.getSettings": { request: EmptyPayload; reply: BibleSettingsPayload };
+  "song.search": { request: SongSearchRequest; reply: SongSearchPayload };
+  "song.list": { request: EmptyPayload; reply: SongListPayload };
+  "song.get": { request: SongGetRequest; reply: SongPayload };
+  "song.parseText": { request: SongParseTextRequest; reply: SongParseTextPayload };
+  "song.history": { request: SongHistoryRequest; reply: SongHistoryPayload };
+  "song.getSettings": { request: EmptyPayload; reply: SongSettingsPayload };
 }
 
 export type CommandType = keyof CommandPayloads;

@@ -32,8 +32,8 @@ public sealed partial class BibleQueryService(ISqliteConnectionFactory connectio
     /// <summary>Máximo de versículos por consulta de pasaje (un capítulo entero ≤ 176). «Sal 1-150» (≈ 2 500) se rechaza con <c>bible.rangeTooLarge</c> en vez de mandar un JSON enorme al panel (H4).</summary>
     public const int MaxPassageVerses = 200;
     /// <summary>Texto máximo que se procesa de una búsqueda y términos máximos de la consulta FTS (un pegado enorme no debe armar una consulta gigante; H13).</summary>
-    public const int MaxQueryChars = 1000;
-    public const int MaxQueryTerms = 32;
+    public const int MaxQueryChars = FtsQueryBuilder.MaxQueryChars;
+    public const int MaxQueryTerms = FtsQueryBuilder.MaxQueryTerms;
 
     private readonly BibleQueryOptions _options = options ?? BibleQueryOptions.Default;
 
@@ -231,30 +231,7 @@ public sealed partial class BibleQueryService(ISqliteConnectionFactory connectio
     /// La entrada se normaliza a NFC (como el texto guardado: «e» + acento combinante = «é», que no parte la palabra), se procesan como mucho
     /// <see cref="MaxQueryChars"/> caracteres y se arman como mucho <see cref="MaxQueryTerms"/> términos (H13).
     /// </summary>
-    public static string? BuildMatch(string? query)
-    {
-        if (string.IsNullOrWhiteSpace(query)) return null;
-        if (query.Length > MaxQueryChars) query = query[..MaxQueryChars];
-        try { query = query.Normalize(NormalizationForm.FormC); }
-        catch (ArgumentException) { /* secuencia Unicode inválida (sustituto suelto): se busca tal cual */ }
-        var terms = new List<string>();
-        var rest = query;
-        foreach (Match phrase in QuotedPhrase().Matches(query))
-        {
-            var words = Words().Matches(phrase.Groups[1].Value).Select(m => m.Value).ToList();
-            if (words.Count > 0) terms.Add("\"" + string.Join(' ', words) + "\"");
-            rest = rest.Replace(phrase.Value, " ", StringComparison.Ordinal);
-        }
-        terms.AddRange(Words().Matches(rest).Select(m => "\"" + m.Value + "\""));
-        if (terms.Count > MaxQueryTerms) terms.RemoveRange(MaxQueryTerms, terms.Count - MaxQueryTerms);
-        return terms.Count == 0 ? null : string.Join(' ', terms);
-    }
-
-    [GeneratedRegex("\"([^\"]*)\"")]
-    private static partial Regex QuotedPhrase();
-
-    [GeneratedRegex(@"[\p{L}\p{N}\p{M}]+")]
-    private static partial Regex Words();
+    public static string? BuildMatch(string? query) => FtsQueryBuilder.Build(query);
 
     // Dapper devuelve INTEGER como Int64 (ver CLAUDE.md): los DTO de lectura usan long.
     private sealed record BibleLite(long Id, string Abbreviation, string Name, string Language, string Attribution, string? NumberingProfile);

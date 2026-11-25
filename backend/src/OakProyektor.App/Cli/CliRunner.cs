@@ -1,9 +1,11 @@
 using System.Globalization;
 using Microsoft.Extensions.Logging;
 using OakProyektor.Core.Scripture;
+using OakProyektor.Core.Songs;
 using OakProyektor.Data;
 using OakProyektor.Data.Backups;
 using OakProyektor.Data.Scripture;
+using OakProyektor.Data.Songs;
 
 namespace OakProyektor.App.Cli;
 
@@ -59,6 +61,7 @@ internal sealed class CliRunner(ApplicationPaths paths, ILoggerFactory loggers, 
             return command.Kind switch
             {
                 CliCommandKind.ImportBible => await ImportAsync(command, connections, readiness, options.BackupDirectory, cancellationToken).ConfigureAwait(false),
+                CliCommandKind.ImportSong => await ImportSongAsync(command, connections, readiness, cancellationToken).ConfigureAwait(false),
                 CliCommandKind.VerifyBible => await VerifyAsync(command, connections, readiness, cancellationToken).ConfigureAwait(false),
                 CliCommandKind.ShowVerse => await ShowVerseAsync(command, connections, readiness, cancellationToken).ConfigureAwait(false),
                 CliCommandKind.ListBibles => await ListAsync(connections, readiness, cancellationToken).ConfigureAwait(false),
@@ -71,6 +74,11 @@ internal sealed class CliRunner(ApplicationPaths paths, ILoggerFactory loggers, 
             return Failed;
         }
         catch (BibleException ex)
+        {
+            error.WriteLine($"Error [{ex.Code}]: {ex.Message}");
+            return Failed;
+        }
+        catch (SongException ex)
         {
             error.WriteLine($"Error [{ex.Code}]: {ex.Message}");
             return Failed;
@@ -133,6 +141,52 @@ internal sealed class CliRunner(ApplicationPaths paths, ILoggerFactory loggers, 
         CliReportWriter.Write(report, output);
         return report.FtsIntegrityOk ? Ok : FtsFailed;
     }
+
+    /// <summary>
+    /// Importa el .txt de una canción como una canción NUEVA. Muestra qué codificación se detectó, los avisos del parser y los conteos; NUNCA la letra (ni siquiera el título:
+    /// solo el identificador). Si hay errores del parser (límites, orden vacío…) no guarda nada.
+    /// </summary>
+    private async Task<int> ImportSongAsync(CliCommand c, ISqliteConnectionFactory connections, IDatabaseReadiness readiness, CancellationToken ct)
+    {
+        var path = Path.GetFullPath(c.Get("import-song")!);
+        output.WriteLine($"Importando una canción desde {path}");
+        output.WriteLine($"Carpeta de datos: {paths.DataDirectory}");
+
+        var decoded = await SongTextFile.ReadAsync(path, ct).ConfigureAwait(false);
+        output.WriteLine($"Codificación detectada: {decoded.Encoding}{(decoded.FellBack ? " (el archivo no era UTF-8 válido)" : "")}");
+        foreach (var warning in decoded.Warnings) output.WriteLine("  Aviso: " + warning);
+
+        var parsed = SongTextParser.Parse(decoded.Text, new SongParseOptions(MergeIdenticalBlocks: !c.Has("no-merge")));
+        output.WriteLine($"Formato del texto: {SongIpcFormat(parsed.Format)}; {parsed.Sections.Count} sección(es), orden de {parsed.Arrangement.Count} elemento(s).");
+        foreach (var warning in parsed.Warnings) output.WriteLine("  Aviso: " + warning);
+        if (parsed.Errors.Count > 0)
+        {
+            foreach (var problem in parsed.Errors) error.WriteLine("  Error: " + problem);
+            error.WriteLine("No se guardó nada.");
+            return Failed;
+        }
+        if (parsed.Sections.Count == 0)
+        {
+            error.WriteLine("Error: el archivo no contiene ninguna sección con texto. No se guardó nada.");
+            return Failed;
+        }
+
+        var title = c.Get("title") ?? Path.GetFileNameWithoutExtension(path);
+        var repository = new SongRepository(connections, readiness, loggers.CreateLogger<SongRepository>());
+        var result = await repository.SaveAsync(new SongSaveRequest(
+            null, null, title, c.Get("author"), c.Get("copyright"), c.Get("ccli"), null, null,
+            [.. parsed.Sections.Select(s => new SongSectionInput(null, s.Label, s.Kind, s.Text))], parsed.Arrangement, SongSaveReason.Import), ct).ConfigureAwait(false);
+        output.WriteLine($"Canción creada: id {result.SongId.ToString(CultureInfo.InvariantCulture)}.");
+        return Ok;
+    }
+
+    private static string SongIpcFormat(SongTextFormat format) => format switch
+    {
+        SongTextFormat.Brackets => "etiquetas entre corchetes",
+        SongTextFormat.AliasLines => "líneas con nombre de sección",
+        SongTextFormat.Blocks => "bloques separados por líneas en blanco",
+        _ => "vacío",
+    };
 
     private async Task<int> VerifyAsync(CliCommand c, ISqliteConnectionFactory connections, IDatabaseReadiness readiness, CancellationToken ct)
     {

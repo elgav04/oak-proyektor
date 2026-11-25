@@ -1,5 +1,6 @@
 using OakProyektor.Core.Output;
 using OakProyektor.Core.Scripture;
+using OakProyektor.Core.Songs;
 
 namespace OakProyektor.Core;
 
@@ -12,6 +13,7 @@ namespace OakProyektor.Core;
 /// <param name="DefaultBible">Abreviatura de la Biblia que se usa si una consulta no indica ninguna; nulo = la primera instalada.</param>
 /// <param name="CitationHistoryLimit">Cuántas citas conserva el historial (0 = no guardar historial; máximo 1000). Se edita en <c>settings.json</c>.</param>
 /// <param name="BibleDisplay">Tema, opciones y nombres cortos de la proyección de Biblia (v8).</param>
+/// <param name="SongDisplay">Tema, crossfade y comportamiento al final de la proyección de canciones (v12).</param>
 public sealed record AppSettings(
     bool AutoRestoreOutput = true,
     string? PreferredDisplayId = null,
@@ -20,9 +22,14 @@ public sealed record AppSettings(
     bool ShowPanelAlertOnOutput = false,
     string? DefaultBible = null,
     int CitationHistoryLimit = AppSettings.DefaultCitationHistoryLimit,
-    BibleDisplaySettings? BibleDisplay = null)
+    BibleDisplaySettings? BibleDisplay = null,
+    SongDisplaySettings? SongDisplay = null)
 {
     public const int DefaultCitationHistoryLimit = 100;
+
+    /// <summary>Cómo se proyectan las canciones (v12); un <c>settings.json</c> anterior sin este bloque usa los valores por defecto.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public SongDisplaySettings Songs => SongDisplay ?? new SongDisplaySettings();
 
     /// <summary>Cómo se proyecta la Biblia (v8); un <c>settings.json</c> anterior sin este bloque usa los valores por defecto.</summary>
     [System.Text.Json.Serialization.JsonIgnore]

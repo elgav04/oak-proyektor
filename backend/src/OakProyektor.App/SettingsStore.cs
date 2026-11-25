@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using OakProyektor.Core;
 using OakProyektor.Core.Output;
 using OakProyektor.Core.Scripture;
+using OakProyektor.Core.Songs;
 
 namespace OakProyektor.App;
 
@@ -132,8 +133,39 @@ internal sealed class SettingsStore(ApplicationPaths paths, ILogger<SettingsStor
                 ShowPanelAlertOnOutput: Block("showPanelAlertOnOutput", d.ShowPanelAlertOnOutput, "Aviso de panel sin respuesta"),
                 DefaultBible: Block<string?>("defaultBible", null, "Biblia por defecto"),
                 CitationHistoryLimit: Block("citationHistoryLimit", d.CitationHistoryLimit, "Límite del historial de citas", v => v is >= 0 and <= 1000 ? null : "debe estar entre 0 y 1000."),
-                BibleDisplay: ReadBibleDisplay(root, warnings));
+                BibleDisplay: ReadBibleDisplay(root, warnings),
+                SongDisplay: ReadSongDisplay(root, warnings));
         }
+    }
+
+    /// <summary>
+    /// El bloque de las canciones (v12), validado como el de la Biblia: un tema o un crossfade inválidos vuelven a su valor por defecto (si no, cada proyección de una canción se
+    /// rechazaría con <c>output.invalidContent</c>) y se avisa; un bloque ilegible entero vuelve a los valores por defecto.
+    /// </summary>
+    private static SongDisplaySettings? ReadSongDisplay(JsonElement root, List<string> warnings)
+    {
+        if (!TryGet(root, "songDisplay", out var element) || element.ValueKind == JsonValueKind.Null) return null;
+        SongDisplaySettings? block;
+        try { block = element.Deserialize<SongDisplaySettings>(Json); }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException or NotSupportedException) { block = null; }
+        if (block is null || !Enum.IsDefined(block.AtEnd))
+        {
+            warnings.Add("La configuración de las canciones (songDisplay) no es válida en settings.json: se usan los valores por defecto.");
+            return null;
+        }
+        var theme = block.Theme;
+        if (theme is not null && ContentValidator.ValidateTheme(theme) is { } themeProblem)
+        {
+            warnings.Add($"El tema de las canciones no es válido en settings.json ({themeProblem.TrimEnd('.')}): se usa el tema por defecto.");
+            theme = null;
+        }
+        var transition = block.TransitionMs;
+        if (ContentValidator.ValidateTransition(transition, "Canciones") is not null)
+        {
+            warnings.Add($"La duración del crossfade de las canciones no es válida en settings.json ({transition} ms): se usa {SongDisplaySettings.DefaultTransitionMs} ms.");
+            transition = SongDisplaySettings.DefaultTransitionMs;
+        }
+        return block with { Theme = theme, TransitionMs = transition };
     }
 
     /// <summary>

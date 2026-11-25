@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using OakProyektor.Core.Output;
 using OakProyektor.Ipc;
 using OakProyektor.Ipc.Messages;
@@ -15,7 +15,7 @@ public class IpcDispatcherTests
     }
 
     private static string Msg(string kind, string type, string id = "id-1", string payload = "{}") =>
-        $$"""{"v":11,"id":"{{id}}","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
+        $$"""{"v":12,"id":"{{id}}","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
 
     private static (IpcDispatcher Dispatcher, ListLogger<IpcDispatcher> Log) Create(params IIpcHandler[] handlers)
     {

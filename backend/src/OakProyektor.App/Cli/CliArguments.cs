@@ -2,7 +2,7 @@ using OakProyektor.Core.Scripture;
 
 namespace OakProyektor.App.Cli;
 
-internal enum CliCommandKind { Help, ImportBible, VerifyBible, ShowVerse, ListBibles, ListBackups, RestoreBackup }
+internal enum CliCommandKind { Help, ImportBible, VerifyBible, ShowVerse, ListBibles, ListBackups, RestoreBackup, ImportSong }
 
 /// <summary>Una orden de consola ya interpretada. <c>Options</c> usa los nombres de las opciones sin «--» (<c>abbr</c>, <c>name</c>…).</summary>
 internal sealed record CliCommand(CliCommandKind Kind, IReadOnlyDictionary<string, string> Options)
@@ -20,12 +20,13 @@ internal static class CliArguments
     private static readonly HashSet<string> ValueOptions = new(StringComparer.Ordinal)
     {
         "import-bible", "abbr", "name", "lang", "numbering", "attribution", "format", "against", "against-format", "show-verse", "bible", "restore-backup",
+        "import-song", "title", "author", "copyright", "ccli",
     };
-    private static readonly HashSet<string> SwitchOptions = new(StringComparer.Ordinal) { "verify-bible", "list-bibles", "list-backups", "allow-large-deletion", "allow-large-change", "help" };
+    private static readonly HashSet<string> SwitchOptions = new(StringComparer.Ordinal) { "verify-bible", "list-bibles", "list-backups", "allow-large-deletion", "allow-large-change", "no-merge", "help" };
 
     /// <summary>true si alguno de los argumentos pide una orden de consola (entonces no se abre ninguna ventana).</summary>
     public static bool IsCliInvocation(string[] args) =>
-        args.Any(a => a is "--import-bible" or "--verify-bible" or "--show-verse" or "--list-bibles" or "--list-backups" or "--restore-backup" or "--help" or "-h" or "/?");
+        args.Any(a => a is "--import-bible" or "--import-song" or "--verify-bible" or "--show-verse" or "--list-bibles" or "--list-backups" or "--restore-backup" or "--help" or "-h" or "/?");
 
     public static (CliCommand? Command, string? Error) Parse(string[] args)
     {
@@ -51,8 +52,9 @@ internal static class CliArguments
         if (options.ContainsKey("list-bibles")) kinds.Add(CliCommandKind.ListBibles);
         if (options.ContainsKey("list-backups")) kinds.Add(CliCommandKind.ListBackups);
         if (options.ContainsKey("restore-backup")) kinds.Add(CliCommandKind.RestoreBackup);
+        if (options.ContainsKey("import-song")) kinds.Add(CliCommandKind.ImportSong);
         if (kinds.Count == 0) return (null, "Falta la orden. Usa --help para ver las opciones.");
-        if (kinds.Count > 1) return (null, "Pide una sola orden a la vez (--import-bible, --verify-bible, --show-verse, --list-bibles, --list-backups o --restore-backup).");
+        if (kinds.Count > 1) return (null, "Pide una sola orden a la vez (--import-bible, --import-song, --verify-bible, --show-verse, --list-bibles, --list-backups o --restore-backup).");
 
         var kind = kinds[0];
         string[] required = kind switch
@@ -61,6 +63,7 @@ internal static class CliArguments
             CliCommandKind.VerifyBible => ["abbr", "against"],
             CliCommandKind.ShowVerse => ["show-verse"],
             CliCommandKind.RestoreBackup => ["restore-backup"],
+            CliCommandKind.ImportSong => ["import-song"],
             _ => [],
         };
         var missing = required.Where(r => !options.ContainsKey(r) || string.IsNullOrWhiteSpace(options[r])).Select(r => "--" + r).ToList();
@@ -80,6 +83,11 @@ internal static class CliArguments
             Una reimportación se RECHAZA si elimina más del 1 % de los versículos o hace desaparecer un libro o capítulo entero (--allow-large-deletion), o si cambia más
             del 1 % de los textos, cambia el nombre de la Biblia o deja vacíos textos que no lo están (--allow-large-change: otra traducción con la misma abreviatura).
             Antes de modificar o borrar algo se hace una copia de seguridad en la carpeta backups (se conservan las últimas 5).
+
+          Importar la letra de una canción desde un archivo .txt (crea una canción NUEVA):
+            OakProyektor.App --import-song <ruta.txt> [--title "<título>"] [--author "<autor>"] [--copyright "<derechos>"] [--ccli <número>] [--no-merge]
+            Etiquetas entre corchetes ([Verso 1], [Coro]…), o bloques separados por líneas en blanco; una línea final «Orden: V1 C V2 C» es opcional.
+            UTF-8 estricto y, si no lo es, Windows-1252 (se indica qué se detectó). Sin --title se usa el nombre del archivo. Solo muestra conteos, nunca la letra.
 
           Comparar una Biblia ya importada con otro archivo (no lo importa):
             OakProyektor.App --verify-bible --abbr <ABREV> --against <ruta> [--against-format <formato>]

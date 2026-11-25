@@ -99,8 +99,10 @@ public sealed class ReplaceAndTriggerTests : IDisposable
         string Sql(string trigger) => c.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = @n", new { n = trigger })!;
 
         Assert.Contains("UPDATE OF Text, Id ON Verses", Sql("Verses_au"));
-        Assert.Contains("UPDATE OF Title, Id ON Songs", Sql("Songs_au"));
-        Assert.Contains("UPDATE OF SongId, SequenceIndex, Content, Id ON SongSlides", Sql("SongSlides_au"));
+        // Migración 9: el índice de canciones indexa también el autor y se alimenta de SongSections (SongSlides quedó congelada y sin triggers).
+        Assert.Contains("UPDATE OF Title, Author, Id ON Songs", Sql("Songs_au"));
+        Assert.Contains("UPDATE OF SongId, Position, Text, Id ON SongSections", Sql("SongSections_au"));
+        Assert.Equal(0L, c.ExecuteScalar<long>("SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'SongSlides'"));
     }
 
     [Fact]
@@ -110,11 +112,11 @@ public sealed class ReplaceAndTriggerTests : IDisposable
         await using var c = await _db.OpenAsync();
         var (_, _, verseId) = await TestDatabase.InsertVerseAsync(c, "texto estable");
         var songId = await c.ExecuteScalarAsync<long>("INSERT INTO Songs (Title) VALUES ('Tema'); SELECT last_insert_rowid();");
-        var slideId = await c.ExecuteScalarAsync<long>("INSERT INTO SongSlides (SongId, SequenceIndex, Label, Content) VALUES (@s, 0, 'V1', 'letra uno'); SELECT last_insert_rowid();", new { s = songId });
+        var sectionId = await c.ExecuteScalarAsync<long>("INSERT INTO SongSections (SongId, Position, Kind, Label, Text) VALUES (@s, 0, 'verse', 'Verso 1', 'letra uno'); SELECT last_insert_rowid();", new { s = songId });
 
-        await c.ExecuteAsync("UPDATE Verses SET Chapter = 5 WHERE Id = @id", new { id = verseId });          // columna que el FTS no indexa
-        await c.ExecuteAsync("UPDATE SongSlides SET Label = 'Coro' WHERE Id = @id", new { id = slideId });   // idem
-        await c.ExecuteAsync("UPDATE Songs SET Author = 'Anónimo' WHERE Id = @id", new { id = songId });     // idem
+        await c.ExecuteAsync("UPDATE Verses SET Chapter = 5 WHERE Id = @id", new { id = verseId });                          // columna que el FTS no indexa
+        await c.ExecuteAsync("UPDATE SongSections SET Label = 'Coro', Kind = 'chorus' WHERE Id = @id", new { id = sectionId });   // idem
+        await c.ExecuteAsync("UPDATE Songs SET Notes = 'una nota', Revision = 2 WHERE Id = @id", new { id = songId });           // idem
 
         Assert.Equal(1L, await Matches(c, "estable"));
         await IntegrityCheck(c);
@@ -149,15 +151,15 @@ public sealed class ReplaceAndTriggerTests : IDisposable
     }
 
     [Fact]
-    public async Task Moving_a_slide_to_another_song_updates_the_lyrics_of_both()
+    public async Task Moving_a_section_to_another_song_updates_the_lyrics_of_both()
     {
         await _db.InitializeAsync();
         await using var c = await _db.OpenAsync();
         var a = await c.ExecuteScalarAsync<long>("INSERT INTO Songs (Title) VALUES ('A'); SELECT last_insert_rowid();");
         var b = await c.ExecuteScalarAsync<long>("INSERT INTO Songs (Title) VALUES ('B'); SELECT last_insert_rowid();");
-        var slide = await c.ExecuteScalarAsync<long>("INSERT INTO SongSlides (SongId, SequenceIndex, Content) VALUES (@a, 0, 'palabra migratoria'); SELECT last_insert_rowid();", new { a });
+        var slide = await c.ExecuteScalarAsync<long>("INSERT INTO SongSections (SongId, Position, Kind, Label, Text) VALUES (@a, 0, 'other', 'Uno', 'palabra migratoria'); SELECT last_insert_rowid();", new { a });
 
-        await c.ExecuteAsync("UPDATE SongSlides SET SongId = @b WHERE Id = @id", new { b, id = slide });
+        await c.ExecuteAsync("UPDATE SongSections SET SongId = @b WHERE Id = @id", new { b, id = slide });
 
         var rowids = (await c.QueryAsync<long>("SELECT rowid FROM SongsFts WHERE SongsFts MATCH 'migratoria'")).ToArray();
         Assert.Equal(new[] { b }, rowids);

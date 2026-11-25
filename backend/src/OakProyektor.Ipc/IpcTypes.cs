@@ -44,6 +44,17 @@ public static class IpcTypes
     public const string BibleImportFinished = "bible.importFinished";
     public const string BibleGetSettings = "bible.getSettings";
     public const string BibleSetSettings = "bible.setSettings";
+    public const string SongSearch = "song.search";
+    public const string SongList = "song.list";
+    public const string SongGet = "song.get";
+    public const string SongParseText = "song.parseText";
+    public const string SongHistory = "song.history";
+    public const string SongGetSettings = "song.getSettings";
+    public const string SongSetSettings = "song.setSettings";
+    public const string SongSave = "song.save";
+    public const string SongRestoreRevision = "song.restoreRevision";
+    public const string SongDelete = "song.delete";
+    public const string SongChanged = "song.changed";
 }
 
 public sealed record MessageDescriptor(string Type, string Kind);
@@ -69,8 +80,10 @@ public static class IpcCatalog
     /// v11: <c>bible.import</c> lleva <c>allowLargeDeletion</c> y <c>allowLargeChange</c> (las protecciones de la reimportación, que solo se saltan de forma explícita) y su informe lleva
     /// <c>previousVerses</c>, <c>backupPath</c>, <c>numberingProfileKept</c>, <c>discardedVerses</c> y <c>duplicateChaptersDifferent</c>; un <c>numberingProfile</c> nulo ahora CONSERVA el perfil guardado.
     /// v10: query <c>settings.getStatus</c> (avisos de la carga de <c>settings.json</c>: bloques inválidos que volvieron a su valor por defecto o archivo dañado).
+    /// v12: módulo de canciones: queries <c>song.search</c>, <c>song.list</c>, <c>song.get</c>, <c>song.parseText</c>, <c>song.history</c> y <c>song.getSettings</c>; comandos <c>song.setSettings</c>,
+    /// <c>song.save</c>, <c>song.restoreRevision</c> y <c>song.delete</c>; evento <c>song.changed</c> (resultado de guardar, restaurar o borrar; sin letra). <c>OutputState</c> no cambia.
     /// </summary>
-    public const int ProtocolVersion = 11;
+    public const int ProtocolVersion = 12;
 
     public static IReadOnlyList<MessageDescriptor> Messages { get; } =
     [
@@ -118,6 +131,23 @@ public static class IpcCatalog
         new(IpcTypes.BibleGetSettings, IpcKind.Query),
         new(IpcTypes.BibleGetSettings, IpcKind.Reply),
         new(IpcTypes.BibleSetSettings, IpcKind.Command),
+        new(IpcTypes.SongSearch, IpcKind.Query),
+        new(IpcTypes.SongSearch, IpcKind.Reply),
+        new(IpcTypes.SongList, IpcKind.Query),
+        new(IpcTypes.SongList, IpcKind.Reply),
+        new(IpcTypes.SongGet, IpcKind.Query),
+        new(IpcTypes.SongGet, IpcKind.Reply),
+        new(IpcTypes.SongParseText, IpcKind.Query),
+        new(IpcTypes.SongParseText, IpcKind.Reply),
+        new(IpcTypes.SongHistory, IpcKind.Query),
+        new(IpcTypes.SongHistory, IpcKind.Reply),
+        new(IpcTypes.SongGetSettings, IpcKind.Query),
+        new(IpcTypes.SongGetSettings, IpcKind.Reply),
+        new(IpcTypes.SongSetSettings, IpcKind.Command),
+        new(IpcTypes.SongSave, IpcKind.Command),
+        new(IpcTypes.SongRestoreRevision, IpcKind.Command),
+        new(IpcTypes.SongDelete, IpcKind.Command),
+        new(IpcTypes.SongChanged, IpcKind.Event),
     ];
 }
 

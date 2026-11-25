@@ -1,4 +1,4 @@
-﻿import assert from "node:assert/strict";
+import assert from "node:assert/strict";
 import test, { after, afterEach, beforeEach } from "node:test";
 import { closeServer, loadTs } from "./helper.mjs";
 
@@ -14,7 +14,7 @@ globalThis.window = {
 const { useControlStore, connectControlStore, reconnectControl, dismissFailure, dismissSettingsWarnings } = await loadTs("/src/control/store.ts");
 after(closeServer);
 
-const msg = (kind, type, payload, id = "x") => ({ v:11, id, kind, type, payload });
+const msg = (kind, type, payload, id = "x") => ({ v:12, id, kind, type, payload });
 const send = (o) => deliver(typeof o === "string" ? o : JSON.stringify(o));
 const ok = (result) => ({ ok: true, result, error: null });
 const tick = (ms = 20) => new Promise((r) => setTimeout(r, ms));

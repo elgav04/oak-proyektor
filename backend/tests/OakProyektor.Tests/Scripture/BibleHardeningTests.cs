@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using Dapper;
@@ -305,8 +305,8 @@ public class BibleHardeningTests : IAsyncLifetime
         try
         {
             var start = DateTime.UtcNow;
-            intake.Enqueue(WindowKind.Control, """{"v":11,"id":"q1","kind":"query","type":"bible.lookup","payload":{"reference":"Mt 5:3","bible":"SIN","record":true}}""");
-            intake.Enqueue(WindowKind.Control, """{"v":11,"id":"c1","kind":"command","type":"output.showContent","payload":{}}""");
+            intake.Enqueue(WindowKind.Control, """{"v":12,"id":"q1","kind":"query","type":"bible.lookup","payload":{"reference":"Mt 5:3","bible":"SIN","record":true}}""");
+            intake.Enqueue(WindowKind.Control, """{"v":12,"id":"c1","kind":"command","type":"output.showContent","payload":{}}""");
 
             var at = await shown.Task.WaitAsync(TimeSpan.FromSeconds(3));   // el escritor sigue reteniendo el bloqueo (hasta 6 s): no hay espera
             Assert.True((at - start).TotalMilliseconds < 2500, $"showContent esperó {(at - start).TotalMilliseconds} ms");

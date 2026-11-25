@@ -57,27 +57,29 @@ public sealed class FtsTests : IDisposable
         c.Query<long>("SELECT rowid FROM SongsFts WHERE SongsFts MATCH @m", new { m = match }).ToArray();
 
     [Fact]
-    public async Task Song_search_covers_title_and_slide_content_and_follows_changes()
+    public async Task Song_search_covers_title_author_and_section_text_and_follows_changes()
     {
         await _db.InitializeAsync();
         await using var c = await _db.OpenAsync();
 
-        var songId = await c.ExecuteScalarAsync<long>("INSERT INTO Songs (Title) VALUES ('Canción de prueba'); SELECT last_insert_rowid();");
+        var songId = await c.ExecuteScalarAsync<long>("INSERT INTO Songs (Title, Author) VALUES ('Canción de prueba', 'Autora Ficticia'); SELECT last_insert_rowid();");
         Assert.Equal([songId], SearchSongs(c, "cancion"));                       // título, sin acento
+        Assert.Equal([songId], SearchSongs(c, "ficticia"));                      // autor
 
-        var slideId = await c.ExecuteScalarAsync<long>(
-            "INSERT INTO SongSlides (SongId, SequenceIndex, Label, Content) VALUES (@s, 0, 'Verso 1', 'Alabad al Señor con gozo'); SELECT last_insert_rowid();", new { s = songId });
-        Assert.Equal([songId], SearchSongs(c, "senor"));                         // letra, sin acento
+        var sectionId = await c.ExecuteScalarAsync<long>(
+            "INSERT INTO SongSections (SongId, Position, Kind, Label, Text) VALUES (@s, 0, 'verse', 'Verso 1', 'Lalala sintético con gozo'); SELECT last_insert_rowid();", new { s = songId });
+        Assert.Equal([songId], SearchSongs(c, "sintetico"));                     // letra, sin acento
 
-        await c.ExecuteAsync("UPDATE SongSlides SET Content = 'Cantad con alegria' WHERE Id = @id", new { id = slideId });
+        await c.ExecuteAsync("UPDATE SongSections SET Text = 'Tararí con alegria' WHERE Id = @id", new { id = sectionId });
         Assert.Empty(SearchSongs(c, "gozo"));
         Assert.Equal([songId], SearchSongs(c, "alegría"));
 
-        await c.ExecuteAsync("UPDATE Songs SET Title = 'Himno nuevo' WHERE Id = @id", new { id = songId });
+        await c.ExecuteAsync("UPDATE Songs SET Title = 'Himno nuevo', Author = NULL WHERE Id = @id", new { id = songId });
         Assert.Empty(SearchSongs(c, "cancion"));
+        Assert.Empty(SearchSongs(c, "ficticia"));
         Assert.Equal([songId], SearchSongs(c, "himno"));
 
-        await c.ExecuteAsync("DELETE FROM SongSlides WHERE Id = @id", new { id = slideId });
+        await c.ExecuteAsync("DELETE FROM SongSections WHERE Id = @id", new { id = sectionId });
         Assert.Empty(SearchSongs(c, "alegria"));
 
         await c.ExecuteAsync("DELETE FROM Songs WHERE Id = @id", new { id = songId });
@@ -85,17 +87,37 @@ public sealed class FtsTests : IDisposable
     }
 
     [Fact]
-    public async Task Deleting_a_song_cascades_slides_and_clears_search()
+    public async Task Deleting_a_song_cascades_sections_arrangement_and_revisions_and_clears_search()
     {
         await _db.InitializeAsync();
         await using var c = await _db.OpenAsync();
         var songId = await c.ExecuteScalarAsync<long>("INSERT INTO Songs (Title) VALUES ('Tema'); SELECT last_insert_rowid();");
-        await c.ExecuteAsync("INSERT INTO SongSlides (SongId, SequenceIndex, Content) VALUES (@s, 0, 'estrofa unica')", new { s = songId });
+        var sectionId = await c.ExecuteScalarAsync<long>("INSERT INTO SongSections (SongId, Position, Kind, Label, Text) VALUES (@s, 0, 'other', 'Unica', 'estrofa unica'); SELECT last_insert_rowid();", new { s = songId });
+        var arrangementId = await c.ExecuteScalarAsync<long>("INSERT INTO SongArrangements (SongId, Name, IsDefault) VALUES (@s, 'Principal', 1); SELECT last_insert_rowid();", new { s = songId });
+        await c.ExecuteAsync("INSERT INTO SongArrangementItems (ArrangementId, Position, SectionId) VALUES (@a, 0, @sec), (@a, 1, @sec)", new { a = arrangementId, sec = sectionId });
+        await c.ExecuteAsync("INSERT INTO SongRevisions (SongId, Reason, Snapshot) VALUES (@s, 'save', '{}')", new { s = songId });
 
+        // La clave foránea del orden hacia la sección es NO ACTION: borrar la canción entera funciona porque la cascada ya quitó los elementos al final de la sentencia.
         await c.ExecuteAsync("DELETE FROM Songs WHERE Id = @s", new { s = songId });
 
-        Assert.Equal(0L, await c.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM SongSlides"));
+        foreach (var table in new[] { "SongSections", "SongArrangements", "SongArrangementItems", "SongRevisions" })
+            Assert.Equal(0L, await c.ExecuteScalarAsync<long>($"SELECT COUNT(*) FROM {table}"));
         Assert.Empty(SearchSongs(c, "estrofa"));
         Assert.Empty(SearchSongs(c, "tema"));
+    }
+
+    [Fact]
+    public async Task A_section_used_by_the_arrangement_cannot_be_deleted_silently()
+    {
+        await _db.InitializeAsync();
+        await using var c = await _db.OpenAsync();
+        var songId = await c.ExecuteScalarAsync<long>("INSERT INTO Songs (Title) VALUES ('Tema'); SELECT last_insert_rowid();");
+        var sectionId = await c.ExecuteScalarAsync<long>("INSERT INTO SongSections (SongId, Position, Kind, Label, Text) VALUES (@s, 0, 'chorus', 'Coro', 'texto del coro'); SELECT last_insert_rowid();", new { s = songId });
+        var arrangementId = await c.ExecuteScalarAsync<long>("INSERT INTO SongArrangements (SongId, Name, IsDefault) VALUES (@s, 'Principal', 1); SELECT last_insert_rowid();", new { s = songId });
+        await c.ExecuteAsync("INSERT INTO SongArrangementItems (ArrangementId, Position, SectionId) VALUES (@a, 0, @sec)", new { a = arrangementId, sec = sectionId });
+
+        await Assert.ThrowsAsync<Microsoft.Data.Sqlite.SqliteException>(() => c.ExecuteAsync("DELETE FROM SongSections WHERE Id = @id", new { id = sectionId }));
+
+        Assert.Equal(1L, await c.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM SongArrangementItems"));   // el orden sigue intacto
     }
 }

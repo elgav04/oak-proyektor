@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging.Abstractions;
 using OakProyektor.App;
 using OakProyektor.App.Handlers;
 using OakProyektor.Core.Output;
@@ -13,7 +13,7 @@ public class MediaHandlerTests
 {
     private const string Theme = """{"fontFamily":"Arial","fontSize":72,"color":"#FFFFFF","outlineWidth":0,"outlineColor":"#000000","shadowBlur":0,"shadowOffset":0,"shadowColor":"#000000","align":"center","verticalAlign":"middle","lineHeight":1.2,"marginTop":50,"marginRight":50,"marginBottom":50,"marginLeft":50,"autoFit":true,"minFontSize":24}""";
 
-    private static string Msg(string type, string payload) => $$"""{"v":11,"id":"c1","kind":"command","type":"{{type}}","payload":{{payload}}}""";
+    private static string Msg(string type, string payload) => $$"""{"v":12,"id":"c1","kind":"command","type":"{{type}}","payload":{{payload}}}""";
 
     private static (IpcDispatcher D, FakeOutputController Output, FakeMediaFileSystem Fs) Create(IMediaFileSystem? fs = null, TimeSpan? timeout = null)
     {
@@ -39,7 +39,7 @@ public class MediaHandlerTests
     [Fact]
     public async Task The_json_the_ps_script_sends_deserializes_as_is()
     {
-        var env = IpcSerializer.TryParse("""{"v":11,"id":"x","kind":"command","type":"output.setBackground","payload":{"color":"#102030","path":"C:\\Users\\x\\media-test\\a.mp4","transitionMs":300,"muted":true,"kind":"video"}}""", out var e, out var err);
+        var env = IpcSerializer.TryParse("""{"v":12,"id":"x","kind":"command","type":"output.setBackground","payload":{"color":"#102030","path":"C:\\Users\\x\\media-test\\a.mp4","transitionMs":300,"muted":true,"kind":"video"}}""", out var e, out var err);
         Assert.True(env, err);
         var p = e!.GetPayload<OutputSetBackgroundPayload>();
         Assert.Equal((BackgroundKind.Video, 300), (p.Kind, p.TransitionMs));
@@ -188,7 +188,7 @@ public class MediaHandlerTests
     public async Task Retry_background_reaches_the_controller_and_needs_no_payload()
     {
         var (d, output, _) = Create();
-        Assert.Null(await d.DispatchAsync("""{"v":11,"id":"r1","kind":"command","type":"output.retryBackground","payload":{}}""", CancellationToken.None));
+        Assert.Null(await d.DispatchAsync("""{"v":12,"id":"r1","kind":"command","type":"output.retryBackground","payload":{}}""", CancellationToken.None));
         Assert.Equal(["retryBackground"], output.Calls);
     }
 

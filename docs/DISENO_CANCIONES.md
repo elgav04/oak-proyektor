@@ -16,6 +16,21 @@ Basado en la lectura de las migraciones 1–8, `Models.cs`, `ISongRepository`, `
 
 ---
 
+## Estado de la implementación (prompt 1: backend) y desviaciones del diseño
+
+Hecho y probado: migración 9, repositorio, parser/formateador/validador, decodificador de .txt, búsqueda, copias previas, borrado con la política de `PlaylistItems`, ajustes `songDisplay` y los 11 mensajes de la v12. **Pendiente**: el editor (prompt 2) y la pestaña de proyección (prompt 3). Cambios respecto a lo escrito más abajo, decididos al implementar:
+
+- **El orden son POSICIONES, no ids**: `arrangement` es una lista de índices en `sections` (en `song.get`, `song.save` y `song.parseText`). Las secciones conservan su `Id` al guardar (se actualizan en su sitio), pero una sección nueva todavía no tiene id y así no hace falta una clave de cliente.
+- **Duplicados con texto distinto**: se nombran en forma CANÓNICA, no «Coro (2)»: «Coro» → «Coro 2», «Verso 1» → «Verso 1 bis», «Parte A» → «Parte A (2)». Razón: «Coro (2)» se leería de nuevo como «Coro 2» y el ciclo texto → modelo → texto no sería estable.
+- **`song.parseText`** recibe `{ text, mergeIdenticalBlocks }` (la casilla de la vista previa) en vez del `mode` sin definir del borrador.
+- **`song.get` devuelve también `text`**: el texto único con etiquetas reconstruido por el backend (el editor no necesita un formateador en TypeScript).
+- **`song.changed` lleva `usedInServices`** (al borrar, para decir «quedó como Falta en N servicios»).
+- **`song.restoreRevision`** lleva `expectedRevision` (como `song.save`): restaurar sobre una revisión caducada falla con `song.conflict`.
+- **Añadido: `--import-song <ruta.txt>`** (orden de consola; crea una canción nueva y muestra la codificación detectada y conteos). El decodificador de archivos vive en C# (`SongTextDecoder`); el panel usará `TextDecoder` cuando exista la importación por arrastrar y soltar.
+- **El serializador IPC ya no cita `ex.Message`** de un JSON roto en el registro (podía citar un carácter de la letra).
+- **Las líneas ambiguas se rechazan al guardar**: una línea de la letra con forma `[…]` o que empiece por «Orden:» no se podría releer igual.
+---
+
 ## 1. Qué hay realmente en la BD
 
 | Objeto | Qué es | ¿Se usa? |
@@ -100,7 +115,7 @@ SongRevisions                              -- copias previas (§5)
 **Parser único en C#** (`SongTextParser`, Core, función pura que nunca lanza, como `ReferenceParser`), expuesto por `song.parseText` para la vista previa. Normaliza NFC, CRLF → LF, sin BOM, espacios finales recortados, ≥ 2 líneas en blanco = un corte; **nunca toca puntuación, tildes ni mayúsculas**.
 
 1. **Con etiquetas**: `[Verso 1]` abre una sección; las líneas en blanco del cuerpo son cortes manuales.
-2. **Etiqueta sola o repetida con el mismo texto = repetición**: añade una referencia al orden, no una sección. Repetida con texto DISTINTO: crea «Coro (2)» y avisa.
+2. **Etiqueta sola o repetida con el mismo texto = repetición**: añade una referencia al orden, no una sección. Repetida con texto DISTINTO: crea «Coro 2» (forma canónica; ver «Estado de la implementación») y avisa.
 3. **Sin etiquetas**: cada bloque separado por línea en blanco es una sección («Sección 1…»); los idénticos se fusionan como repetición (casilla para desactivarlo). Una línea que sea exactamente un alias (`Coro`, `Verso 2:`) también se acepta como etiqueta, **marcada en la vista previa**.
 4. **Alias** (sin distinguir mayúsculas ni tildes, número opcional): Verso/Estrofa → `verse`; Coro/Estribillo → `chorus`; Pre-coro/Precoro/Pre coro/Pre-estribillo → `prechorus`; Puente → `bridge`; Final/Coda/Outro → `ending`; Intro/Introducción → `intro`; Interludio/Instrumental → `interlude`; otras → `other` con su etiqueta literal. Lista en Core, con test.
 5. Tope 200 KB y 60 secciones; se informa, nunca se recorta en silencio.

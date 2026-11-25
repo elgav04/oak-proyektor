@@ -38,7 +38,8 @@ public static class IpcSerializer
 
         RawEnvelope? parsed;
         try { parsed = JsonSerializer.Deserialize<RawEnvelope>(raw, Options); }
-        catch (JsonException ex) { error = $"JSON inválido: {ex.Message}"; return false; }
+        // Solo la posición, NUNCA ex.Message: para un texto sin comillas el mensaje cita el carácter ofensivo, y aquí puede viajar letra de canciones (el registro no la lleva).
+        catch (JsonException ex) { error = $"JSON inválido (línea {ex.LineNumber}, posición {ex.BytePositionInLine})"; return false; }
 
         if (parsed is null) { error = "el mensaje no es un objeto"; return false; }
         if (parsed.V != IpcCatalog.ProtocolVersion) { error = $"versión de protocolo no soportada: {parsed.V}"; return false; }

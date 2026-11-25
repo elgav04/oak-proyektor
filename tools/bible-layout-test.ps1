@@ -1,4 +1,4 @@
-﻿# PRUEBA DE LAYOUT REAL de la paginacion de la Biblia, sobre la APLICACION REAL (compilacion Debug) con la depuracion remota de WebView2 SOLO para esta prueba.
+# PRUEBA DE LAYOUT REAL de la paginacion de la Biblia, sobre la APLICACION REAL (compilacion Debug) con la depuracion remota de WebView2 SOLO para esta prueba.
 # happy-dom no mide texto: aqui el motor de layout es el de WebView2. La salida se abre en una VENTANA NORMAL en el monitor del panel (nunca en el proyector);
 # los datos van a una carpeta temporal (OAK_DATA_DIR). Todo el texto es SINTETICO (palabras inventadas): ningun texto biblico.
 #
@@ -94,7 +94,7 @@ function Check([bool]$ok, [string]$what) { if (-not $ok) { $failures.Add($what);
 function Send-FromPanel($cws, [string]$type, $payload) {
     $json = ($payload | ConvertTo-Json -Depth 10 -Compress)
     $b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($json))
-    [void](Eval $cws ("(() => { const p = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob('" + $b64 + "'), c => c.charCodeAt(0)))); window.external.sendMessage(JSON.stringify({v:11,id:crypto.randomUUID(),kind:'command',type:'$type',payload:p})); return true; })()"))
+    [void](Eval $cws ("(() => { const p = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob('" + $b64 + "'), c => c.charCodeAt(0)))); window.external.sendMessage(JSON.stringify({v:12,id:crypto.randomUUID(),kind:'command',type:'$type',payload:p})); return true; })()"))
 }
 
 # Lo que la SALIDA pinta de verdad ahora mismo (la ranura activa del crossfade).
@@ -169,7 +169,7 @@ try {
     if (-not $control) { throw "No aparecio el panel" }
     $cws = Connect-Cdp $control.webSocketDebuggerUrl
     Start-Sleep -Seconds 2
-    $list = Eval $cws '(async () => { const id = crypto.randomUUID(); return await new Promise((resolve) => { window.external.receiveMessage((raw) => { const m = JSON.parse(raw); if (m.id === id) resolve(JSON.stringify(m.payload)); }); window.external.sendMessage(JSON.stringify({ v:11, id, kind: "query", type: "display.list", payload: {} })); }); })()'
+    $list = Eval $cws '(async () => { const id = crypto.randomUUID(); return await new Promise((resolve) => { window.external.receiveMessage((raw) => { const m = JSON.parse(raw); if (m.id === id) resolve(JSON.stringify(m.payload)); }); window.external.sendMessage(JSON.stringify({ v:12, id, kind: "query", type: "display.list", payload: {} })); }); })()'
     $panelId = ((($list | ConvertFrom-Json).result.displays) | Where-Object { $_.hostsPanel } | Select-Object -First 1).id
     if (-not $panelId) { throw "No se pudo leer el monitor del panel: $list" }
     $displays = @((($list | ConvertFrom-Json).result.displays))

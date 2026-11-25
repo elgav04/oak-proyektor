@@ -8,9 +8,7 @@ public sealed record Book(long Id, long BibleId, int BookNumber, string Name, st
 
 public sealed record Verse(long Id, long BookId, int Chapter, int VerseNumber, string Text);
 
-public sealed record Song(long Id, string Title, string? Author, string? Copyright, string? CcliNumber, DateTimeOffset CreatedAt);
-
-public sealed record SongSlide(long Id, long SongId, int SequenceIndex, string? Label, string Content);
+// Las canciones (secciones, orden, copias previas) viven en OakProyektor.Core.Songs desde la migración 9; la tabla SongSlides quedó congelada.
 
 public sealed record Playlist(long Id, string Name, string? ServiceDate);
 
