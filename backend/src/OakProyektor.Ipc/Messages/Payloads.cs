@@ -37,8 +37,11 @@ public sealed record OutputRecoverPayload(OutputPauseReason? Reason);
 /// </summary>
 public sealed record OutputSetBackgroundPayload(BackgroundKind Kind, string? Path, string? Color, bool Muted, int TransitionMs);
 
-/// <summary><c>output.showContent</c>: un slide (los textos de sus bloques) con su tema y la duración del crossfade.</summary>
-public sealed record OutputShowContentPayload(IReadOnlyList<string> Blocks, TextTheme Theme, int TransitionMs);
+/// <summary>
+/// <c>output.showContent</c>: un slide (los textos de sus bloques) con su tema y la duración del crossfade. <c>Origin</c> (v13): solo ids; lo manda la pestaña de listas para que el
+/// elemento activo se derive del estado confirmado; nulo en una proyección que no viene de una lista (Biblia o Canciones sueltas). No se comprueba contra la BD.
+/// </summary>
+public sealed record OutputShowContentPayload(IReadOnlyList<string> Blocks, TextTheme Theme, int TransitionMs, SlideOrigin? Origin = null);
 
 /// <summary><c>output.clearContent</c>: quita el slide (queda solo el fondo). Distinto del control maestro Clear, que solo lo oculta.</summary>
 public sealed record OutputClearContentPayload(int TransitionMs);

@@ -1,7 +1,24 @@
 # Diseño de las listas de culto (propuesta; sin código todavía)
 
-Estado: **pendiente de aprobación** (2026-11-25). Nada de esto está implementado. Reglas del repo que aplican: ninguna letra ni texto bíblico real en el repo, tests, logs ni documentación; los logs llevan solo ids y conteos (nunca títulos, notas ni letra).
+Estado: **diseño APROBADO con decisiones (2026-11-25); backend implementado** (ver «Estado de la implementación» abajo). La interfaz (pestaña EN VIVO y EDITAR) sigue pendiente. Reglas del repo que aplican: ninguna letra ni texto bíblico real en el repo, tests, logs ni documentación; los logs llevan solo ids y conteos (nunca títulos, notas ni letra).
 
+---
+
+## Estado de la implementación (prompt 1: backend) y decisiones aprobadas
+
+**Decisiones del operador aplicadas:** (1) `origin` en `output.showContent`: SÍ, con SOLO ids (nunca texto), nulo si la proyección no viene de una lista; `OutputState.schemaVersion` = 2; el elemento activo se deriva del `origin` confirmado por el backend, no de la igualdad de texto. (2) Fin de canción: `→` se queda con «FIN · siguiente: …»; configurable a «pasar al siguiente» o «limpiar» (`playlistDisplay.onItemEnd`). (3) Las notas NO limpian la pantalla por defecto (`ClearOnActivate` existe, apagado). (4) Sin elemento «fondo/video» por ahora. (5) Teclas aprobadas; atajo para «Añadir a la lista» desde la Biblia: **Ctrl+Shift+A** (propuesto; ver abajo). (6) Una lista sin fecha es plantilla; duplicar con nombre y fecha nuevos omite los faltantes y dice cuántos. (7) Arreglo por servicio: fuera de alcance (`ADD COLUMN ArrangementId` más adelante).
+
+**Desviaciones respecto al diseño original (y por qué):**
+- **El `origin` es un record estructurado, no una cadena `pl:<item>:<n>`**: `{ playlistId, itemId, itemType: "song"|"passage", position }` (solo ids y números; el tipo es un conjunto cerrado). Se valida su FORMA; NO se comprueba contra la BD (proyectar no depende de la base de datos). Un origen de un elemento inexistente se proyecta igual.
+- **Son 13 mensajes, no 14** (el documento original sumaba mal: 3 queries + 9 commands + 1 event = 13). Además `output.showContent` gana `origin`; `song.get` y `song.changed` ganan `usedInLists`.
+- **Los comandos de escritura publican `playlist.changed`** con `kind`: `created | updated | itemAdded | itemMoved | itemRemoved | itemUpdated | duplicated | deleted`; solo ids y conteos (`itemId`, `sourceId`, `copied`, `skipped`).
+- **`playlist.get` entrega `projectable` por elemento**, calculado en el backend (`PlaylistNavigation`): «siguiente» y «anterior» saltan faltantes, notas y pasajes sin resolver; el panel no tiene que volver a derivarlo.
+- **Mover al mismo sitio no sube la revisión** (no invalida a nadie); **añadir sí la sube** aunque no la exija.
+- **El título de un pasaje** (instantánea) es `Libro N c:v[-v] · BIBLIA` (solo números) si el panel no manda uno.
+
+**Atajos verificados con teclado REAL (2026-11-25):** Ctrl+E, Ctrl+Shift+A, Ctrl+←/→ y Ctrl+L llegan al panel (WebView2 no se los queda); en un cuadro de texto Ctrl+←/→ siguen moviendo el cursor por palabras (19 → 13 → 8 → 13 en «uno dos tres cuatro»). La pestaña de listas debe IGNORARLOS con el foco en un cuadro de texto (regla ya vigente). **Ctrl+Shift+A** se propone para «Añadir a la lista» porque no usa Alt (los globales son Ctrl+Alt+Shift+M/B/C/L/R) y no repite la «L» del logo; no se probó dentro de la pestaña Biblia porque esa UI aún no existe.
+
+**No verificado todavía:** nada de la interfaz; el comportamiento de las listas con el proyector físico; el paso real de la salida con un `origin` (la salida lo ignora y el test de la página de salida con un slide con `origin` queda para el prompt 2).
 ---
 
 ## 1. Qué existe y qué falta de verdad
@@ -109,7 +126,7 @@ Una pestaña nueva **«Lista»** con dos modos separados: **EN VIVO** (por defec
 ### Modo EDITAR (armar la lista rápido)
 
 - **Panel lateral de búsqueda de canciones** (`song.search`, ya virtualizada): `↓/↑` recorren, `Enter` **añade al final**, `Ctrl+Enter` **inserta después del cursor**. Un botón «＋» por fila.
-- **Desde la Biblia**: un cuadro de referencia en el mismo panel lateral (usa el parser; muestra la referencia canónica resuelta y la Biblia por defecto) y, en la pestaña Biblia, un botón «Añadir a la lista» (sin atajo, ver pregunta 5) sobre el pasaje seleccionado. Necesita una lista «abierta»: un almacén de vista a nivel de la aplicación (no ligado a la pestaña montada) guarda cuál es (en `localStorage`, de mejor esfuerzo; si no, la de hoy/próxima).
+- **Desde la Biblia**: un cuadro de referencia en el mismo panel lateral (usa el parser; muestra la referencia canónica resuelta y la Biblia por defecto) y, en la pestaña Biblia, un botón «Añadir a la lista» (atajo propuesto: Ctrl+Shift+A, ver «Estado de la implementación») sobre el pasaje seleccionado. Necesita una lista «abierta»: un almacén de vista a nivel de la aplicación (no ligado a la pestaña montada) guarda cuál es (en `localStorage`, de mejor esfuerzo; si no, la de hoy/próxima).
 - **Arrastrar para reordenar** con `@dnd-kit` (ratón y teclado en el asa), más alternativas: `Alt+↑/↓` mover, `Supr` quitar, `Ctrl+D` duplicar el elemento, botón «＋ Nota».
 - Quitar un elemento deja «Deshacer» (un paso, solo en la sesión de vista: reinserta el elemento en su posición).
 - Todo cambio es **un comando pequeño y atómico** (§7) y la vista se actualiza con el estado confirmado (`playlist.changed` + `playlist.get`), con el arrastre mostrado de forma optimista y corregido si el backend lo rechaza.
@@ -171,7 +188,7 @@ Se añaden: el hash en `MigrationHashTests`, `Playlists`/`PlaylistItems` en `Dat
 | `playlist.delete` | command | lento | `{ id }` |
 | `playlist.changed` | event | — | `{ commandId, playlistId, revision, kind: created\|updated\|itemsChanged\|duplicated\|deleted, … }` (solo ids y conteos; el fallo llega como `command.failed`) |
 
-**14 mensajes** (3 queries, 9 commands, 1 event; contando `output.showContent` con el campo nuevo, 15 cambios). **Operaciones pequeñas en vez de «guardar la lista entera»**: una vista desactualizada no puede borrar elementos por accidente (un `save` completo reemplazaría todo), y cada comando es una transacción corta. Errores `playlist.*` (`IpcException`, sin letra ni títulos): `playlist.notFound`, `playlist.itemNotFound`, `playlist.invalidRequest`, `playlist.conflict`, `playlist.full`, `playlist.busy` (bloqueo de escritura ≈ 10 s, como Canciones), `playlist.invalidSettings`. Al subir `v`: huella nueva en `PinnedFormat`, espejo en `frontend/src/ipc/protocol.ts`, `Every_catalog_message_has_a_deliberate_lane`, y los `v:12` de `tools/*.ps1` y `media-test.ps1`/`bible-layout-test.ps1`/`song-layout-test.ps1`.
+**13 mensajes** (3 queries, 9 commands, 1 event; además `output.showContent` gana `origin`, y `song.get`/`song.changed` ganan `usedInLists`). **Operaciones pequeñas en vez de «guardar la lista entera»**: una vista desactualizada no puede borrar elementos por accidente (un `save` completo reemplazaría todo), y cada comando es una transacción corta. Errores `playlist.*` (`IpcException`, sin letra ni títulos): `playlist.notFound`, `playlist.itemNotFound`, `playlist.invalidRequest`, `playlist.conflict`, `playlist.full`, `playlist.busy` (bloqueo de escritura ≈ 10 s, como Canciones), `playlist.invalidSettings`. Al subir `v`: huella nueva en `PinnedFormat`, espejo en `frontend/src/ipc/protocol.ts`, `Every_catalog_message_has_a_deliberate_lane`, y los `v:12` de `tools/*.ps1` y `media-test.ps1`/`bible-layout-test.ps1`/`song-layout-test.ps1`.
 
 **Privacidad**: los registros llevan solo `playlistId`, `itemId`, conteos y revisión (`LogInformation("Lista {PlaylistId}: {Items} elementos, revisión {Revision}")`); ni títulos de lista, ni notas, ni letra.
 

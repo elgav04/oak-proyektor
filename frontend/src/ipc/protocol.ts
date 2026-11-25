@@ -18,8 +18,11 @@
  * v9: `BackgroundLayer.retry` (contador de reintentos del mismo medio) y comando `output.retryBackground` («Reintentar» el fondo que falló).
  * v12: módulo de canciones (`song.*`): queries `song.search`, `song.list`, `song.get`, `song.parseText`, `song.history` y `song.getSettings`; comandos `song.setSettings`, `song.save`,
  * `song.restoreRevision` y `song.delete`; evento `song.changed` (resultado de guardar, restaurar o borrar). La letra viaja solo en las consultas y comandos que la necesitan.
+ * v13: listas de culto (`playlist.*`): queries `playlist.list`, `playlist.get` y `playlist.getSettings`; comandos `playlist.setSettings`, `playlist.create`, `playlist.update`, `playlist.addItem`,
+ * `playlist.moveItem`, `playlist.removeItem`, `playlist.updateItem`, `playlist.duplicate` y `playlist.delete`; evento `playlist.changed`. `output.showContent` lleva `origin` (ids de lista y
+ * elemento, o nulo), el `Slide` lo conserva y `OutputState.schemaVersion` pasa a 2. `song.get` y `song.changed` llevan `usedInLists` (las listas por id, nombre y fecha).
  */
-export const PROTOCOL_VERSION = 12;
+export const PROTOCOL_VERSION = 13;
 
 export type MessageKind = "command" | "event" | "query" | "reply";
 
@@ -84,6 +87,22 @@ export const MESSAGE_CATALOG = [
   { type: "song.restoreRevision", kind: "command" },
   { type: "song.delete", kind: "command" },
   { type: "song.changed", kind: "event" },
+  { type: "playlist.list", kind: "query" },
+  { type: "playlist.list", kind: "reply" },
+  { type: "playlist.get", kind: "query" },
+  { type: "playlist.get", kind: "reply" },
+  { type: "playlist.getSettings", kind: "query" },
+  { type: "playlist.getSettings", kind: "reply" },
+  { type: "playlist.setSettings", kind: "command" },
+  { type: "playlist.create", kind: "command" },
+  { type: "playlist.update", kind: "command" },
+  { type: "playlist.addItem", kind: "command" },
+  { type: "playlist.moveItem", kind: "command" },
+  { type: "playlist.removeItem", kind: "command" },
+  { type: "playlist.updateItem", kind: "command" },
+  { type: "playlist.duplicate", kind: "command" },
+  { type: "playlist.delete", kind: "command" },
+  { type: "playlist.changed", kind: "event" },
   { type: "bible.setSettings", kind: "command" },
 ] as const;
 
@@ -162,10 +181,20 @@ export interface TextTheme {
   minFontSize: number;
 }
 
+/** De dónde viene un slide proyectado desde una lista de culto: SOLO ids y números, nunca texto. `itemType`: "song" | "passage"; `position` = diapositiva o página dentro del elemento (desde 0). */
+export interface SlideOrigin {
+  playlistId: number;
+  itemId: number;
+  itemType: string;
+  position: number;
+}
+
 export interface Slide {
   id: string;
   blocks: TextBlock[];
   theme: TextTheme;
+  /** Nulo si la proyección no viene de una lista (Biblia o Canciones sueltas). */
+  origin: SlideOrigin | null;
 }
 
 export interface ContentLayer {
@@ -204,6 +233,8 @@ export interface OutputShowContentPayload {
   blocks: string[];
   theme: TextTheme;
   transitionMs: number;
+  /** Solo ids (lista y elemento); omitido o nulo = no viene de una lista. */
+  origin?: SlideOrigin | null;
 }
 
 export interface OutputClearContentPayload {
@@ -605,6 +636,7 @@ export interface SongPayload {
   arrangement: number[];
   text: string;
   usedInServices: number;
+  usedInLists: PlaylistRefDto[];
 }
 
 export interface SongParseTextRequest {
@@ -669,6 +701,8 @@ export interface SongChangedPayload {
   revision: number;
   kind: string;
   usedInServices: number;
+  /** Las listas donde estaba la canción (id, nombre y fecha): el aviso de borrado las nombra. */
+  usedInLists: PlaylistRefDto[];
 }
 
 /** Reply de `song.getSettings` y cuerpo de `song.setSettings`. */
@@ -676,6 +710,157 @@ export interface SongSettingsPayload {
   theme: TextTheme;
   transitionMs: number;
   atEnd: SongAtEnd;
+}
+
+// ───────────── Listas de culto (v13) ─────────────
+
+export type PlaylistOnItemEnd = "stay" | "next" | "clear";
+
+/** Una lista que incluye una canción. */
+export interface PlaylistRefDto {
+  id: number;
+  name: string;
+  serviceDate: string | null;
+}
+
+/** Una lista en el listado; `serviceDate` nulo = plantilla. */
+export interface PlaylistSummaryDto {
+  id: number;
+  name: string;
+  serviceDate: string | null;
+  itemCount: number;
+  missingCount: number;
+  revision: number;
+}
+
+export interface PlaylistListPayload {
+  truncated: boolean;
+  playlists: PlaylistSummaryDto[];
+}
+
+export interface PlaylistGetRequest {
+  id: number;
+}
+
+/**
+ * Un elemento. `itemType`: "song" | "passage" | "note". `title` es el título ACTUAL de la canción. `resolution` (solo pasajes): "resolved" | "bibleNotInstalled" | "passageNotFound";
+ * `offeredBible`: la Biblia por defecto que sí tiene el pasaje (se OFRECE, nunca se aplica sola). `projectable` lo calcula el backend: siguiente/anterior saltan lo que no lo es.
+ */
+export interface PlaylistItemDto {
+  id: number;
+  position: number;
+  itemType: string;
+  title: string;
+  isMissing: boolean;
+  songId: number | null;
+  bookNumber: number | null;
+  chapter: number | null;
+  verseStart: number | null;
+  verseEnd: number | null;
+  bibleAbbreviation: string | null;
+  note: string | null;
+  clearOnActivate: boolean;
+  resolution: string | null;
+  offeredBible: string | null;
+  projectable: boolean;
+}
+
+export interface PlaylistPayload {
+  id: number;
+  name: string;
+  serviceDate: string | null;
+  notes: string;
+  revision: number;
+  createdAt: string;
+  updatedAt: string;
+  missingCount: number;
+  items: PlaylistItemDto[];
+}
+
+export interface PlaylistCreatePayload {
+  name: string;
+  serviceDate: string | null;
+  notes: string | null;
+}
+
+export interface PlaylistUpdatePayload {
+  id: number;
+  name: string;
+  serviceDate: string | null;
+  notes: string | null;
+  expectedRevision: number;
+}
+
+/** `itemType`: "song" (`songId`) | "passage" (libro canónico 1 a 66, capítulo, versículos y Biblia preferida) | "note" (`title`, `note`, `clearOnActivate`). */
+export interface PlaylistNewItemDto {
+  itemType: string;
+  songId: number | null;
+  bookNumber: number | null;
+  chapter: number | null;
+  verseStart: number | null;
+  verseEnd: number | null;
+  bibleAbbreviation: string | null;
+  title: string | null;
+  note: string | null;
+  clearOnActivate: boolean;
+}
+
+/** `position` nulo = al final. No exige revisión (añadir no destruye nada), pero sube la de la lista. */
+export interface PlaylistAddItemPayload {
+  playlistId: number;
+  item: PlaylistNewItemDto;
+  position: number | null;
+}
+
+export interface PlaylistMoveItemPayload {
+  playlistId: number;
+  itemId: number;
+  toIndex: number;
+  expectedRevision: number;
+}
+
+export interface PlaylistRemoveItemPayload {
+  playlistId: number;
+  itemId: number;
+  expectedRevision: number;
+}
+
+/** Lo que va nulo no se toca (`note` vacío la borra). */
+export interface PlaylistUpdateItemPayload {
+  playlistId: number;
+  itemId: number;
+  title: string | null;
+  note: string | null;
+  clearOnActivate: boolean | null;
+  bibleAbbreviation: string | null;
+  expectedRevision: number;
+}
+
+export interface PlaylistDuplicatePayload {
+  id: number;
+  name: string;
+  serviceDate: string | null;
+}
+
+export interface PlaylistDeletePayload {
+  id: number;
+}
+
+/** `kind`: "created" | "updated" | "itemAdded" | "itemMoved" | "itemRemoved" | "itemUpdated" | "duplicated" | "deleted". Solo ids y conteos. */
+export interface PlaylistChangedPayload {
+  commandId: string;
+  playlistId: number;
+  revision: number;
+  kind: string;
+  itemId: number | null;
+  sourceId: number | null;
+  copied: number;
+  skipped: number;
+}
+
+/** Reply de `playlist.getSettings` y cuerpo de `playlist.setSettings`. */
+export interface PlaylistSettingsPayload {
+  onItemEnd: PlaylistOnItemEnd;
 }
 
 /** Payload de cada comando (UI → C#). */
@@ -699,6 +884,15 @@ export interface CommandPayloads {
   "song.save": SongSavePayload;
   "song.restoreRevision": SongRestoreRevisionPayload;
   "song.delete": SongDeletePayload;
+  "playlist.setSettings": PlaylistSettingsPayload;
+  "playlist.create": PlaylistCreatePayload;
+  "playlist.update": PlaylistUpdatePayload;
+  "playlist.addItem": PlaylistAddItemPayload;
+  "playlist.moveItem": PlaylistMoveItemPayload;
+  "playlist.removeItem": PlaylistRemoveItemPayload;
+  "playlist.updateItem": PlaylistUpdateItemPayload;
+  "playlist.duplicate": PlaylistDuplicatePayload;
+  "playlist.delete": PlaylistDeletePayload;
 }
 
 /** Payload de cada evento (C# → UI). */
@@ -711,6 +905,7 @@ export interface EventPayloads {
   "bible.importProgress": BibleImportProgressPayload;
   "bible.importFinished": BibleImportFinishedPayload;
   "song.changed": SongChangedPayload;
+  "playlist.changed": PlaylistChangedPayload;
 }
 
 /** Payload de cada query y de su reply. */
@@ -732,6 +927,9 @@ export interface QueryPayloads {
   "song.parseText": { request: SongParseTextRequest; reply: SongParseTextPayload };
   "song.history": { request: SongHistoryRequest; reply: SongHistoryPayload };
   "song.getSettings": { request: EmptyPayload; reply: SongSettingsPayload };
+  "playlist.list": { request: EmptyPayload; reply: PlaylistListPayload };
+  "playlist.get": { request: PlaylistGetRequest; reply: PlaylistPayload };
+  "playlist.getSettings": { request: EmptyPayload; reply: PlaylistSettingsPayload };
 }
 
 export type CommandType = keyof CommandPayloads;

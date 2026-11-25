@@ -18,6 +18,8 @@ public static class PlaylistItemTypes
     public const string Song = "SONG";
     public const string Presentation = "PRESENTATION";
     public const string Passage = "PASSAGE";
+    /// <summary>Separador o recordatorio (migración 11): no se proyecta nada. Nunca es «faltante».</summary>
+    public const string Note = "NOTE";
 }
 
 /// <summary>
@@ -33,7 +35,8 @@ public static class PlaylistItemTypes
 /// </summary>
 public sealed record PlaylistItem(
     long Id, long PlaylistId, int SequenceIndex, string ItemType, string Title,
-    long? SongId, long? PresentationId, int? BookNumber, int? Chapter, int? VerseStart, int? VerseEnd, string? BibleAbbreviation, bool IsMissing);
+    long? SongId, long? PresentationId, int? BookNumber, int? Chapter, int? VerseStart, int? VerseEnd, string? BibleAbbreviation, bool IsMissing,
+    string? Note = null, bool ClearOnActivate = false);
 
 public sealed record Presentation(long Id, string Title, string SourceType, DateTimeOffset CreatedAt);
 

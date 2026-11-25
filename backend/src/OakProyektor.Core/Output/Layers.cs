@@ -66,8 +66,21 @@ public sealed record TextTheme(
         true, 28);
 }
 
-/// <summary>Capa 2, Contenido: un slide. <see cref="Id"/> identifica el slide (la salida hace el fundido solo cuando cambia).</summary>
-public sealed record Slide(string Id, IReadOnlyList<TextBlock> Blocks, TextTheme Theme);
+/// <summary>
+/// De dónde viene un slide proyectado desde una LISTA DE CULTO (protocolo v13). Solo identificadores y números: nunca texto. <c>ItemType</c>: <c>song</c> | <c>passage</c>;
+/// <c>Position</c> = diapositiva (canción) o página (pasaje) dentro del elemento, desde 0. Con esto el panel deriva el elemento activo del estado que confirma el backend,
+/// sin comparar texto (la misma canción dos veces en la lista, o un panel recargado, no lo confunden). La salida lo ignora. No se comprueba contra la BD: proyectar no depende de ella
+/// (si el elemento ya no existe, simplemente no corresponde a ninguna fila de la lista).
+/// </summary>
+public sealed record SlideOrigin(long PlaylistId, long ItemId, string ItemType, int Position)
+{
+    public const string Song = "song";
+    public const string Passage = "passage";
+    public const int MaxPosition = 9999;
+}
+
+/// <summary>Capa 2, Contenido: un slide. <see cref="Id"/> identifica el slide (la salida hace el fundido solo cuando cambia). <see cref="Origin"/> es nulo si no viene de una lista (Biblia o Canciones sueltas).</summary>
+public sealed record Slide(string Id, IReadOnlyList<TextBlock> Blocks, TextTheme Theme, SlideOrigin? Origin = null);
 
 /// <param name="Slide">El slide actual; null = sin contenido (solo fondo).</param>
 /// <param name="TransitionMs">Duración del crossfade al llegar el slide siguiente (o al quitarlo).</param>

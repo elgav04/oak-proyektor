@@ -5,6 +5,7 @@ using Dapper;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using OakProyektor.Core.Playlists;
 using OakProyektor.Core.Songs;
 using OakProyektor.Data.Repositories;
 
@@ -188,12 +189,13 @@ public sealed class SongRepository(
             // Primera sentencia = escritura (toma el bloqueo con el tiempo acotado). Si no toca ninguna fila, la canción no existe.
             if (await connection.ExecuteAsync(Write("UPDATE Songs SET Revision = Revision WHERE Id = @id", new { id }, transaction, cancellationToken)).ConfigureAwait(false) == 0)
                 throw NotFound();
-            var used = (int)await connection.ExecuteScalarAsync<long>(Write("SELECT COUNT(DISTINCT PlaylistId) FROM PlaylistItems WHERE SongId = @id", new { id }, transaction, cancellationToken)).ConfigureAwait(false);
+            // Las listas donde estaba (se avisa por su nombre; el registro solo lleva el conteo). Se leen ANTES de borrar: después sus elementos ya no apuntan a la canción.
+            var lists = await ListsUsingAsync(connection, transaction, id, cancellationToken).ConfigureAwait(false);
             // Sus elementos de servicio pasan a «faltantes» (FK SET NULL, el título se conserva); secciones, orden y copias se van en cascada.
             await connection.ExecuteAsync(Write("DELETE FROM Songs WHERE Id = @id", new { id }, transaction, cancellationToken)).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-            _logger.LogInformation("Canción {SongId} borrada (estaba en {Services} servicio(s))", id, used);
-            return new SongDeleteResult(id, used);
+            _logger.LogInformation("Canción {SongId} borrada (estaba en {Services} servicio(s))", id, lists.Count);
+            return new SongDeleteResult(id, lists.Count, lists);
         }
         catch (SqliteException ex) when (IsBusy(ex))
         {
@@ -390,13 +392,26 @@ public sealed class SongRepository(
             """, new { id }, tx, cancellationToken: ct)).ConfigureAwait(false);
         var arrangement = items.Where(indexOf.ContainsKey).Select(s => indexOf[s]).ToList();
 
-        var used = await c.ExecuteScalarAsync<long>(new CommandDefinition(
-            "SELECT COUNT(DISTINCT PlaylistId) FROM PlaylistItems WHERE SongId = @id", new { id }, tx, cancellationToken: ct)).ConfigureAwait(false);
+        var lists = await ListsUsingAsync(c, tx, id, ct).ConfigureAwait(false);
 
         var background = row.BackgroundKind is { } kind ? new SongBackground(kind, row.BackgroundPath, row.BackgroundColor, row.BackgroundMuted != 0) : null;
         return new SongDetail(row.Id, row.Title, row.Author, row.Copyright, row.CcliNumber, row.Notes, (int)row.Revision,
-            ParseDate(row.CreatedAt), ParseDate(row.UpdatedAt), background, sections, arrangement, (int)used);
+            ParseDate(row.CreatedAt), ParseDate(row.UpdatedAt), background, sections, arrangement, lists.Count, lists);
     }
+
+    /// <summary>Las listas de culto que incluyen la canción (una vez cada una), con fecha primero (la más reciente arriba) y luego por nombre. Solo id, nombre y fecha: nunca letra.</summary>
+    private static async Task<IReadOnlyList<PlaylistRef>> ListsUsingAsync(SqliteConnection c, SqliteTransaction? tx, long songId, CancellationToken ct)
+    {
+        var rows = await c.QueryAsync<ListRow>(new CommandDefinition(
+            """
+            SELECT DISTINCT p.Id, p.Name, p.ServiceDate FROM PlaylistItems pi JOIN Playlists p ON p.Id = pi.PlaylistId
+            WHERE pi.SongId = @songId
+            ORDER BY (p.ServiceDate IS NULL), p.ServiceDate DESC, p.Name COLLATE NOCASE, p.Id
+            """, new { songId }, tx, cancellationToken: ct)).ConfigureAwait(false);
+        return [.. rows.Select(r => new PlaylistRef(r.Id, r.Name, r.ServiceDate))];
+    }
+
+    private sealed record ListRow(long Id, string Name, string? ServiceDate);
 
     // ───────────────────────────── utilidades ─────────────────────────────
 

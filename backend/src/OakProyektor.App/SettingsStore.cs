@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using OakProyektor.Core;
 using OakProyektor.Core.Output;
+using OakProyektor.Core.Playlists;
 using OakProyektor.Core.Scripture;
 using OakProyektor.Core.Songs;
 
@@ -134,8 +135,24 @@ internal sealed class SettingsStore(ApplicationPaths paths, ILogger<SettingsStor
                 DefaultBible: Block<string?>("defaultBible", null, "Biblia por defecto"),
                 CitationHistoryLimit: Block("citationHistoryLimit", d.CitationHistoryLimit, "Límite del historial de citas", v => v is >= 0 and <= 1000 ? null : "debe estar entre 0 y 1000."),
                 BibleDisplay: ReadBibleDisplay(root, warnings),
-                SongDisplay: ReadSongDisplay(root, warnings));
+                SongDisplay: ReadSongDisplay(root, warnings),
+                PlaylistDisplay: ReadPlaylistDisplay(root, warnings));
         }
+    }
+
+    /// <summary>El bloque de las listas (v13): un valor inválido (o ilegible) vuelve a su valor por defecto («quedarse») con un aviso; no tira el resto de la configuración.</summary>
+    private static PlaylistDisplaySettings? ReadPlaylistDisplay(JsonElement root, List<string> warnings)
+    {
+        if (!TryGet(root, "playlistDisplay", out var element) || element.ValueKind == JsonValueKind.Null) return null;
+        PlaylistDisplaySettings? block;
+        try { block = element.Deserialize<PlaylistDisplaySettings>(Json); }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException or NotSupportedException) { block = null; }
+        if (block is null || PlaylistDisplaySettings.Validate(block) is not null)
+        {
+            warnings.Add("La configuración de las listas (playlistDisplay) no es válida en settings.json: se usan los valores por defecto.");
+            return null;
+        }
+        return block;
     }
 
     /// <summary>

@@ -9,7 +9,8 @@ public enum IpcLane
     Live,
     /// <summary>
     /// Trabajo que puede tardar: validar y aplicar fondos (toca el disco), abrir/cerrar la ventana de salida, importar Biblias, búsquedas de texto y TODA escritura de canciones
-    /// (guardar, restaurar, borrar: pueden esperar el bloqueo de escritura de SQLite mientras corre una importación).
+    /// (guardar, restaurar, borrar: pueden esperar el bloqueo de escritura de SQLite mientras corre una importación) y de listas de culto (crear, editar, añadir, mover, quitar, duplicar, borrar).
+    /// Las LECTURAS de listas (<c>playlist.list/get/getSettings</c>) y sus ajustes van en Live.
     /// </summary>
     Slow,
 }
@@ -40,7 +41,9 @@ public static class IpcPriority
         {
             IpcTypes.OutputSetBackground or IpcTypes.OutputRetryBackground or IpcTypes.OutputOpen or IpcTypes.OutputClose
                 or IpcTypes.BibleImport or IpcTypes.BibleSearch
-                or IpcTypes.SongSearch or IpcTypes.SongSave or IpcTypes.SongRestoreRevision or IpcTypes.SongDelete => IpcLane.Slow,
+                or IpcTypes.SongSearch or IpcTypes.SongSave or IpcTypes.SongRestoreRevision or IpcTypes.SongDelete
+                or IpcTypes.PlaylistCreate or IpcTypes.PlaylistUpdate or IpcTypes.PlaylistAddItem or IpcTypes.PlaylistMoveItem or IpcTypes.PlaylistRemoveItem
+                or IpcTypes.PlaylistUpdateItem or IpcTypes.PlaylistDuplicate or IpcTypes.PlaylistDelete => IpcLane.Slow,
             _ => IpcLane.Live,
         };
     }

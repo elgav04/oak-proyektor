@@ -129,10 +129,12 @@ public partial class ProtocolContractTests
         Assert.Equal(JsonKeys(state.Overlays), TsFields("OverlayLayer"));
         Assert.Equal(JsonKeys(TextTheme.Default), TsFields("TextTheme"));
         Assert.Equal(JsonKeys(new Slide("s1", [new TextBlock("x")], TextTheme.Default)), TsFields("Slide"));
+        Assert.Equal(JsonKeys(new SlideOrigin(1, 2, SlideOrigin.Song, 0)), TsFields("SlideOrigin"));
         Assert.Equal(JsonKeys(new TextBlock("x")), TsFields("TextBlock"));
         Assert.Equal(JsonKeys(new OverlayItem("i", "k")), TsFields("OverlayItem"));
         Assert.Equal(JsonKeys(new OutputSetBackgroundPayload(BackgroundKind.Video, "C:\\a.mp4", null, true, 600)), TsFields("OutputSetBackgroundPayload"));
         Assert.Equal(JsonKeys(new OutputShowContentPayload(["x"], TextTheme.Default, 400)), TsFields("OutputShowContentPayload"));
+        Assert.Equal(JsonKeys(new OutputShowContentPayload(["x"], TextTheme.Default, 400, new SlideOrigin(1, 2, SlideOrigin.Passage, 3))), TsFields("OutputShowContentPayload"));
         Assert.Equal(JsonKeys(new OutputClearContentPayload(400)), TsFields("OutputClearContentPayload"));
         Assert.Equal(JsonKeys(new OutputReportBackgroundFailurePayload("u", BackgroundFailureReason.Stalled, null)), TsFields("OutputReportBackgroundFailurePayload"));
         Assert.Equal(JsonKeys(new OutputBackgroundFailedPayload(BackgroundFailureReason.Stalled, "m", null)), TsFields("OutputBackgroundFailedPayload"));

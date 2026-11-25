@@ -1,4 +1,5 @@
 using OakProyektor.Core.Output;
+using OakProyektor.Core.Playlists;
 using OakProyektor.Core.Scripture;
 using OakProyektor.Core.Songs;
 
@@ -23,9 +24,14 @@ public sealed record AppSettings(
     string? DefaultBible = null,
     int CitationHistoryLimit = AppSettings.DefaultCitationHistoryLimit,
     BibleDisplaySettings? BibleDisplay = null,
-    SongDisplaySettings? SongDisplay = null)
+    SongDisplaySettings? SongDisplay = null,
+    PlaylistDisplaySettings? PlaylistDisplay = null)
 {
     public const int DefaultCitationHistoryLimit = 100;
+
+    /// <summary>Cómo se opera una lista en vivo (v13); un <c>settings.json</c> anterior sin este bloque usa los valores por defecto.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public PlaylistDisplaySettings Playlists => PlaylistDisplay ?? new PlaylistDisplaySettings();
 
     /// <summary>Cómo se proyectan las canciones (v12); un <c>settings.json</c> anterior sin este bloque usa los valores por defecto.</summary>
     [System.Text.Json.Serialization.JsonIgnore]

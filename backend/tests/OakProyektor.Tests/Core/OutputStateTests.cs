@@ -12,7 +12,7 @@ public class OutputStateTests
     {
         var s = OutputState.Initial;
         Assert.Equal((OutputState.CurrentSchemaVersion, 0L, MasterMode.Black), (s.SchemaVersion, s.Revision, s.Master));
-        Assert.Equal(1, s.SchemaVersion);
+        Assert.Equal(2, s.SchemaVersion);   // v13: el slide lleva origin
         Assert.Equal(BackgroundKind.None, s.Background.Kind);
         Assert.Null(s.Content.Slide);
         Assert.Empty(s.Overlays.Items);

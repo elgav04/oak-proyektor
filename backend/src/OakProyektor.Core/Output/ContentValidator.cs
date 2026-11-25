@@ -47,6 +47,19 @@ public static partial class ContentValidator
         return null;
     }
 
+    /// <summary>El origen es opcional (nulo = no viene de una lista). Si viene, solo ids y números válidos y un tipo conocido; no se comprueba contra la BD.</summary>
+    public static string? ValidateOrigin(SlideOrigin? origin)
+    {
+        if (origin is null) return null;
+        if (origin.PlaylistId < 1 || origin.ItemId < 1) return "El origen del slide tiene un identificador de lista o de elemento no válido.";
+        if (origin.ItemType is not (SlideOrigin.Song or SlideOrigin.Passage)) return "El origen del slide tiene un tipo de elemento desconocido (debe ser «song» o «passage»).";
+        if (origin.Position is < 0 or > SlideOrigin.MaxPosition) return $"El origen del slide tiene una posición fuera de rango (0 a {SlideOrigin.MaxPosition}).";
+        return null;
+    }
+
+    public static string? ValidateSlide(IReadOnlyList<string>? blocks, TextTheme? theme, int transitionMs, SlideOrigin? origin)
+        => ValidateOrigin(origin) ?? ValidateSlide(blocks, theme, transitionMs);
+
     public static string? ValidateSlide(IReadOnlyList<string>? blocks, TextTheme? theme, int transitionMs)
     {
         if (blocks is null || blocks.Count == 0) return "El slide no tiene bloques de texto (para quitar el contenido usa «Quitar contenido»).";

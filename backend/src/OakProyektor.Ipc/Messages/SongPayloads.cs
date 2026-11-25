@@ -34,7 +34,7 @@ public sealed record SongGetRequest(long Id);
 /// </summary>
 public sealed record SongPayload(
     long Id, string Title, string? Author, string? Copyright, string? CcliNumber, string? Notes, int Revision, string CreatedAt, string UpdatedAt,
-    SongBackgroundDto? Background, IReadOnlyList<SongSectionDto> Sections, IReadOnlyList<int> Arrangement, string Text, int UsedInServices);
+    SongBackgroundDto? Background, IReadOnlyList<SongSectionDto> Sections, IReadOnlyList<int> Arrangement, string Text, int UsedInServices, IReadOnlyList<PlaylistRefDto> UsedInLists);
 
 /// <summary>
 /// <c>song.parseText</c>: interpreta un texto pegado o leído de un .txt (función pura, sin BD). <c>MergeIdenticalBlocks</c>: sin etiquetas, fusionar los bloques idénticos como
@@ -74,9 +74,9 @@ public sealed record SongDeletePayload(long Id);
 /// <summary>
 /// Evento <c>song.changed</c> (a la ventana de control). <c>CommandId</c> es el id del comando que lo causó (<c>song.save</c>, <c>song.restoreRevision</c> o <c>song.delete</c>).
 /// <c>Kind</c>: <c>created</c> | <c>updated</c> | <c>restored</c> | <c>deleted</c>. <c>Revision</c> es la nueva (0 si se borró). <c>UsedInServices</c>: servicios donde la canción estaba
-/// (al borrar, sus elementos quedan como «Falta: …»). Sin letra.
+/// (al borrar, sus elementos quedan como «Falta: …»). <c>UsedInLists</c> (v13): esas listas por id, nombre y fecha, para que el aviso las nombre. Sin letra.
 /// </summary>
-public sealed record SongChangedPayload(string CommandId, long SongId, int Revision, string Kind, int UsedInServices);
+public sealed record SongChangedPayload(string CommandId, long SongId, int Revision, string Kind, int UsedInServices, IReadOnlyList<PlaylistRefDto> UsedInLists);
 
 /// <summary>Reply de <c>song.getSettings</c> y cuerpo de <c>song.setSettings</c>: tema propio de las canciones, crossfade y qué hacer al pasar de la última diapositiva.</summary>
 public sealed record SongSettingsPayload(TextTheme Theme, int TransitionMs, SongAtEnd AtEnd);

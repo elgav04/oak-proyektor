@@ -15,10 +15,10 @@ const THEME: TextTheme = {
   align: "center", verticalAlign: "middle", lineHeight: 1.25, marginTop: 80, marginRight: 120, marginBottom: 80, marginLeft: 120, autoFit: true, minFontSize: 28,
 };
 const bg = (color: string): BackgroundLayer => ({ kind: "color", color, mediaUrl: null, fileName: null, muted: true, transitionMs: 300, warning: null, retry: 0 });
-const slide = (id: string, text: unknown): Slide => ({ id, blocks: [{ text: text as string }], theme: THEME });
+const slide = (id: string, text: unknown): Slide => ({ id, blocks: [{ text: text as string }], theme: THEME, origin: null });
 
 function state(master: OutputState["master"], color: string, s: Slide | null, revision: number): OutputState {
-  return { schemaVersion: 1, revision, master, background: bg(color), content: { slide: s, transitionMs: 400 }, overlays: { items: [] } };
+  return { schemaVersion: 2, revision, master, background: bg(color), content: { slide: s, transitionMs: 400 }, overlays: { items: [] } };
 }
 
 export function OutputProbe() {

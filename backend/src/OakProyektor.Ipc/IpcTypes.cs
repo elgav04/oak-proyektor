@@ -55,6 +55,19 @@ public static class IpcTypes
     public const string SongRestoreRevision = "song.restoreRevision";
     public const string SongDelete = "song.delete";
     public const string SongChanged = "song.changed";
+    public const string PlaylistList = "playlist.list";
+    public const string PlaylistGet = "playlist.get";
+    public const string PlaylistGetSettings = "playlist.getSettings";
+    public const string PlaylistSetSettings = "playlist.setSettings";
+    public const string PlaylistCreate = "playlist.create";
+    public const string PlaylistUpdate = "playlist.update";
+    public const string PlaylistAddItem = "playlist.addItem";
+    public const string PlaylistMoveItem = "playlist.moveItem";
+    public const string PlaylistRemoveItem = "playlist.removeItem";
+    public const string PlaylistUpdateItem = "playlist.updateItem";
+    public const string PlaylistDuplicate = "playlist.duplicate";
+    public const string PlaylistDelete = "playlist.delete";
+    public const string PlaylistChanged = "playlist.changed";
 }
 
 public sealed record MessageDescriptor(string Type, string Kind);
@@ -82,8 +95,12 @@ public static class IpcCatalog
     /// v10: query <c>settings.getStatus</c> (avisos de la carga de <c>settings.json</c>: bloques inválidos que volvieron a su valor por defecto o archivo dañado).
     /// v12: módulo de canciones: queries <c>song.search</c>, <c>song.list</c>, <c>song.get</c>, <c>song.parseText</c>, <c>song.history</c> y <c>song.getSettings</c>; comandos <c>song.setSettings</c>,
     /// <c>song.save</c>, <c>song.restoreRevision</c> y <c>song.delete</c>; evento <c>song.changed</c> (resultado de guardar, restaurar o borrar; sin letra). <c>OutputState</c> no cambia.
+    /// v13: listas de culto: queries <c>playlist.list</c>, <c>playlist.get</c> y <c>playlist.getSettings</c>; comandos <c>playlist.setSettings</c>, <c>playlist.create</c>, <c>playlist.update</c>,
+    /// <c>playlist.addItem</c>, <c>playlist.moveItem</c>, <c>playlist.removeItem</c>, <c>playlist.updateItem</c>, <c>playlist.duplicate</c> y <c>playlist.delete</c>; evento <c>playlist.changed</c>.
+    /// <c>output.showContent</c> lleva <c>origin</c> (ids de lista y elemento, o nulo), el <c>Slide</c> lo conserva y <c>OutputState.SchemaVersion</c> pasa a 2.
+    /// <c>song.get</c> y <c>song.changed</c> llevan <c>usedInLists</c> (las listas por id, nombre y fecha).
     /// </summary>
-    public const int ProtocolVersion = 12;
+    public const int ProtocolVersion = 13;
 
     public static IReadOnlyList<MessageDescriptor> Messages { get; } =
     [
@@ -148,6 +165,22 @@ public static class IpcCatalog
         new(IpcTypes.SongRestoreRevision, IpcKind.Command),
         new(IpcTypes.SongDelete, IpcKind.Command),
         new(IpcTypes.SongChanged, IpcKind.Event),
+        new(IpcTypes.PlaylistList, IpcKind.Query),
+        new(IpcTypes.PlaylistList, IpcKind.Reply),
+        new(IpcTypes.PlaylistGet, IpcKind.Query),
+        new(IpcTypes.PlaylistGet, IpcKind.Reply),
+        new(IpcTypes.PlaylistGetSettings, IpcKind.Query),
+        new(IpcTypes.PlaylistGetSettings, IpcKind.Reply),
+        new(IpcTypes.PlaylistSetSettings, IpcKind.Command),
+        new(IpcTypes.PlaylistCreate, IpcKind.Command),
+        new(IpcTypes.PlaylistUpdate, IpcKind.Command),
+        new(IpcTypes.PlaylistAddItem, IpcKind.Command),
+        new(IpcTypes.PlaylistMoveItem, IpcKind.Command),
+        new(IpcTypes.PlaylistRemoveItem, IpcKind.Command),
+        new(IpcTypes.PlaylistUpdateItem, IpcKind.Command),
+        new(IpcTypes.PlaylistDuplicate, IpcKind.Command),
+        new(IpcTypes.PlaylistDelete, IpcKind.Command),
+        new(IpcTypes.PlaylistChanged, IpcKind.Event),
     ];
 }
 

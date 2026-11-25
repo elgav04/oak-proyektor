@@ -25,7 +25,7 @@ test("init carga Biblias, ajustes e historial; el crossfade por defecto es corto
   assert.equal(s().settings.transitionMs, 280);
   assert.ok(s().settings.transitionMs >= 250 && s().settings.transitionMs <= 300);
   assert.deepEqual(backend.queries.map((q) => q.type).sort(), ["bible.getSettings", "bible.history", "bible.list"]);
-  assert.ok(backend.queries.every((q) => q.v === 12));
+  assert.ok(backend.queries.every((q) => q.v === 13));
 });
 
 test("una referencia con rango navega al capítulo, selecciona el rango y NO proyecta nada hasta Enter", async () => {

@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using OakProyektor.Data;
 using OakProyektor.Ipc;
@@ -132,6 +132,19 @@ internal sealed class ApplicationHost : IAsyncDisposable
         services.AddSingleton<IIpcHandler, Handlers.SongSaveHandler>();
         services.AddSingleton<IIpcHandler, Handlers.SongRestoreRevisionHandler>();
         services.AddSingleton<IIpcHandler, Handlers.SongDeleteHandler>();
+        services.AddSingleton<Data.Repositories.IPlaylistRepository, Data.Playlists.PlaylistRepository>();
+        services.AddSingleton<IIpcHandler, Handlers.PlaylistListHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.PlaylistGetHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.PlaylistGetSettingsHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.PlaylistSetSettingsHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.PlaylistCreateHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.PlaylistUpdateHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.PlaylistAddItemHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.PlaylistMoveItemHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.PlaylistRemoveItemHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.PlaylistUpdateItemHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.PlaylistDuplicateHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.PlaylistDeleteHandler>();
         configureServices?.Invoke(services);
         _services = services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
         _logger = _services.GetRequiredService<ILogger<ApplicationHost>>();

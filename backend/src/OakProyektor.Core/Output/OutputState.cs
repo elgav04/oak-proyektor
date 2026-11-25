@@ -21,7 +21,8 @@
 /// </summary>
 public sealed record OutputState(int SchemaVersion, long Revision, MasterMode Master, BackgroundLayer Background, ContentLayer Content, OverlayLayer Overlays)
 {
-    public const int CurrentSchemaVersion = 1;
+    /// <summary>2 (protocolo v13): el <see cref="Slide"/> lleva <c>origin</c> (de qué elemento de una lista viene, o nulo).</summary>
+    public const int CurrentSchemaVersion = 2;
 
     /// <summary>Estado inicial: salida en negro, sin contenido.</summary>
     public static OutputState Initial { get; } = new(CurrentSchemaVersion, 0, MasterMode.Black, BackgroundLayer.Empty, ContentLayer.Empty, OverlayLayer.Empty);

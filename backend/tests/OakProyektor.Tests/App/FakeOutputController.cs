@@ -1,4 +1,4 @@
-﻿using OakProyektor.App;
+using OakProyektor.App;
 using OakProyektor.Core.Display;
 using OakProyektor.Core.Output;
 using OakProyektor.Ipc.Messages;
@@ -17,7 +17,8 @@ internal sealed class FakeOutputController : IOutputController
     public List<BackgroundLayer> Backgrounds { get; } = [];
     public void SetBackground(BackgroundLayer background) { Calls.Add("background:" + background.Kind); Backgrounds.Add(background); }
     public void RetryBackground() => Calls.Add("retryBackground");
-    public void ShowContent(IReadOnlyList<string> blocks, TextTheme theme, int transitionMs) => Calls.Add($"showContent:{blocks.Count}:{transitionMs}");
+    public SlideOrigin? LastOrigin { get; private set; }
+    public void ShowContent(IReadOnlyList<string> blocks, TextTheme theme, int transitionMs, SlideOrigin? origin = null) { LastOrigin = origin; Calls.Add($"showContent:{blocks.Count}:{transitionMs}"); }
     public void ClearContent(int transitionMs) => Calls.Add($"clearContent:{transitionMs}");
     public void ReportBackgroundFailure(string mediaUrl, BackgroundFailureReason reason, string? detail) => Calls.Add($"backgroundFailure:{reason}:{mediaUrl}");
     public void CloseForShutdown() => Calls.Add("shutdown");

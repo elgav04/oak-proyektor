@@ -25,12 +25,13 @@ internal sealed class NoBibles : OakProyektor.Data.Scripture.IBibleQueryService
 public class HandlerTests
 {
     private static string Msg(string kind, string type, string payload = "{}") =>
-        $$"""{"v":12,"id":"q1","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
+        $$"""{"v":13,"id":"q1","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
 
     private static (IpcDispatcher Dispatcher, FakeOutputController Output) Create(params DisplayInfo[] displays)
     {
         var output = new FakeOutputController();
         var songs = new OakProyektor.Tests.Songs.NoSongs();
+        var playlists = new OakProyektor.Tests.Playlists.NoPlaylists();
         IIpcHandler[] handlers =
         [
             new DisplayListHandler(new FakeDisplayManager(displays)),
@@ -70,6 +71,12 @@ public class HandlerTests
             new SongGetSettingsHandler(new InMemorySettings()), new SongSetSettingsHandler(new InMemorySettings()),
             new SongSaveHandler(songs, new Outbox(NullLogger<Outbox>.Instance)), new SongRestoreRevisionHandler(songs, new Outbox(NullLogger<Outbox>.Instance)),
             new SongDeleteHandler(songs, new Outbox(NullLogger<Outbox>.Instance)),
+            // Listas de culto (v13)
+            new PlaylistListHandler(playlists), new PlaylistGetHandler(playlists, new InMemorySettings()), new PlaylistGetSettingsHandler(new InMemorySettings()), new PlaylistSetSettingsHandler(new InMemorySettings()),
+            new PlaylistCreateHandler(playlists, new Outbox(NullLogger<Outbox>.Instance)), new PlaylistUpdateHandler(playlists, new Outbox(NullLogger<Outbox>.Instance)),
+            new PlaylistAddItemHandler(playlists, new Outbox(NullLogger<Outbox>.Instance)), new PlaylistMoveItemHandler(playlists, new Outbox(NullLogger<Outbox>.Instance)),
+            new PlaylistRemoveItemHandler(playlists, new Outbox(NullLogger<Outbox>.Instance)), new PlaylistUpdateItemHandler(playlists, new Outbox(NullLogger<Outbox>.Instance)),
+            new PlaylistDuplicateHandler(playlists, new Outbox(NullLogger<Outbox>.Instance)), new PlaylistDeleteHandler(playlists, new Outbox(NullLogger<Outbox>.Instance)),
         ];
         return (new IpcDispatcher(handlers, NullLogger<IpcDispatcher>.Instance), output);
     }

@@ -1,5 +1,6 @@
 using System.Globalization;
 using OakProyektor.Core;
+using OakProyektor.Core.Playlists;
 using OakProyektor.Core.Songs;
 using OakProyektor.Data;
 using OakProyektor.Data.Repositories;
@@ -30,7 +31,9 @@ internal static class SongIpc
     public static SongPayload Map(SongDetail d) =>
         new(d.Id, d.Title, d.Author, d.Copyright, d.CcliNumber, d.Notes, d.Revision, Iso(d.CreatedAt), Iso(d.UpdatedAt),
             d.Background is { } b ? new SongBackgroundDto(b.Kind, b.Path, b.Color, b.Muted) : null,
-            [.. d.Sections.Select(s => new SongSectionDto(s.Id, s.Kind, s.Label, s.Text))], d.Arrangement, d.Text, d.UsedInServices);
+            [.. d.Sections.Select(s => new SongSectionDto(s.Id, s.Kind, s.Label, s.Text))], d.Arrangement, d.Text, d.UsedInServices, MapLists(d.Lists));
+
+    public static IReadOnlyList<PlaylistRefDto> MapLists(IReadOnlyList<PlaylistRef> lists) => [.. lists.Select(l => new PlaylistRefDto(l.Id, l.Name, l.ServiceDate))];
 
     public static string Detected(SongTextFormat format) => format switch
     {
@@ -42,8 +45,8 @@ internal static class SongIpc
 
     public static SongSettingsPayload ToPayload(AppSettings s) => new(s.Songs.EffectiveTheme, s.Songs.TransitionMs, s.Songs.AtEnd);
 
-    public static void PublishChanged(IOutbox outbox, string commandId, long songId, int revision, string kind, int usedInServices) =>
-        outbox.Publish(IpcEnvelope.Create(IpcKind.Event, IpcTypes.SongChanged, new SongChangedPayload(commandId, songId, revision, kind, usedInServices)), Targets.Control);
+    public static void PublishChanged(IOutbox outbox, string commandId, long songId, int revision, string kind, int usedInServices, IReadOnlyList<PlaylistRef>? lists = null) =>
+        outbox.Publish(IpcEnvelope.Create(IpcKind.Event, IpcTypes.SongChanged, new SongChangedPayload(commandId, songId, revision, kind, usedInServices, MapLists(lists ?? []))), Targets.Control);
 }
 
 internal sealed class SongSearchHandler(ISongRepository songs) : IIpcHandler
@@ -176,7 +179,7 @@ internal sealed class SongDeleteHandler(ISongRepository songs, IOutbox outbox) :
     {
         var r = request.GetPayload<SongDeletePayload>();
         var result = await SongIpc.RunAsync(() => songs.DeleteAsync(r.Id, cancellationToken)).ConfigureAwait(false);
-        SongIpc.PublishChanged(outbox, request.Id, result.SongId, 0, "deleted", result.UsedInServices);
+        SongIpc.PublishChanged(outbox, request.Id, result.SongId, 0, "deleted", result.UsedInServices, result.Lists);
         return null;
     }
 }

@@ -1,4 +1,4 @@
-﻿using OakProyektor.Core.Output;
+using OakProyektor.Core.Output;
 using OakProyektor.Ipc;
 using OakProyektor.Ipc.Messages;
 
@@ -141,8 +141,8 @@ internal sealed class OutputShowContentHandler(IOutputController output) : IIpcH
     public Task<object?> HandleAsync(IpcEnvelope request, CancellationToken cancellationToken)
     {
         var p = request.GetPayload<OutputShowContentPayload>();
-        if (ContentValidator.ValidateSlide(p.Blocks, p.Theme, p.TransitionMs) is { } problem) throw new IpcException("output.invalidContent", problem);
-        output.ShowContent(p.Blocks, p.Theme, p.TransitionMs);
+        if (ContentValidator.ValidateSlide(p.Blocks, p.Theme, p.TransitionMs, p.Origin) is { } problem) throw new IpcException("output.invalidContent", problem);
+        output.ShowContent(p.Blocks, p.Theme, p.TransitionMs, p.Origin);
         return Task.FromResult<object?>(null);
     }
 }

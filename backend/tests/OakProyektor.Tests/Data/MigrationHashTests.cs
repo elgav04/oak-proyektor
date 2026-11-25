@@ -27,6 +27,7 @@ public class MigrationHashTests
         [8] = "6fb40321d7fdf131b78448e9fc093c6e26b3f5d17809ed73994eecbb269cbb34",
         [9] = "dc9f1615bee70d2c4bc357b0a5a17e2f8cb1fb1743b61977deb3a868405d454f",
         [10] = "c516442ef5e0108fb88dfe51d0618e7d1a30c627b848aee410b48ac490357aa6",
+        [11] = "f9550cf386795cd4ae4c0159230ea333e8c74248c94333d48525078bacf92504",
     };
 
     private static string Hash(string sql)

@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using OakProyektor.Core.Database;
 using OakProyektor.Core.Display;
 using OakProyektor.Core.Output;
+using OakProyektor.Core.Playlists;
 using OakProyektor.Core.Songs;
 using OakProyektor.Ipc;
 using OakProyektor.Ipc.Messages;
@@ -51,6 +52,7 @@ public partial class ProtocolFormatTests
         new(typeof(TextBlock), "TextBlock", Direction.FromBackend),
         // El tema viaja en las dos direcciones (el panel lo manda en showContent y vuelve en el estado): se compara con la regla más estricta de cada dirección.
         new(typeof(TextTheme), "TextTheme", Direction.FromBackend),
+        new(typeof(SlideOrigin), "SlideOrigin", Direction.FromBackend),   // v13: viaja en las dos direcciones (showContent y el estado): regla más estricta
         new(typeof(Slide), "Slide", Direction.FromBackend),
         new(typeof(ContentLayer), "ContentLayer", Direction.FromBackend),
         new(typeof(OverlayItem), "OverlayItem", Direction.FromBackend),
@@ -111,6 +113,24 @@ public partial class ProtocolFormatTests
         new(typeof(SongDeletePayload), "SongDeletePayload", Direction.ToBackend),
         new(typeof(SongChangedPayload), "SongChangedPayload", Direction.FromBackend),
         new(typeof(SongSettingsPayload), "SongSettingsPayload", Direction.FromBackend),
+        // Listas de culto (v13). PlaylistSettingsPayload viaja en las dos direcciones: regla más estricta (la de lo que C# envía).
+        new(typeof(PlaylistRefDto), "PlaylistRefDto", Direction.FromBackend),
+        new(typeof(PlaylistSummaryDto), "PlaylistSummaryDto", Direction.FromBackend),
+        new(typeof(PlaylistListPayload), "PlaylistListPayload", Direction.FromBackend),
+        new(typeof(PlaylistGetRequest), "PlaylistGetRequest", Direction.ToBackend),
+        new(typeof(PlaylistItemDto), "PlaylistItemDto", Direction.FromBackend),
+        new(typeof(PlaylistPayload), "PlaylistPayload", Direction.FromBackend),
+        new(typeof(PlaylistCreatePayload), "PlaylistCreatePayload", Direction.ToBackend),
+        new(typeof(PlaylistUpdatePayload), "PlaylistUpdatePayload", Direction.ToBackend),
+        new(typeof(PlaylistNewItemDto), "PlaylistNewItemDto", Direction.ToBackend),
+        new(typeof(PlaylistAddItemPayload), "PlaylistAddItemPayload", Direction.ToBackend),
+        new(typeof(PlaylistMoveItemPayload), "PlaylistMoveItemPayload", Direction.ToBackend),
+        new(typeof(PlaylistRemoveItemPayload), "PlaylistRemoveItemPayload", Direction.ToBackend),
+        new(typeof(PlaylistUpdateItemPayload), "PlaylistUpdateItemPayload", Direction.ToBackend),
+        new(typeof(PlaylistDuplicatePayload), "PlaylistDuplicatePayload", Direction.ToBackend),
+        new(typeof(PlaylistDeletePayload), "PlaylistDeletePayload", Direction.ToBackend),
+        new(typeof(PlaylistChangedPayload), "PlaylistChangedPayload", Direction.FromBackend),
+        new(typeof(PlaylistSettingsPayload), "PlaylistSettingsPayload", Direction.FromBackend),
     ];
 
     /// <summary>Alias de tipo de protocol.ts → enum de C# que representa. <c>RecoverReason</c> es un SUBCONJUNTO de <c>OutputPauseReason</c> a propósito.</summary>
@@ -126,9 +146,10 @@ public partial class ProtocolFormatTests
         ["VerticalAlign"] = typeof(VerticalAlign),
         ["BackgroundFailureReason"] = typeof(BackgroundFailureReason),
         ["SongAtEnd"] = typeof(SongAtEnd),
+        ["PlaylistOnItemEnd"] = typeof(PlaylistOnItemEnd),
     };
 
-    private static readonly Type[] WireEnums = [typeof(MasterMode), typeof(DatabaseState), typeof(OutputPauseReason), typeof(DisplayLostPolicy), typeof(BackgroundKind), typeof(TextAlign), typeof(VerticalAlign), typeof(BackgroundFailureReason), typeof(SongAtEnd)];
+    private static readonly Type[] WireEnums = [typeof(MasterMode), typeof(DatabaseState), typeof(OutputPauseReason), typeof(DisplayLostPolicy), typeof(BackgroundKind), typeof(TextAlign), typeof(VerticalAlign), typeof(BackgroundFailureReason), typeof(SongAtEnd), typeof(PlaylistOnItemEnd)];
 
     /// <summary>Nombre en protocol.ts de los tipos de C# cuyo nombre difiere.</summary>
     private static string TsNameOf(Type t) => t == typeof(IpcError) ? "IpcErrorPayload" : t.Name;
@@ -149,6 +170,7 @@ public partial class ProtocolFormatTests
         [10] = "a5cbbb567e89373b8aab56fbc1a9308a3c77a08ab5030acc4df9938e180a706e",
         [11] = "1e85f51272a3adba8a86d955aa6e10d55fa963c30e8a580991b562f3233e9f46",
         [12] = "ddfbc0343aba0ef5ccf4b884787576c66f8c2dc65b4dd044aff3be464cd50447",
+        [13] = "633fccf39206898887154a8a8fd8cd269bc49689810c5afbd3b7eb176fb66aca",
     };
 
     // ───────────────────────────── lectura de C# ─────────────────────────────

@@ -1,3 +1,5 @@
+using OakProyektor.Core.Playlists;
+
 namespace OakProyektor.Core.Songs;
 
 /// <summary>Sección guardada de una canción. <c>Kind</c> se deriva de <c>Label</c>; <c>Text</c> lleva una línea en blanco por cada corte manual de diapositiva.</summary>
@@ -13,8 +15,11 @@ public sealed record SongBackground(string Kind, string? Path, string? Color, bo
 public sealed record SongDetail(
     long Id, string Title, string? Author, string? Copyright, string? CcliNumber, string? Notes, int Revision,
     DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, SongBackground? Background,
-    IReadOnlyList<SongSection> Sections, IReadOnlyList<int> Arrangement, int UsedInServices)
+    IReadOnlyList<SongSection> Sections, IReadOnlyList<int> Arrangement, int UsedInServices, IReadOnlyList<PlaylistRef>? UsedInLists = null)
 {
+    /// <summary>Las listas que incluyen la canción (id, nombre y fecha; nunca letra), por fecha y nombre. Vacío si no está en ninguna.</summary>
+    public IReadOnlyList<PlaylistRef> Lists => UsedInLists ?? [];
+
     /// <summary>El texto único con etiquetas (secciones y, si no es el orden natural, la línea «Orden:»).</summary>
     public string Text => SongTextFormatter.Format([.. Sections.Select(s => new ParsedSection(s.Label, s.Kind, s.Text))], Arrangement);
 }
@@ -44,4 +49,8 @@ public sealed record SongSaveResult(long SongId, int Revision, bool Created);
 
 public sealed record SongRevisionInfo(long Id, DateTimeOffset CreatedAt, string Reason, int SectionCount);
 
-public sealed record SongDeleteResult(long SongId, int UsedInServices);
+/// <summary><c>UsedInLists</c>: las listas donde estaba la canción (sus elementos quedan «Falta: …»); <c>UsedInServices</c> es su número.</summary>
+public sealed record SongDeleteResult(long SongId, int UsedInServices, IReadOnlyList<PlaylistRef>? UsedInLists = null)
+{
+    public IReadOnlyList<PlaylistRef> Lists => UsedInLists ?? [];
+}

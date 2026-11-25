@@ -293,7 +293,7 @@ public sealed class MigrationRunnerTests : IDisposable
         var result = await _db.Initializer.InitializeAsync(CancellationToken.None);
 
         Assert.Equal((1, DatabaseInitializer.LatestSchemaVersion), (result.FromVersion, result.ToVersion));
-        Assert.Equal([2, 3, 4, 5, 6, 7, 8, 9, 10], result.Applied);
+        Assert.Equal([2, 3, 4, 5, 6, 7, 8, 9, 10, 11], result.Applied);
         Assert.NotNull(result.BackupPath);
         await using var d = await _db.OpenAsync();
         Assert.Equal(1L, await CountAsync(d, "Songs"));

@@ -439,11 +439,16 @@ public sealed class SongRepositoryTests : IAsyncLifetime
         await AddToServiceAsync(other.Id, "Otra", "Domingo 3");
         await using (var c = await _db.OpenAsync())   // una canción puede repetirse dentro del MISMO servicio: cuenta como un servicio
             await c.ExecuteAsync("INSERT INTO PlaylistItems (PlaylistId, SequenceIndex, ItemType, Title, SongId) VALUES (@p, 1, 'SONG', 'Usada en servicios', @s)", new { p = firstService, s = song.Id });
-        Assert.Equal(2, (await _repo.GetAsync(song.Id, CancellationToken.None))!.UsedInServices);
+        var before = (await _repo.GetAsync(song.Id, CancellationToken.None))!;
+        Assert.Equal(2, before.UsedInServices);
+        Assert.Equal(["Domingo 1", "Domingo 2"], before.Lists.Select(l => l.Name));   // song.get ya nombra las listas ANTES de borrar
 
         var result = await _repo.DeleteAsync(song.Id, CancellationToken.None);
 
-        Assert.Equal(new SongDeleteResult(song.Id, 2), result);
+        Assert.Equal((song.Id, 2), (result.SongId, result.UsedInServices));
+        Assert.Equal(["Domingo 1", "Domingo 2"], result.Lists.Select(l => l.Name));      // el aviso NOMBRA las listas (v13), una vez cada una aunque la canción se repita
+        Assert.Equal([firstService, secondService], result.Lists.Select(l => l.Id));
+        Assert.All(result.Lists, l => Assert.Equal("2026-11-29", l.ServiceDate));
         Assert.Null(await _repo.GetAsync(song.Id, CancellationToken.None));
         await using var d = await _db.OpenAsync();
         var items = (await d.QueryAsync<(long PlaylistId, string Title, long? SongId, long IsMissing)>(

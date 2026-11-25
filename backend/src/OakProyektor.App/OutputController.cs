@@ -1,4 +1,4 @@
-﻿using System.Drawing;
+using System.Drawing;
 using Microsoft.Extensions.Logging;
 using OakProyektor.Core.Display;
 using OakProyektor.Core.Output;
@@ -26,7 +26,8 @@ internal interface IOutputController
     /// <summary>«Reintentar»: vuelve a pedir a la salida el medio de fondo actual (sube su contador de reintento). Con un fondo que no es un medio no hace nada.</summary>
     void RetryBackground();
     /// <summary>Muestra un slide (ya validado). No cambia el modo maestro: si está en Black/Clear/Logo no se ve hasta volver a Live.</summary>
-    void ShowContent(IReadOnlyList<string> blocks, TextTheme theme, int transitionMs);
+    /// <summary><paramref name="origin"/>: de qué elemento de una lista viene (solo ids), o nulo si no viene de una lista.</summary>
+    void ShowContent(IReadOnlyList<string> blocks, TextTheme theme, int transitionMs, SlideOrigin? origin = null);
     /// <summary>Quita el slide del estado (queda solo el fondo).</summary>
     void ClearContent(int transitionMs);
     /// <summary>La salida informa de que no pudo reproducir su fondo. Si <paramref name="mediaUrl"/> ya no es el fondo actual se ignora; si lo es, se avisa al panel.</summary>
@@ -149,9 +150,9 @@ internal sealed class OutputController : IOutputController
         Publish();
     }
 
-    public void ShowContent(IReadOnlyList<string> blocks, TextTheme theme, int transitionMs)
+    public void ShowContent(IReadOnlyList<string> blocks, TextTheme theme, int transitionMs, SlideOrigin? origin = null)
     {
-        var slide = new Slide($"s{Interlocked.Increment(ref _slideCounter)}", [.. blocks.Select(b => new TextBlock(b))], theme);
+        var slide = new Slide($"s{Interlocked.Increment(ref _slideCounter)}", [.. blocks.Select(b => new TextBlock(b))], theme, origin);
         lock (_gate) _state = _state.WithSlide(slide, transitionMs);
         Publish();
     }

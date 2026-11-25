@@ -182,7 +182,7 @@ test("EXTREMO A EXTREMO: un pasaje sintético escrito en el cuadro llega a la sa
 
   // La salida recibe un snapshot con ese contenido (en la app real lo arma C#; aquí el mismo contenido).
   const state = {
-    schemaVersion: 1, revision: 0, master: "live",
+    schemaVersion: 2, revision: 0, master: "live",
     background: { kind: "color", color: "#102030", mediaUrl: null, fileName: null, muted: true, transitionMs: 0, warning: null },
     content: { slide: { id: "e2e", blocks: sent.blocks.map((text) => ({ text })), theme: sent.theme }, transitionMs: sent.transitionMs },
     overlays: { items: [] },

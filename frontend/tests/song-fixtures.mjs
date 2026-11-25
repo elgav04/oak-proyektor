@@ -76,7 +76,7 @@ export function createSongBackend(options = {}) {
   let holdNext = false;
   const held = [];
 
-  const envelope = (kind, type, payload, id = crypto.randomUUID()) => JSON.stringify({ v: 12, id, kind, type, payload });
+  const envelope = (kind, type, payload, id = crypto.randomUUID()) => JSON.stringify({ v: 13, id, kind, type, payload });
   const reply = (req, result) => deliver(envelope("reply", req.type, { ok: true, result, error: null }, req.id));
   const fail = (req, code, message) => deliver(envelope("reply", req.type, { ok: false, result: null, error: { code, message } }, req.id));
   const emitFailed = (cmd, code, message) => deliver(envelope("event", "command.failed", { commandId: cmd.id, commandType: cmd.type, error: { code, message } }));

@@ -14,7 +14,7 @@ globalThis.window = {
 const { useControlStore, connectControlStore, reconnectControl, dismissFailure, dismissSettingsWarnings } = await loadTs("/src/control/store.ts");
 after(closeServer);
 
-const msg = (kind, type, payload, id = "x") => ({ v:12, id, kind, type, payload });
+const msg = (kind, type, payload, id = "x") => ({ v:13, id, kind, type, payload });
 const send = (o) => deliver(typeof o === "string" ? o : JSON.stringify(o));
 const ok = (result) => ({ ok: true, result, error: null });
 const tick = (ms = 20) => new Promise((r) => setTimeout(r, ms));
@@ -25,7 +25,7 @@ const nextAttempt = async (type, from) => {
   return queries(type).length;
 };
 const window_ = (over = {}) => ({ isOpen: false, displayId: null, isWindowed: false, isPaused: false, pauseReason: null, autoRestore: true, emergencyHotkey: null, preferredDisplayId: null, onDisplayLost: "warnAndWait", ...over });
-const outputPayload = (seq, master = "black", win = {}) => ({ seq, state: { schemaVersion: 1, revision: seq, master, background: { kind: "none", color: "#000000", mediaUrl: null, fileName: null, muted: true, transitionMs: 0, warning: null, retry: 0 }, content: { slide: null, transitionMs: 400 }, overlays: { items: [] } }, window: window_(win) });
+const outputPayload = (seq, master = "black", win = {}) => ({ seq, state: { schemaVersion: 2, revision: seq, master, background: { kind: "none", color: "#000000", mediaUrl: null, fileName: null, muted: true, transitionMs: 0, warning: null, retry: 0 }, content: { slide: null, transitionMs: 400 }, overlays: { items: [] } }, window: window_(win) });
 
 let connection = null;
 beforeEach(() => {
