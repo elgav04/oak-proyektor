@@ -1,8 +1,20 @@
 # Diseño del módulo de audio y medios (propuesta; sin código todavía)
 
-Estado: **PROPUESTA pendiente de aprobación (2026-11-26).** Reglas del repo que aplican: ningún medio de terceros en el repositorio, los tests, el instalador ni la documentación (el material de prueba se GENERA: bytes sintéticos en los tests y `MediaRecorder` dentro de la propia salida en las pruebas reales); los registros llevan solo ids y conteos (nunca nombres de archivo ni rutas del operador). Este documento NO toca la política de monitores, la pausa ni los atajos globales existentes: propone un atajo global nuevo (§6) y una reacción a la pausa que solo LEE el estado (§3.4), con el mismo patrón que ya usan las alertas.
+Estado: **APROBADO con decisiones (2026-11-26; ver «Decisiones aprobadas»).** Prompt 1 (biblioteca) en implementación; prompts 2 y 3 pendientes. Reglas del repo que aplican: ningún medio de terceros en el repositorio, los tests, el instalador ni la documentación (el material de prueba se GENERA: bytes sintéticos en los tests y `MediaRecorder` dentro de la propia salida en las pruebas reales); los registros llevan solo ids y conteos (nunca nombres de archivo ni rutas del operador). Este documento NO toca la política de monitores, la pausa ni los atajos globales existentes: propone un atajo global nuevo (§6) y una reacción a la pausa que solo LEE el estado (§3.4), con el mismo patrón que ya usan las alertas.
 
 Objetivo: usar en un culto (a) videos de fondo, (b) videos con audio en primer plano, (c) pistas de audio sueltas y (d) imágenes, **sin depender de un USB ni de un disco de red durante el culto**, con control claro desde el panel y con una forma de callar todo al instante aunque el panel esté congelado.
+
+---
+
+## Decisiones aprobadas (2026-11-26)
+
+1. **Dispositivo de audio del video en primer plano: PENDIENTE.** Lo decide el operador antes del prompt 2; no se implementa nada para elegirlo (§4.4 sigue siendo la propuesta v1: dispositivo predeterminado de Windows o asignación por aplicación en el Mezclador de volumen).
+2. **Motor de audio: NAudio.** Verificado el 2026-11-26 con `dotnet package search` y la API de NuGet: última versión estable **3.3.0** (publicada el 2026-10-19; hay una 3.4.0-preview.1 que NO se usará), licencia **MIT**, destino `net9.0` (se consume sin problema desde `net10.0`; el SDK en uso es 10.0.404), dependencias de la misma versión (`NAudio.Core`, `NAudio.Wasapi`, `NAudio.WinMM`, `NAudio.Midi`), sin aviso de obsolescencia y **sin vulnerabilidades** registradas, con versiones frecuentes en 2026 (proyecto vivo). Sin problema que objetar. Se adopta en el **prompt 2** (no en el 1) con la versión **exacta fijada** (`[3.3.0]`, como Photino) y una prueba de reproducción real; la interfaz `IAudioBackend` se mantiene para no atar el diseño a la librería.
+3. **Pausa de la salida y audio.** La pausa de la salida (manual, de emergencia o por monitor) **NO corta las pistas de audio** (motor de C#). Tampoco Negro, Texto limpio, Logo ni Freeze. Solo cortan el audio: el atajo global de **Silencio**, los controles del panel (⏹/⏸ del reproductor) y lo que el propio medio haga al terminar. El **video en primer plano SÍ se pausa y silencia con cualquier pausa de la salida (y con Negro, Texto limpio y Logo), conservando la posición.**
+4. **HEVC**: se acepta si el equipo lo decodifica (verificación del primer fotograma), con una **advertencia al importar** que recomienda H.264.
+5. **Atajo global `Ctrl+Alt+Shift+S` (Silencio)**: solo calla, nunca reanuda; calla **tanto el motor de pistas como el video en primer plano**.
+6. **Preguntas abiertas resueltas con la recomendación del diseño**: fondo debajo del primer plano **sin pausarlo** (se mide en la P2; pausarlo solo si pierde fotogramas); Texto limpio / Negro / Logo con un video en primer plano → **pausar y silenciar**; `StartMode` por defecto **`PLAY` para video y `READY` para audio suelto**; límite por archivo **4 GiB** y reserva de disco **el mayor de 1 GiB y el 5 %**; **carpetas, sin etiquetas** en la v1; **`ffmpeg` solo como ayuda opcional** (nunca requerido ni incluido); audio **MP3, M4A, AAC, WAV y FLAC** (sin Ogg/Opus/WMA).
+7. **Respaldos**: los respaldos diarios NO cubren la carpeta `media\`; se documenta en `CLAUDE.md` con cómo copiarla a mano.
 
 ---
 
@@ -156,8 +168,7 @@ Un reproductor en el panel (visible en todas las pestañas junto a la barra de a
 | **Negro** | Oculto, **pausado y silenciado** (igual). | **No cambia** (música de fondo durante una oración con pantalla negra es el uso típico). |
 | **Logo** | Oculto, pausado y silenciado. | No cambia. |
 | **Freeze** | **NO se congela** (excepción deliberada, como la alerta: poder pausar/detener siempre). Texto y fondo siguen congelados. | No cambia. |
-| **Pausa de la salida** (monitor perdido, panel cruzado, modo Duplicar, `unstable`) | **Se pausa y silencia, conservando la posición** (se queda en el estado, no se borra: una reanudación automática la deja lista; reanudarla es una acción del operador). | **No cambia** en las pausas AUTOMÁTICAS (se perdió el proyector, no la mezcladora). |
-| **Pausa manual o de emergencia** (botón «Recuperar control» o Ctrl+Alt+Shift+M) | Pausado y silenciado. | **Fundido de salida corto (300 ms) y pausa** (conserva la posición): si el operador pulsó pánico, el audio también calla. Propuesta; pregunta abierta. |
+| **Pausa de la salida, CUALQUIERA** (monitor perdido, panel cruzado, modo Duplicar, `unstable`, manual, emergencia) | **Se pausa y silencia, conservando la posición** (se queda en el estado, no se borra: una reanudación automática la deja lista; reanudarla es una acción del operador). | **No cambia en NINGUNA pausa** (decisión aprobada): lo que calla el audio es el atajo de Silencio y el panel, no la pausa de la salida. |
 
 Implementación de la pausa **sin tocar** `OutputPauseState`, `OutputSafety` ni el sondeo de monitores: igual que `DropAlertIfPaused`, una reacción dentro de `Publish()` que LEE la pausa que el snapshot ya informa (`window.isPaused` y su motivo) y cambia solo `Foreground.Phase`/el motor de audio. Está acotada, no lanza y se prueba con la app real.
 
