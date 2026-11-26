@@ -38,7 +38,7 @@ export function createListBackend(options = {}) {
     window: { isOpen: true, isPaused: false },
   };
 
-  const envelope = (kind, type, payload, id = crypto.randomUUID()) => JSON.stringify({ v: 13, id, kind, type, payload });
+  const envelope = (kind, type, payload, id = crypto.randomUUID()) => JSON.stringify({ v: 14, id, kind, type, payload });
   const reply = (req, result) => deliver(envelope("reply", req.type, { ok: true, result, error: null }, req.id));
   const fail = (req, code, message) => deliver(envelope("reply", req.type, { ok: false, result: null, error: { code, message } }, req.id));
   const event = (type, payload) => deliver(envelope("event", type, payload));
@@ -149,8 +149,9 @@ export function createListBackend(options = {}) {
     const listId = p.playlistId ?? p.id;
     const list = lists.get(listId);
     if (!list) return failed(cmd, "playlist.notFound", "La lista no existe (puede que se haya borrado).");
+    // v14: borrar también exige la revisión (como mover, quitar, editar y cambiar los datos de la lista). Añadir no la exige.
+    if (cmd.type !== "playlist.addItem" && p.expectedRevision !== list.revision) return failed(cmd, "playlist.conflict", "La lista cambió desde que la abriste.");
     if (cmd.type === "playlist.delete") { lists.delete(listId); return changed(cmd, listId, 0, "deleted"); }
-    if (p.expectedRevision !== undefined && p.expectedRevision !== list.revision) return failed(cmd, "playlist.conflict", "La lista cambió desde que la abriste.");
     if (cmd.type === "playlist.update") { list.name = p.name.trim(); list.serviceDate = p.serviceDate ?? null; list.notes = p.notes ?? ""; list.revision++; return changed(cmd, listId, list.revision, "updated"); }
     if (cmd.type === "playlist.addItem") {
       const d = p.item; if (list.items.length >= 100) return failed(cmd, "playlist.full", "La lista ya tiene 100 elementos.");
@@ -169,9 +170,19 @@ export function createListBackend(options = {}) {
     if (cmd.type === "playlist.removeItem") { list.items.splice(at, 1); list.revision++; return changed(cmd, listId, list.revision, "itemRemoved", { itemId: p.itemId }); }
     if (cmd.type === "playlist.updateItem") {
       const it = list.items[at];
-      if (it.itemType === "note") { if (p.title != null) it.title = p.title; if (p.note != null) it.note = p.note === "" ? null : p.note; if (p.clearOnActivate != null) it.clearOnActivate = p.clearOnActivate; }
-      else if (it.itemType === "passage" && p.bibleAbbreviation) it.bibleAbbreviation = p.bibleAbbreviation;
-      else return failed(cmd, "playlist.invalidRequest", "Este tipo de elemento no tiene campos editables.");
+      // Como el backend real: se normaliza (recortar; nota vacía = sin nota) y, si nada cambia, no hay revisión nueva NI evento.
+      let changes = 0;
+      const set = (field, value) => { if ((it[field] ?? null) !== value) { it[field] = value; changes++; } };
+      if (it.itemType === "note") {
+        if (p.bibleAbbreviation != null) return failed(cmd, "playlist.invalidRequest", "Una nota no tiene Biblia.");
+        if (p.title != null) set("title", p.title.trim());
+        if (p.note != null) set("note", p.note.trim() === "" ? null : p.note.trim());
+        if (p.clearOnActivate != null) set("clearOnActivate", p.clearOnActivate);
+      } else if (it.itemType === "passage") {
+        if (p.title != null || p.note != null || p.clearOnActivate != null) return failed(cmd, "playlist.invalidRequest", "Un pasaje solo permite cambiar su Biblia preferida.");
+        if (p.bibleAbbreviation != null) set("bibleAbbreviation", p.bibleAbbreviation.trim());
+      } else return failed(cmd, "playlist.invalidRequest", "Este tipo de elemento no tiene campos editables.");
+      if (changes === 0) return;
       list.revision++; return changed(cmd, listId, list.revision, "itemUpdated", { itemId: p.itemId });
     }
   };

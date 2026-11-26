@@ -171,6 +171,7 @@ public partial class ProtocolFormatTests
         [11] = "1e85f51272a3adba8a86d955aa6e10d55fa963c30e8a580991b562f3233e9f46",
         [12] = "ddfbc0343aba0ef5ccf4b884787576c66f8c2dc65b4dd044aff3be464cd50447",
         [13] = "633fccf39206898887154a8a8fd8cd269bc49689810c5afbd3b7eb176fb66aca",
+        [14] = "e0768d6ecbc44666b7309de16b19dc0587e45d1bace62727cf3782ed2c05b2bf",
     };
 
     // ───────────────────────────── lectura de C# ─────────────────────────────

@@ -99,8 +99,9 @@ public static class IpcCatalog
     /// <c>playlist.addItem</c>, <c>playlist.moveItem</c>, <c>playlist.removeItem</c>, <c>playlist.updateItem</c>, <c>playlist.duplicate</c> y <c>playlist.delete</c>; evento <c>playlist.changed</c>.
     /// <c>output.showContent</c> lleva <c>origin</c> (ids de lista y elemento, o nulo), el <c>Slide</c> lo conserva y <c>OutputState.SchemaVersion</c> pasa a 2.
     /// <c>song.get</c> y <c>song.changed</c> llevan <c>usedInLists</c> (las listas por id, nombre y fecha).
+    /// v14: <c>playlist.delete</c> lleva <c>expectedRevision</c> (una vista desactualizada no borra una lista que otra ventana acaba de cambiar; falla con <c>playlist.conflict</c>).
     /// </summary>
-    public const int ProtocolVersion = 13;
+    public const int ProtocolVersion = 14;
 
     public static IReadOnlyList<MessageDescriptor> Messages { get; } =
     [

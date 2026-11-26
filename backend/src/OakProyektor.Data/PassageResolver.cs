@@ -31,28 +31,63 @@ public static class PassageResolver
         return preferred;
     }
 
-    /// <summary>Resuelve todos los pasajes de un servicio (en el orden del servicio). Los elementos que no son pasajes no aparecen.</summary>
+    /// <summary>
+    /// Resuelve todos los pasajes de un servicio (en el orden del servicio) con UNA sola consulta: cada pasaje se une con su Biblia preferida y con la Biblia por
+    /// defecto (por abreviatura, tal cual) y con el libro de cada una (por número canónico), y cuenta los versículos del rango con el índice único de `Verses`.
+    /// Da EXACTAMENTE el mismo resultado que <see cref="ResolveAsync"/> pasaje a pasaje (un test lo compara en todas las combinaciones); antes eran hasta 6 consultas
+    /// por pasaje, todas en el carril en vivo. Los elementos que no son pasajes no aparecen. <paramref name="onQuery"/> cuenta las consultas (pruebas y diagnóstico).
+    /// </summary>
     public static async Task<IReadOnlyList<(long ItemId, PassageResolution Resolution)>> ResolvePlaylistAsync(
-        SqliteConnection connection, long playlistId, string? defaultBibleAbbreviation, CancellationToken cancellationToken)
+        SqliteConnection connection, long playlistId, string? defaultBibleAbbreviation, CancellationToken cancellationToken, Action? onQuery = null)
     {
-        var rows = (await connection.QueryAsync<PassageRow>(new CommandDefinition(
+        // La por defecto solo cuenta si existe y es OTRA abreviatura (comparación ordinal, como en ResolveAsync).
+        var fallback = defaultBibleAbbreviation is { Length: > 0 } d ? d : null;
+        onQuery?.Invoke();
+        await using var command = connection.CreateCommand();
+        command.CommandText =
             """
-            SELECT Id, BookNumber, Chapter, VerseStart, VerseEnd, BibleAbbreviation
-            FROM PlaylistItems
-            WHERE PlaylistId = @playlistId AND ItemType = 'PASSAGE'
-            ORDER BY SequenceIndex, Id
-            """,
-            new { playlistId }, cancellationToken: cancellationToken)).ConfigureAwait(false)).ToList();
+            SELECT pi.Id, pi.BibleAbbreviation,
+                   pb.Id, pk.Id,
+                   CASE WHEN pk.Id IS NULL THEN 0 ELSE (SELECT COUNT(*) FROM Verses v WHERE v.BookId = pk.Id AND v.Chapter = pi.Chapter
+                                                        AND v.VerseNumber BETWEEN pi.VerseStart AND COALESCE(pi.VerseEnd, pi.VerseStart)) END,
+                   db.Id, dk.Id,
+                   CASE WHEN dk.Id IS NULL THEN 0 ELSE (SELECT COUNT(*) FROM Verses v WHERE v.BookId = dk.Id AND v.Chapter = pi.Chapter
+                                                        AND v.VerseNumber BETWEEN pi.VerseStart AND COALESCE(pi.VerseEnd, pi.VerseStart)) END
+            FROM PlaylistItems pi
+            LEFT JOIN Bibles pb ON pb.Abbreviation = pi.BibleAbbreviation
+            LEFT JOIN Books  pk ON pk.BibleId = pb.Id AND pk.BookNumber = pi.BookNumber
+            LEFT JOIN Bibles db ON @fallback IS NOT NULL AND db.Abbreviation = @fallback
+            LEFT JOIN Books  dk ON dk.BibleId = db.Id AND dk.BookNumber = pi.BookNumber
+            WHERE pi.PlaylistId = @playlistId AND pi.ItemType = 'PASSAGE'
+            ORDER BY pi.SequenceIndex, pi.Id
+            """;
+        command.Parameters.AddWithValue("@playlistId", playlistId);
+        command.Parameters.AddWithValue("@fallback", (object?)fallback ?? DBNull.Value);
 
-        var results = new List<(long, PassageResolution)>(rows.Count);
-        foreach (var row in rows)
+        // Con ADO a mano: columnas calculadas (COUNT) en una consulta que puede no devolver filas (ver CLAUDE.md: Dapper las toma por blob).
+        var results = new List<(long, PassageResolution)>();
+        await using var r = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await r.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            var reference = new PassageReference((int)row.BookNumber, (int)row.Chapter, (int)row.VerseStart, row.VerseEnd is { } end ? (int)end : null, row.BibleAbbreviation);
-            results.Add((row.Id, await ResolveAsync(connection, reference, defaultBibleAbbreviation, cancellationToken).ConfigureAwait(false)));
+            var abbreviation = r.GetString(1);
+            var preferred = Build(abbreviation, r.IsDBNull(2) ? null : r.GetInt64(2), r.IsDBNull(3) ? null : r.GetInt64(3), (int)r.GetInt64(4));
+            if (!preferred.IsResolved && fallback is not null && fallback != abbreviation)
+            {
+                var alternative = Build(fallback, r.IsDBNull(5) ? null : r.GetInt64(5), r.IsDBNull(6) ? null : r.GetInt64(6), (int)r.GetInt64(7));
+                if (alternative.IsResolved) preferred = preferred with { Offered = alternative };
+            }
+            results.Add((r.GetInt64(0), preferred));
         }
         return results;
     }
 
+    /// <summary>Las mismas reglas que <see cref="LookupAsync"/>, a partir de lo leído en la consulta única.</summary>
+    private static PassageResolution Build(string abbreviation, long? bibleId, long? bookId, int found)
+    {
+        if (bibleId is null) return new PassageResolution(PassageStatus.BibleNotInstalled, abbreviation, null, null, 0);
+        if (bookId is null) return new PassageResolution(PassageStatus.PassageNotFound, abbreviation, bibleId, null, 0);
+        return new PassageResolution(found > 0 ? PassageStatus.Resolved : PassageStatus.PassageNotFound, abbreviation, bibleId, bookId, found);
+    }
     private static async Task<PassageResolution> LookupAsync(
         SqliteConnection connection, PassageReference reference, string abbreviation, CancellationToken ct)
     {
@@ -73,6 +108,4 @@ public static class PassageResolver
         return new PassageResolution(found > 0 ? PassageStatus.Resolved : PassageStatus.PassageNotFound, abbreviation, bibleId, bookId, (int)found);
     }
 
-    // Dapper devuelve INTEGER como Int64 (ver CLAUDE.md): el DTO usa long y se convierte aquí.
-    private sealed record PassageRow(long Id, long BookNumber, long Chapter, long VerseStart, long? VerseEnd, string BibleAbbreviation);
 }

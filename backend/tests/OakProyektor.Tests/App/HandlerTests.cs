@@ -25,7 +25,7 @@ internal sealed class NoBibles : OakProyektor.Data.Scripture.IBibleQueryService
 public class HandlerTests
 {
     private static string Msg(string kind, string type, string payload = "{}") =>
-        $$"""{"v":13,"id":"q1","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
+        $$"""{"v":14,"id":"q1","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
 
     private static (IpcDispatcher Dispatcher, FakeOutputController Output) Create(params DisplayInfo[] displays)
     {

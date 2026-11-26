@@ -88,7 +88,7 @@ try {
       const m = JSON.parse(raw);
       if (m.id === id) resolve(JSON.stringify(m.payload));
     });
-    send({ v:13, id, kind: "query", type: "display.list", payload: {} });
+    send({ v:14, id, kind: "query", type: "display.list", payload: {} });
   });
 })()
 '@
@@ -96,7 +96,7 @@ try {
     $result.displayList = $list
     $panelId = ((($list | ConvertFrom-Json).result.displays) | Where-Object { $_.hostsPanel } | Select-Object -First 1).id
     if (-not $panelId) { throw "No se pudo leer el monitor del panel: $list" }
-    $cmd = "window.external.sendMessage(JSON.stringify({v:13,id:crypto.randomUUID(),kind:'command',type:'output.open',payload:{displayId:" + ($panelId | ConvertTo-Json -Compress) + "}}));true"
+    $cmd = "window.external.sendMessage(JSON.stringify({v:14,id:crypto.randomUUID(),kind:'command',type:'output.open',payload:{displayId:" + ($panelId | ConvertTo-Json -Compress) + "}}));true"
     [void](Eval $cws $cmd)
 
     $output = $null
@@ -195,13 +195,13 @@ new Promise((resolve) => {
         $result.watchdogLogged = ((Log-Text) -match "El panel dej.+ de responder")
         # b) Por defecto la proyeccion NO muestra nada; con el ajuste activado (enviado desde la pagina de salida, porque el panel esta congelado) aparece el aviso
         $result.alertShownByDefault = [bool]((Eval $ows 'document.body.innerText.includes("PANEL SIN RESPUESTA")'))
-        [void](Eval $ows "window.external.sendMessage(JSON.stringify({v:13,id:crypto.randomUUID(),kind:'command',type:'settings.setPanelAlertOnOutput',payload:{enabled:true}}));true")
+        [void](Eval $ows "window.external.sendMessage(JSON.stringify({v:14,id:crypto.randomUUID(),kind:'command',type:'settings.setPanelAlertOnOutput',payload:{enabled:true}}));true")
         Start-Sleep -Seconds 1
         $result.alertShownWhenEnabled = [bool]((Eval $ows 'document.body.innerText.includes("PANEL SIN RESPUESTA")'))
         $result.outputStillAnimating = (Eval $ows $measure)
         # c) Atajos globales de respaldo con el panel congelado: Negro (estado inicial = negro -> Live -> Negro), Logo, Limpiar texto
         # Para que haya algo que ocultar: Live y un slide (la salida los manda como cualquier ventana; el panel esta congelado).
-        [void](Eval $ows "window.external.sendMessage(JSON.stringify({v:13,id:crypto.randomUUID(),kind:'command',type:'output.showContent',payload:{blocks:['Texto de prueba'],theme:{fontFamily:'Arial',fontSize:72,color:'#FFFFFF',outlineWidth:0,outlineColor:'#000000',shadowBlur:0,shadowOffset:0,shadowColor:'#000000',align:'center',verticalAlign:'middle',lineHeight:1.2,marginTop:50,marginRight:50,marginBottom:50,marginLeft:50,autoFit:true,minFontSize:24},transitionMs:0}}));window.external.sendMessage(JSON.stringify({v:13,id:crypto.randomUUID(),kind:'command',type:'output.setMaster',payload:{master:'live'}}));true")
+        [void](Eval $ows "window.external.sendMessage(JSON.stringify({v:14,id:crypto.randomUUID(),kind:'command',type:'output.showContent',payload:{blocks:['Texto de prueba'],theme:{fontFamily:'Arial',fontSize:72,color:'#FFFFFF',outlineWidth:0,outlineColor:'#000000',shadowBlur:0,shadowOffset:0,shadowColor:'#000000',align:'center',verticalAlign:'middle',lineHeight:1.2,marginTop:50,marginRight:50,marginBottom:50,marginLeft:50,autoFit:true,minFontSize:24},transitionMs:0}}));window.external.sendMessage(JSON.stringify({v:14,id:crypto.randomUUID(),kind:'command',type:'output.setMaster',payload:{master:'live'}}));true")
         Start-Sleep -Seconds 1
         $seq = @()
         $seq += "inicial=" + (Eval $ows $readOutput)

@@ -32,7 +32,7 @@ Estado: **diseño APROBADO con decisiones (2026-11-25); backend implementado** (
 | Pieza | Estado |
 |---|---|
 | `Playlists` (`Id`, `Name`, `ServiceDate` TEXT sin validar) y `PlaylistItems` (migraciones 1, 3, 4) | Esquema con `SequenceIndex`, `Title` (instantánea), `SongId` FK `ON DELETE SET NULL`, `PresentationId`, pasaje por referencia canónica (`BookNumber`, `Chapter`, `VerseStart/End`, `BibleAbbreviation` como TEXTO), `IsMissing` calculado, triggers que impiden crear o desvincular a mano un elemento «faltante». |
-| `PassageResolver.ResolvePlaylistAsync` | Resuelve pasajes: `Resolved`, `BibleNotInstalled` (+ `Offered` si la Biblia por defecto lo tiene), `PassageNotFound`. Nunca modifica el elemento. Probado. |
+| `PassageResolver.ResolvePlaylistAsync` | Resuelve pasajes: `Resolved`, `BibleNotInstalled` (+ `Offered` si la Biblia por defecto lo tiene), `PassageNotFound`. Nunca modifica el elemento. Probado. Desde la revisión (2026-11-26) resuelve todos los pasajes de la lista con UNA consulta. |
 | Canciones (migraciones 9–10) | `song.get` devuelve secciones y orden; `SongArrangements` admite varios órdenes por canción (hoy el editor solo usa el predeterminado); `usedInServices` ya cuenta servicios; borrar una canción deja el elemento con `IsMissing = 1`. |
 | Biblia | `bible.lookup` (con `record: false` no anota historial), paginación por medición real, `CitationHistory`. |
 | Proyección | `output.showContent`, `output.clearContent`, `output.setBackground` (carril lento), y la derivación de EN VIVO desde el estado confirmado (`bibleLiveStatus` / `songLiveStatus`). |
@@ -189,7 +189,7 @@ Se añaden: el hash en `MigrationHashTests`, `Playlists`/`PlaylistItems` en `Dat
 | `playlist.removeItem` | command | lento | `{ playlistId, itemId, expectedRevision }` |
 | `playlist.updateItem` | command | lento | `{ playlistId, itemId, title?, note?, clearOnActivate?, bibleAbbreviation?, expectedRevision }` (notas y la Biblia preferida de un pasaje, para aceptar la ofrecida) |
 | `playlist.duplicate` | command | lento | `{ id, name, serviceDate? }` → resultado con `copied` y `skipped` |
-| `playlist.delete` | command | lento | `{ id }` |
+| `playlist.delete` | command | lento | `{ id, expectedRevision }` (v14: revisión caducada → `playlist.conflict`, no borra nada) |
 | `playlist.changed` | event | — | `{ commandId, playlistId, revision, kind: created\|updated\|itemsChanged\|duplicated\|deleted, … }` (solo ids y conteos; el fallo llega como `command.failed`) |
 
 **13 mensajes** (3 queries, 9 commands, 1 event; además `output.showContent` gana `origin`, y `song.get`/`song.changed` ganan `usedInLists`). **Operaciones pequeñas en vez de «guardar la lista entera»**: una vista desactualizada no puede borrar elementos por accidente (un `save` completo reemplazaría todo), y cada comando es una transacción corta. Errores `playlist.*` (`IpcException`, sin letra ni títulos): `playlist.notFound`, `playlist.itemNotFound`, `playlist.invalidRequest`, `playlist.conflict`, `playlist.full`, `playlist.busy` (bloqueo de escritura ≈ 10 s, como Canciones), `playlist.invalidSettings`. Al subir `v`: huella nueva en `PinnedFormat`, espejo en `frontend/src/ipc/protocol.ts`, `Every_catalog_message_has_a_deliberate_lane`, y los `v:12` de `tools/*.ps1` y `media-test.ps1`/`bible-layout-test.ps1`/`song-layout-test.ps1`.

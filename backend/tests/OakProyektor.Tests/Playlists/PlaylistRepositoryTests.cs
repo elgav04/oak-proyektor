@@ -430,13 +430,13 @@ public sealed class PlaylistRepositoryTests : IAsyncLifetime
         await _repo.AddItemAsync(one, Note("n"), null, default);
         await _repo.AddItemAsync(two, Song(song), null, default);
 
-        await _repo.DeleteAsync(one, default);
+        await _repo.DeleteAsync(one, (await GetAsync(one)).Revision, default);
 
         Assert.Null(await _repo.GetDetailAsync(one, null, default));
         Assert.Equal(0, await CountAsync("PlaylistItems", $"PlaylistId = {one}"));
         Assert.Single((await GetAsync(two)).Items);
         Assert.NotNull(await _songs.GetAsync(song, default));
-        await FailsAsync(() => _repo.DeleteAsync(one, default), PlaylistErrorCodes.NotFound);
+        await FailsAsync(() => _repo.DeleteAsync(one, 1, default), PlaylistErrorCodes.NotFound);
     }
 
     [Fact]
@@ -498,7 +498,7 @@ public sealed class PlaylistRepositoryTests : IAsyncLifetime
         await FailsAsync(() => _repo.MoveItemAsync(id, item, 0, revision, default), PlaylistErrorCodes.Busy);
         await FailsAsync(() => _repo.CreateAsync("Nueva", null, null, default), PlaylistErrorCodes.Busy);
         await FailsAsync(() => _repo.DuplicateAsync(id, "Copia", null, default), PlaylistErrorCodes.Busy);
-        await FailsAsync(() => _repo.DeleteAsync(id, default), PlaylistErrorCodes.Busy);
+        await FailsAsync(() => _repo.DeleteAsync(id, revision, default), PlaylistErrorCodes.Busy);
         Assert.True(clock.Elapsed < TimeSpan.FromSeconds(30), $"esperó {clock.Elapsed}: el tiempo del comando debe acotarlo");
 
         Assert.Single((await GetAsync(id)).Items);                      // las lecturas no esperan al escritor (WAL)
@@ -540,7 +540,7 @@ public sealed class PlaylistRepositoryTests : IAsyncLifetime
             try { await attempt(); }
             catch (Exception ex) { Record(ex); }
         }
-        await _repo.DeleteAsync(copy.NewPlaylistId, default);
+        await _repo.DeleteAsync(copy.NewPlaylistId, copy.Revision, default);
 
         var logged = _log.Entries.Select(e => e.Message).Concat(_log.Entries.Where(e => e.Exception is not null).Select(e => e.Exception!.Message));
         Assert.NotEmpty(_log.Entries);

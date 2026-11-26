@@ -168,7 +168,8 @@ internal sealed class PlaylistUpdateItemHandler(IPlaylistRepository playlists, I
         var r = request.GetPayload<PlaylistUpdateItemPayload>();
         var update = new PlaylistItemUpdate(r.Title, r.Note, r.ClearOnActivate, r.BibleAbbreviation);
         var result = await PlaylistIpc.RunAsync(() => playlists.UpdateItemAsync(r.PlaylistId, r.ItemId, update, r.ExpectedRevision, cancellationToken)).ConfigureAwait(false);
-        PlaylistIpc.PublishChanged(outbox, request.Id, result.PlaylistId, result.Revision, "itemUpdated", result.ItemId);
+        // Sin cambios no hay revisión nueva ni evento (el panel no manda ediciones sin cambios: ver editor.ts).
+        if (result.Changed) PlaylistIpc.PublishChanged(outbox, request.Id, result.PlaylistId, result.Revision, "itemUpdated", result.ItemId);
         return null;
     }
 }
@@ -193,7 +194,7 @@ internal sealed class PlaylistDeleteHandler(IPlaylistRepository playlists, IOutb
     public async Task<object?> HandleAsync(IpcEnvelope request, CancellationToken cancellationToken)
     {
         var r = request.GetPayload<PlaylistDeletePayload>();
-        var result = await PlaylistIpc.RunAsync(() => playlists.DeleteAsync(r.Id, cancellationToken)).ConfigureAwait(false);
+        var result = await PlaylistIpc.RunAsync(() => playlists.DeleteAsync(r.Id, r.ExpectedRevision, cancellationToken)).ConfigureAwait(false);
         PlaylistIpc.PublishChanged(outbox, request.Id, result.PlaylistId, 0, "deleted");
         return null;
     }

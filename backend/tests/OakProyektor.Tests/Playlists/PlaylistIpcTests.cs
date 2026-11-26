@@ -181,7 +181,7 @@ public sealed class PlaylistIpcTests : IAsyncLifetime
         Assert.Equal(PlaylistErrorCodes.Conflict, (await FailureOf(IpcTypes.PlaylistMoveItem, new PlaylistMoveItemPayload(list, item, 1, revision))).Code);
         Assert.Equal(PlaylistErrorCodes.Conflict, (await FailureOf(IpcTypes.PlaylistUpdate, new PlaylistUpdatePayload(list, "Otro", null, null, revision))).Code);
         Assert.Equal(PlaylistErrorCodes.NotFound, (await FailureOf(IpcTypes.PlaylistAddItem, new PlaylistAddItemPayload(9999, NoteItem("x"), null))).Code);
-        Assert.Equal(PlaylistErrorCodes.NotFound, (await FailureOf(IpcTypes.PlaylistDelete, new PlaylistDeletePayload(9999))).Code);
+        Assert.Equal(PlaylistErrorCodes.NotFound, (await FailureOf(IpcTypes.PlaylistDelete, new PlaylistDeletePayload(9999, 1))).Code);
         Assert.Equal(PlaylistErrorCodes.NotFound, (await FailureOf(IpcTypes.PlaylistDuplicate, new PlaylistDuplicatePayload(9999, "x", null))).Code);
         Assert.Equal(PlaylistErrorCodes.InvalidRequest, (await FailureOf(IpcTypes.PlaylistCreate, new PlaylistCreatePayload("  ", null, null))).Code);
         Assert.Equal(PlaylistErrorCodes.InvalidRequest, (await FailureOf(IpcTypes.PlaylistCreate, new PlaylistCreatePayload("ok", "31/12/2026", null))).Code);
@@ -215,7 +215,7 @@ public sealed class PlaylistIpcTests : IAsyncLifetime
         Assert.Equal(2, (await GetAsync(dup.PlaylistId)).Items.Count);
         Assert.Equal(3, (await GetAsync(source)).Items.Count);                              // el origen conserva su faltante
 
-        Assert.Null(await CommandAsync(IpcTypes.PlaylistDelete, new PlaylistDeletePayload(dup.PlaylistId), id: "del"));
+        Assert.Null(await CommandAsync(IpcTypes.PlaylistDelete, new PlaylistDeletePayload(dup.PlaylistId, dup.Revision), id: "del"));
         var del = await ChangedAsync();
         Assert.Equal(("del", "deleted", 0), (del.CommandId, del.Kind, del.Revision));
     }
@@ -262,9 +262,9 @@ public sealed class PlaylistIpcTests : IAsyncLifetime
         Assert.Equal(PlaylistOnItemEnd.Next, _settings.Current.Playlists.OnItemEnd);
 
         // Un valor desconocido o numérico ni siquiera se interpreta; lo guardado sigue igual.
-        var bad = await _dispatcher.DispatchAsync("""{"v":13,"id":"s","kind":"command","type":"playlist.setSettings","payload":{"onItemEnd":"explotar"}}""", CancellationToken.None);
+        var bad = await _dispatcher.DispatchAsync("""{"v":14,"id":"s","kind":"command","type":"playlist.setSettings","payload":{"onItemEnd":"explotar"}}""", CancellationToken.None);
         Assert.Equal(IpcTypes.CommandFailed, bad!.Type);
-        var numeric = await _dispatcher.DispatchAsync("""{"v":13,"id":"s2","kind":"command","type":"playlist.setSettings","payload":{"onItemEnd":99}}""", CancellationToken.None);
+        var numeric = await _dispatcher.DispatchAsync("""{"v":14,"id":"s2","kind":"command","type":"playlist.setSettings","payload":{"onItemEnd":99}}""", CancellationToken.None);
         Assert.Equal(IpcTypes.CommandFailed, numeric!.Type);
         Assert.Equal(PlaylistOnItemEnd.Next, _settings.Current.Playlists.OnItemEnd);
     }
@@ -274,7 +274,7 @@ public sealed class PlaylistIpcTests : IAsyncLifetime
     private const string Theme = """{"fontFamily":"Arial","fontSize":72,"color":"#FFFFFF","outlineWidth":0,"outlineColor":"#000000","shadowBlur":0,"shadowOffset":0,"shadowColor":"#000000","align":"center","verticalAlign":"middle","lineHeight":1.2,"marginTop":50,"marginRight":50,"marginBottom":50,"marginLeft":50,"autoFit":true,"minFontSize":24}""";
 
     private Task<IpcEnvelope?> ShowAsync(string? originJson, string id = "show") =>
-        _dispatcher.DispatchAsync("{\"v\":13,\"id\":\"" + id + "\",\"kind\":\"command\",\"type\":\"output.showContent\",\"payload\":{\"blocks\":[\"texto sintético\"],\"theme\":" + Theme + ",\"transitionMs\":400"
+        _dispatcher.DispatchAsync("{\"v\":14,\"id\":\"" + id + "\",\"kind\":\"command\",\"type\":\"output.showContent\",\"payload\":{\"blocks\":[\"texto sintético\"],\"theme\":" + Theme + ",\"transitionMs\":400"
             + (originJson is null ? "" : ",\"origin\":" + originJson) + "}}", CancellationToken.None);
 
     [Fact]

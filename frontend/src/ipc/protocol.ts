@@ -21,8 +21,9 @@
  * v13: listas de culto (`playlist.*`): queries `playlist.list`, `playlist.get` y `playlist.getSettings`; comandos `playlist.setSettings`, `playlist.create`, `playlist.update`, `playlist.addItem`,
  * `playlist.moveItem`, `playlist.removeItem`, `playlist.updateItem`, `playlist.duplicate` y `playlist.delete`; evento `playlist.changed`. `output.showContent` lleva `origin` (ids de lista y
  * elemento, o nulo), el `Slide` lo conserva y `OutputState.schemaVersion` pasa a 2. `song.get` y `song.changed` llevan `usedInLists` (las listas por id, nombre y fecha).
+ * v14: `playlist.delete` lleva `expectedRevision` (con una revisión caducada falla con `playlist.conflict` y no borra nada).
  */
-export const PROTOCOL_VERSION = 13;
+export const PROTOCOL_VERSION = 14;
 
 export type MessageKind = "command" | "event" | "query" | "reply";
 
@@ -842,8 +843,10 @@ export interface PlaylistDuplicatePayload {
   serviceDate: string | null;
 }
 
+/** Exige la revisión vigente (v14): con una caducada falla con `playlist.conflict` y no borra nada. */
 export interface PlaylistDeletePayload {
   id: number;
+  expectedRevision: number;
 }
 
 /** `kind`: "created" | "updated" | "itemAdded" | "itemMoved" | "itemRemoved" | "itemUpdated" | "duplicated" | "deleted". Solo ids y conteos. */

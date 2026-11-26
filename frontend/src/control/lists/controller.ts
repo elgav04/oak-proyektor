@@ -488,6 +488,7 @@ export function createListController(deps: ListControllerDeps): ListController {
         const found = list.items.findIndex((i) => i.id === previous);
         cursor = found >= 0 ? found : Math.min(get().cursor, Math.max(0, list.items.length - 1));
       }
+      if (list.revision >= wantedRevision) wantedRevision = list.revision;
       set({ list, openId: id, loadingList: false, error: null, cursor, ...(reset ? { atEnd: false, notice: null, requested: null } : {}) });
       if (reset) remember(id);
       schedulePrefetch();
@@ -498,14 +499,24 @@ export function createListController(deps: ListControllerDeps): ListController {
     }
   };
 
+  // Relecturas agrupadas (80 ms): el resumen de las listas siempre; la lista ABIERTA solo si el cambio es suyo y trae una revisión que el panel aún no tiene
+  // (antes se volvía a pedir con cualquier playlist.changed, también de otra lista, y el editor la pedía otra vez al terminar cada edición).
   let refreshTimer: unknown = null;
-  const scheduleRefresh = (): void => {
+  let openNeeded = false;
+  let forceOpen = false;
+  let wantedRevision = 0;
+  const scheduleRefresh = (needOpen: boolean, force = false): void => {
+    openNeeded ||= needOpen;
+    forceOpen ||= force;
     if (refreshTimer !== null) clock.clearTimeout(refreshTimer);
     refreshTimer = clock.setTimeout(() => {
       refreshTimer = null;
       void refreshLists().catch(() => undefined);
       const id = get().openId;
-      if (id !== null) void loadList(id, false);
+      const need = forceOpen || (openNeeded && (get().list?.revision ?? -1) < wantedRevision);
+      openNeeded = false;
+      forceOpen = false;
+      if (id !== null && (need || get().list === null)) void loadList(id, false);
     }, 80);
   };
 
@@ -513,8 +524,12 @@ export function createListController(deps: ListControllerDeps): ListController {
     if (p.kind === "deleted" && p.playlistId === get().openId) {
       listToken++;
       set({ list: null, openId: null, cursor: 0, requested: null });
+      scheduleRefresh(false);
+      return;
     }
-    scheduleRefresh();
+    const mine = p.playlistId === get().openId && p.kind !== "deleted" && p.revision > (get().list?.revision ?? -1);
+    if (mine) wantedRevision = Math.max(wantedRevision, p.revision);
+    scheduleRefresh(mine);
   };
 
   const onSongChanged = (p: EventPayloads["song.changed"]): void => {
@@ -523,7 +538,8 @@ export function createListController(deps: ListControllerDeps): ListController {
     const affected = list.items.filter((i) => i.songId === p.songId);
     if (affected.length === 0) return;
     for (const item of affected) { loading.delete(item.id); setContent(item.id, null); }   // la letra cambió (o la canción se borró): el contenido memorizado ya no vale
-    scheduleRefresh();
+    // Una canción borrada pasa a faltante y una renombrada cambia de título: la lista abierta se relee aunque su revisión no cambie.
+    scheduleRefresh(true, true);
     schedulePrefetch();
   };
 

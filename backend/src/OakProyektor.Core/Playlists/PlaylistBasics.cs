@@ -98,7 +98,8 @@ public sealed record PlaylistItemInput(
 /// <summary>Cambios de un elemento (todo opcional: lo que no viene no se toca). Solo notas y la Biblia preferida de un pasaje se pueden cambiar.</summary>
 public sealed record PlaylistItemUpdate(string? Title, string? Note, bool? ClearOnActivate, string? BibleAbbreviation);
 
-public sealed record PlaylistWriteResult(long PlaylistId, int Revision, long? ItemId);
+/// <summary><c>Changed</c> = false: la petición no cambiaba nada (no se subió la revisión ni se avisa a nadie).</summary>
+public sealed record PlaylistWriteResult(long PlaylistId, int Revision, long? ItemId, bool Changed = true);
 
 public sealed record PlaylistDuplicateResult(long NewPlaylistId, int Revision, int Copied, int Skipped);
 

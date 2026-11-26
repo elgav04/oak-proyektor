@@ -212,31 +212,36 @@ public sealed class PlaylistRepository(
     public async Task<PlaylistWriteResult> UpdateItemAsync(long playlistId, long itemId, PlaylistItemUpdate update, int expectedRevision, CancellationToken cancellationToken) =>
         await WriteAsync(async (c, tx) =>
         {
-            await LockAndCheckAsync(c, tx, playlistId, expectedRevision, cancellationToken).ConfigureAwait(false);
-            var type = await c.ExecuteScalarAsync<string?>(Write("SELECT ItemType FROM PlaylistItems WHERE Id = @itemId AND PlaylistId = @playlistId", new { itemId, playlistId }, tx, cancellationToken)).ConfigureAwait(false)
-                ?? throw ItemNotFound();
+            var revision = await LockAndCheckAsync(c, tx, playlistId, expectedRevision, cancellationToken).ConfigureAwait(false);
+            var row = await c.QuerySingleOrDefaultAsync<EditableRow>(Write(
+                "SELECT ItemType, Title, Note, ClearOnActivate, BibleAbbreviation FROM PlaylistItems WHERE Id = @itemId AND PlaylistId = @playlistId",
+                new { itemId, playlistId }, tx, cancellationToken)).ConfigureAwait(false) ?? throw ItemNotFound();
 
-            switch (type)
+            // Primero se valida (un campo que no corresponde al tipo es un error aunque no cambie nada); después se compara con lo guardado, ya normalizado.
+            var changes = new List<(string Column, object? Value)>();
+            switch (row.ItemType)
             {
                 case PlaylistItemTypes.Note:
                     if (update.BibleAbbreviation is not null) throw Invalid("Una nota no tiene Biblia.");
-                    if (update.Title is not null)
-                        await c.ExecuteAsync(Write("UPDATE PlaylistItems SET Title = @t WHERE Id = @itemId", new { t = PlaylistRules.NormalizeItemTitle(update.Title), itemId }, tx, cancellationToken)).ConfigureAwait(false);
-                    if (update.Note is not null)
-                        await c.ExecuteAsync(Write("UPDATE PlaylistItems SET Note = @n WHERE Id = @itemId", new { n = PlaylistRules.NormalizeItemNote(update.Note), itemId }, tx, cancellationToken)).ConfigureAwait(false);
-                    if (update.ClearOnActivate is { } clear)
-                        await c.ExecuteAsync(Write("UPDATE PlaylistItems SET ClearOnActivate = @clear WHERE Id = @itemId", new { clear = clear ? 1 : 0, itemId }, tx, cancellationToken)).ConfigureAwait(false);
+                    if (update.Title is not null && PlaylistRules.NormalizeItemTitle(update.Title) is var title && title != row.Title) changes.Add(("Title", title));
+                    if (update.Note is not null && PlaylistRules.NormalizeItemNote(update.Note) is var note && note != row.Note) changes.Add(("Note", note));
+                    if (update.ClearOnActivate is { } clear && clear != (row.ClearOnActivate != 0)) changes.Add(("ClearOnActivate", clear ? 1 : 0));
                     break;
                 case PlaylistItemTypes.Passage:
                     if (update.Title is not null || update.Note is not null || update.ClearOnActivate is not null) throw Invalid("Un pasaje solo permite cambiar su Biblia preferida.");
-                    if (update.BibleAbbreviation is not null)
-                        await c.ExecuteAsync(Write("UPDATE PlaylistItems SET BibleAbbreviation = @b WHERE Id = @itemId", new { b = NormalizeBible(update.BibleAbbreviation), itemId }, tx, cancellationToken)).ConfigureAwait(false);
+                    if (update.BibleAbbreviation is not null && NormalizeBible(update.BibleAbbreviation) is var bible && bible != row.BibleAbbreviation) changes.Add(("BibleAbbreviation", bible));
                     break;
                 default:
                     throw Invalid("Este tipo de elemento no tiene campos editables.");
             }
-            var revision = await BumpAsync(c, tx, playlistId, cancellationToken).ConfigureAwait(false);
-            _logger.LogInformation("Lista {PlaylistId}: elemento {ItemId} editado, revisión {Revision}", playlistId, itemId, revision);
+
+            // Sin cambios: ni se escribe ni se sube la revisión (no invalida las demás vistas) ni se avisa a nadie.
+            if (changes.Count == 0) return new PlaylistWriteResult(playlistId, revision, itemId, Changed: false);
+
+            foreach (var (column, value) in changes)
+                await c.ExecuteAsync(Write($"UPDATE PlaylistItems SET {column} = @value WHERE Id = @itemId", new { value, itemId }, tx, cancellationToken)).ConfigureAwait(false);
+            revision = await BumpAsync(c, tx, playlistId, cancellationToken).ConfigureAwait(false);
+            _logger.LogInformation("Lista {PlaylistId}: elemento {ItemId} editado ({Fields} campo(s)), revisión {Revision}", playlistId, itemId, changes.Count, revision);
             return new PlaylistWriteResult(playlistId, revision, itemId);
         }, "editar un elemento", cancellationToken).ConfigureAwait(false);
 
@@ -270,10 +275,10 @@ public sealed class PlaylistRepository(
         }, "duplicar una lista", cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task<PlaylistDeleteResult> DeleteAsync(long id, CancellationToken cancellationToken) =>
+    public async Task<PlaylistDeleteResult> DeleteAsync(long id, int expectedRevision, CancellationToken cancellationToken) =>
         await WriteAsync(async (c, tx) =>
         {
-            await LockAndCheckAsync(c, tx, id, null, cancellationToken).ConfigureAwait(false);
+            await LockAndCheckAsync(c, tx, id, expectedRevision, cancellationToken).ConfigureAwait(false);   // una vista desactualizada no borra una lista que otra ventana acaba de cambiar
             await c.ExecuteAsync(Write("DELETE FROM Playlists WHERE Id = @id", new { id }, tx, cancellationToken)).ConfigureAwait(false);   // sus elementos se van en cascada; canciones y Biblias no se tocan
             _logger.LogInformation("Lista {PlaylistId} borrada", id);
             return new PlaylistDeleteResult(id);
@@ -404,6 +409,8 @@ public sealed class PlaylistRepository(
     internal static string TypeName(string dbType) => dbType.ToLowerInvariant();
 
     private sealed record SimpleRow(long Id, string Name, string? ServiceDate);
+
+    private sealed record EditableRow(string ItemType, string Title, string? Note, long ClearOnActivate, string? BibleAbbreviation);
 
     private sealed record HeadRow(long Id, string Name, string? ServiceDate, string Notes, long Revision, string? CreatedAt, string? UpdatedAt);
 

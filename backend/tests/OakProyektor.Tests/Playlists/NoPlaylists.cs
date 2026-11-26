@@ -1,4 +1,4 @@
-﻿using OakProyektor.Core.Library;
+using OakProyektor.Core.Library;
 using OakProyektor.Core.Playlists;
 using OakProyektor.Data.Repositories;
 
@@ -21,5 +21,5 @@ internal sealed class NoPlaylists : IPlaylistRepository
     public Task<PlaylistWriteResult> RemoveItemAsync(long playlistId, long itemId, int expectedRevision, CancellationToken cancellationToken) => throw Nothing();
     public Task<PlaylistWriteResult> UpdateItemAsync(long playlistId, long itemId, PlaylistItemUpdate update, int expectedRevision, CancellationToken cancellationToken) => throw Nothing();
     public Task<PlaylistDuplicateResult> DuplicateAsync(long id, string name, string? serviceDate, CancellationToken cancellationToken) => throw Nothing();
-    public Task<PlaylistDeleteResult> DeleteAsync(long id, CancellationToken cancellationToken) => throw Nothing();
+    public Task<PlaylistDeleteResult> DeleteAsync(long id, int expectedRevision, CancellationToken cancellationToken) => throw Nothing();
 }

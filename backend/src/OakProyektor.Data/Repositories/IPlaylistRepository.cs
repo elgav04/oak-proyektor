@@ -41,11 +41,15 @@ public interface IPlaylistRepository
 
     Task<PlaylistWriteResult> RemoveItemAsync(long playlistId, long itemId, int expectedRevision, CancellationToken cancellationToken);
 
-    /// <summary>Edita una nota (título, texto, limpiar al activar) o la Biblia preferida de un pasaje. Exige la revisión vigente.</summary>
+    /// <summary>
+    /// Edita una nota (título, texto, limpiar al activar) o la Biblia preferida de un pasaje. Exige la revisión vigente. Si no cambia nada (campos nulos o iguales a lo guardado)
+    /// devuelve <c>Changed = false</c> sin escribir ni subir la revisión.
+    /// </summary>
     Task<PlaylistWriteResult> UpdateItemAsync(long playlistId, long itemId, PlaylistItemUpdate update, int expectedRevision, CancellationToken cancellationToken);
 
     /// <summary>Copia la lista (orden, notas, pasajes y notas) con otro nombre y fecha. Los elementos FALTANTES no se copian (no se pueden crear sin su registro): se cuentan en <c>Skipped</c>.</summary>
     Task<PlaylistDuplicateResult> DuplicateAsync(long id, string name, string? serviceDate, CancellationToken cancellationToken);
 
-    Task<PlaylistDeleteResult> DeleteAsync(long id, CancellationToken cancellationToken);
+    /// <summary>Borra la lista y sus elementos. Exige la revisión vigente (v14): con una caducada falla con <c>playlist.conflict</c> y no borra nada.</summary>
+    Task<PlaylistDeleteResult> DeleteAsync(long id, int expectedRevision, CancellationToken cancellationToken);
 }

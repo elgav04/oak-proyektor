@@ -89,6 +89,8 @@ export interface ListEditor {
   select(id: number): void;
   selectBy(delta: number): void;
   moveItem(itemId: number, toIndex: number): void;
+  /** Mueve el elemento `delta` puestos (botones ↑/↓): se calcula con la lista que ya incluye las altas pendientes. */
+  moveBy(itemId: number, delta: number): void;
   dropItem(activeId: number, overId: number): void;
   moveSelected(delta: number): void;
   removeItem(itemId: number): void;
@@ -128,11 +130,37 @@ export function createListEditor(deps: ListEditorDeps): ListEditor {
   // ───────── la revisión de lo que el operador VE ─────────
   const known = { listId: null as number | null, revision: 0 };
   let pendingSelect: number | null = null;
+  /** La revisión más alta que dejó un cambio PROPIO confirmado: el orden optimista se retira cuando la lista leída llega a ella (sin pedirla otra vez). */
+  let lastConfirmed = 0;
+  /** Altas enviadas y aún sin confirmar, y altas confirmadas que la lista leída todavía no trae (id → revisión con que se confirmaron). */
+  let addsInFlight = 0;
+  const unseen = new Map<number, number>();
+  /** Movimientos pedidos mientras había altas sin ver: se calculan cuando la lista ya las incluye (si no, el índice saldría desplazado). */
+  const deferred: (() => void)[] = [];
+  const settled = (): boolean => {
+    if (addsInFlight > 0) return false;
+    const l = list.store.getState().list;
+    for (const [id, rev] of unseen) if (l && (l.revision >= rev || l.items.some((i) => i.id === id))) unseen.delete(id);
+    return unseen.size === 0;
+  };
+  const flushDeferred = (): void => {
+    while (deferred.length > 0 && settled()) deferred.shift()?.();
+  };
+  const whenSettled = (fn: () => void): void => {
+    if (deferred.length === 0 && settled()) fn();
+    else deferred.push(fn);
+  };
+  const settleOverlay = (): void => {
+    const l = list.store.getState().list;
+    if (get().busy === 0 && l && l.revision >= lastConfirmed && (get().localOrder !== null || get().hidden.length > 0)) set({ localOrder: null, hidden: [] });
+  };
   const sync = (): void => {
     const l = list.store.getState().list;
     if (!l) { known.listId = null; return; }
-    if (l.id !== known.listId) { known.listId = l.id; known.revision = l.revision; set({ selectedId: null, localOrder: null, hidden: [] }); }
+    if (l.id !== known.listId) { known.listId = l.id; known.revision = l.revision; lastConfirmed = 0; unseen.clear(); deferred.length = 0; set({ selectedId: null, localOrder: null, hidden: [] }); }
     else known.revision = Math.max(known.revision, l.revision);
+    settleOverlay();
+    flushDeferred();
     const sel = get().selectedId;
     const items = l.items;
     // Un elemento recién añadido puede no estar aún en la lista leída: no se le quita la selección hasta que aparezca (o termine la edición y se relea).
@@ -194,7 +222,10 @@ export function createListEditor(deps: ListEditorDeps): ListEditor {
     });
   };
   /** Un cambio PROPIO confirmado: si subió la revisión exactamente en uno, es el mismo estado que el operador ve más su cambio. */
-  const bump = (r: PlaylistChangedPayload): void => { if (r.revision === known.revision + 1) known.revision = r.revision; };
+  const bump = (r: PlaylistChangedPayload): void => {
+    if (r.revision === known.revision + 1) known.revision = r.revision;
+    lastConfirmed = Math.max(lastConfirmed, r.revision);
+  };
 
   // ───────── cola: una edición a la vez ─────────
   let chain: Promise<void> = Promise.resolve();
@@ -204,16 +235,17 @@ export function createListEditor(deps: ListEditorDeps): ListEditor {
     set({ message: { kind: d.kind, text: d.text }, localOrder: null, hidden: [] });
     await list.reload();
   };
-  const afterIdle = async (): Promise<void> => {
-    await list.reload();
-    if (!gone() && get().busy === 0) { pendingSelect = null; set({ localOrder: null, hidden: [] }); }
+  const afterIdle = (): void => {
+    // No se vuelve a pedir la lista: el controlador ya la relee con el evento de cada cambio (agrupados). Aquí solo se retira el orden optimista si ya llegó.
+    settleOverlay();
+    flushDeferred();
   };
   const enqueue = (run: () => Promise<void>): Promise<void> => {
     set((s) => ({ busy: s.busy + 1 }));
     const p = chain.then(run).catch(onError).finally(() => {
       if (gone()) return;
       set((s) => ({ busy: s.busy - 1 }));
-      if (get().busy === 0) void afterIdle();
+      if (get().busy === 0) afterIdle();
     });
     chain = p.then(() => undefined, () => undefined);
     return p;
@@ -260,7 +292,7 @@ export function createListEditor(deps: ListEditorDeps): ListEditor {
       const id = openId();
       const name = currentList()?.name ?? "";
       if (id === null) return;
-      await send("playlist.delete", { id });
+      await send("playlist.delete", { id, expectedRevision: known.revision });   // v14: una vista desactualizada no borra una lista que otra ventana acaba de cambiar
       set({ form: null });
       await list.reload();
       const next = list.store.getState().lists[0];
@@ -268,20 +300,24 @@ export function createListEditor(deps: ListEditorDeps): ListEditor {
       notify({ kind: "info", text: `Lista «${name}» borrada.` });
     });
 
-  const doNote = (form: Extract<EditForm, { kind: "note" }>, where: "end" | "after"): Promise<void> =>
-    enqueue(async () => {
+  const doNote = (form: Extract<EditForm, { kind: "note" }>, where: "end" | "after"): Promise<void> => {
+    if (form.itemId !== null) {
+      // Sin cambios (mismas reglas que el backend: recortar; texto vacío = sin texto) no se manda nada: el backend no contestaría con ningún evento.
+      const current = displayed().find((i) => i.id === form.itemId);
+      const text = form.text.trim() === "" ? null : form.text.trim();
+      if (current && current.title === form.title.trim() && (current.note ?? null) === text && current.clearOnActivate === form.clear) { set({ form: null }); return Promise.resolve(); }
+    }
+    if (form.itemId === null) return addItem({ itemType: "note", songId: null, bookNumber: null, chapter: null, verseStart: null, verseEnd: null, bibleAbbreviation: null, title: form.title.trim(), note: form.text.trim() === "" ? null : form.text.trim(), clearOnActivate: form.clear }, positionFor(where)).then(() => { if (!gone()) set({ form: null }); });
+    return enqueue(async () => {
       const id = openId();
       if (id === null) return;
-      if (form.itemId === null) {
-        const r = await send("playlist.addItem", { playlistId: id, item: { itemType: "note", songId: null, bookNumber: null, chapter: null, verseStart: null, verseEnd: null, bibleAbbreviation: null, title: form.title.trim(), note: form.text.trim() === "" ? null : form.text.trim(), clearOnActivate: form.clear }, position: positionFor(where) });
-        bump(r);
-        if (r.itemId !== null) { pendingSelect = r.itemId; set({ selectedId: r.itemId }); }
-      } else {
-        const r = await send("playlist.updateItem", { playlistId: id, itemId: form.itemId, title: form.title.trim(), note: form.text.trim(), clearOnActivate: form.clear, bibleAbbreviation: null, expectedRevision: known.revision });
+      {
+        const r = await send("playlist.updateItem", { playlistId: id, itemId: form.itemId ?? 0, title: form.title.trim(), note: form.text.trim(), clearOnActivate: form.clear, bibleAbbreviation: null, expectedRevision: known.revision });
         bump(r);
       }
       set({ form: null });
     });
+  };
 
   /** Posición para un elemento nuevo: al final (null) o justo después del seleccionado, según el orden que se ve. */
   const positionFor = (where: "end" | "after"): number | null => {
@@ -292,7 +328,15 @@ export function createListEditor(deps: ListEditorDeps): ListEditor {
   };
 
   // ───────── elementos ─────────
-  const moveItem = (itemId: number, toIndex: number): void => {
+  const moveItem = (itemId: number, toIndex: number): void => { whenSettled(() => { moveItemNow(itemId, toIndex); }); };
+  /** Mueve `delta` puestos desde donde esté el elemento CUANDO se calcule (tras las altas pendientes). */
+  const moveBy = (itemId: number, delta: number): void => {
+    whenSettled(() => {
+      const at = displayedIds().indexOf(itemId);
+      if (at >= 0) moveItemNow(itemId, at + delta);
+    });
+  };
+  const moveItemNow = (itemId: number, toIndex: number): void => {
     const ids = displayedIds();
     const next = movedOrder(ids, itemId, toIndex);
     if (next.every((id, i) => id === ids[i])) return;
@@ -320,13 +364,19 @@ export function createListEditor(deps: ListEditorDeps): ListEditor {
     });
   };
 
-  const addItem = (dto: PlaylistNewItemDto, position: number | null, replaceId: number | null = null): Promise<void> =>
-    enqueue(async () => {
+  const addItem = (dto: PlaylistNewItemDto, position: number | null, replaceId: number | null = null): Promise<void> => {
+    addsInFlight++;
+    const selectedWhenAsked = get().selectedId;
+    return enqueue(async () => {
       const id = openId();
       if (id === null) throw new EditCommandError("playlist.notFound", "No hay una lista abierta.");
       const r = await send("playlist.addItem", { playlistId: id, item: dto, position });
       bump(r);
-      if (r.itemId !== null) { pendingSelect = r.itemId; set({ selectedId: r.itemId }); }
+      if (r.itemId !== null) {
+        unseen.set(r.itemId, r.revision);
+        // Lo nuevo queda seleccionado… salvo que el operador ya haya elegido otra cosa mientras tanto.
+        if (get().selectedId === selectedWhenAsked) { pendingSelect = r.itemId; set({ selectedId: r.itemId }); }
+      }
       if (replaceId !== null) {
         try {
           bump(await send("playlist.removeItem", { playlistId: id, itemId: replaceId, expectedRevision: known.revision }));
@@ -336,7 +386,8 @@ export function createListEditor(deps: ListEditorDeps): ListEditor {
           return;
         }
       }
-    });
+    }).finally(() => { addsInFlight--; flushDeferred(); });
+  };
 
   const songDto = (songId: number): PlaylistNewItemDto => ({ itemType: "song", songId, bookNumber: null, chapter: null, verseStart: null, verseEnd: null, bibleAbbreviation: null, title: null, note: null, clearOnActivate: false });
 
@@ -360,6 +411,7 @@ export function createListEditor(deps: ListEditorDeps): ListEditor {
 
   const discard = (): void => {
     searchToken++;
+    deferred.length = 0;
     set({ form: null, replaceTarget: null, localOrder: null, hidden: [], query: "", message: null });
   };
 
@@ -432,16 +484,20 @@ export function createListEditor(deps: ListEditorDeps): ListEditor {
       if (next !== undefined) set({ selectedId: next });
     },
     moveItem,
+    moveBy,
     dropItem(activeId, overId) {
-      const to = dropIndex(displayedIds(), activeId, overId);
-      if (to !== null) moveItem(activeId, to);
+      whenSettled(() => {
+        const to = dropIndex(displayedIds(), activeId, overId);
+        if (to !== null) moveItemNow(activeId, to);
+      });
     },
     moveSelected(delta) {
-      const ids = displayedIds();
-      const sel = get().selectedId;
-      const at = sel === null ? -1 : ids.indexOf(sel);
-      if (at < 0 || sel === null) return;
-      moveItem(sel, at + delta);
+      // La selección se lee al CALCULAR el movimiento: si se acaba de añadir algo, la selección ya es lo nuevo (o lo que el operador eligió después).
+      whenSettled(() => {
+        const sel = get().selectedId;
+        const at = sel === null ? -1 : displayedIds().indexOf(sel);
+        if (sel !== null && at >= 0) moveItemNow(sel, at + delta);
+      });
     },
     removeItem,
     removeSelected() {
@@ -469,6 +525,7 @@ export function createListEditor(deps: ListEditorDeps): ListEditor {
     setPassageBible(itemId, bible) {
       const id = openId();
       if (id === null || bible.trim() === "") return;
+      if (displayed().find((i) => i.id === itemId)?.bibleAbbreviation === bible.trim()) return;   // la misma Biblia: no hay cambio (el backend no contestaría con un evento)
       void enqueue(async () => {
         bump(await send("playlist.updateItem", { playlistId: id, itemId, title: null, note: null, clearOnActivate: null, bibleAbbreviation: bible, expectedRevision: known.revision }));
         notify({ kind: "info", text: `El pasaje ahora usa la Biblia ${bible}.` });
@@ -509,14 +566,15 @@ export function createListEditor(deps: ListEditorDeps): ListEditor {
         await list.init();
         if (list.store.getState().openId === null) return { ok: false, message: "No hay ninguna lista abierta: crea o abre una en la pestaña «Lista»." };
         const name = list.store.getState().list?.name ?? "la lista";
+        addsInFlight++;
         await enqueue(async () => {
           const id = openId();
           if (id === null) throw new EditCommandError("playlist.notFound", "No hay una lista abierta.");
           const r = await send("playlist.addItem", { playlistId: id, item, position: null });
           bump(r);
-          if (r.itemId !== null) { pendingSelect = r.itemId; set({ selectedId: r.itemId }); }
+          if (r.itemId !== null) { unseen.set(r.itemId, r.revision); pendingSelect = r.itemId; set({ selectedId: r.itemId }); }
           outcome = { ok: true, message: `«${label}» se añadió al final de «${name}».` };
-        });
+        }).finally(() => { addsInFlight--; flushDeferred(); });
         if (!outcome.ok) outcome = { ok: false, message: get().message?.text ?? outcome.message };
       } catch (error) {
         outcome = { ok: false, message: errorText(error) };

@@ -58,8 +58,8 @@ function Row({ item, index, total, selected, disabled, bibles, editor }: RowProp
         <span className="w-16 text-xs font-semibold uppercase text-neutral-600">{TYPE_LABEL[item.itemType] ?? item.itemType}</span>
         <span className={`min-w-0 flex-1 truncate text-lg ${item.itemType === "note" ? "italic" : "font-semibold"} ${item.isMissing ? "text-red-700 line-through" : ""}`}>{item.title}</span>
         {item.itemType === "note" && <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => { editor.openForm("note", item.id); }}>Editar</Button>}
-        <Button type="button" variant="outline" size="sm" disabled={disabled || index === 0} aria-label={`Subir ${item.title}`} onClick={() => { editor.moveItem(item.id, index - 1); }}>↑</Button>
-        <Button type="button" variant="outline" size="sm" disabled={disabled || index === total - 1} aria-label={`Bajar ${item.title}`} onClick={() => { editor.moveItem(item.id, index + 1); }}>↓</Button>
+        <Button type="button" variant="outline" size="sm" disabled={disabled || index === 0} aria-label={`Subir ${item.title}`} onClick={() => { editor.moveBy(item.id, -1); }}>↑</Button>
+        <Button type="button" variant="outline" size="sm" disabled={disabled || index === total - 1} aria-label={`Bajar ${item.title}`} onClick={() => { editor.moveBy(item.id, 1); }}>↓</Button>
         <Button type="button" variant="outline" size="sm" disabled={disabled || problem !== null && item.isMissing} aria-label={`Duplicar ${item.title}`} title="Duplicar justo después (Ctrl+D)" onClick={() => { editor.duplicateItem(item.id); }}>Duplicar</Button>
         <Button type="button" variant="outline" size="sm" disabled={disabled} aria-label={`Quitar ${item.title}`} title="Quitar de la lista (Supr; Ctrl+Z lo recupera)" onClick={() => { editor.removeItem(item.id); }}>✕ Quitar</Button>
       </div>

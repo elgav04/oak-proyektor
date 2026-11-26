@@ -54,7 +54,8 @@ public sealed record PlaylistUpdateItemPayload(
 /// <summary><c>playlist.duplicate</c>: copia con otro nombre y fecha. Los elementos faltantes no se copian (el resultado dice cuántos).</summary>
 public sealed record PlaylistDuplicatePayload(long Id, string Name, string? ServiceDate);
 
-public sealed record PlaylistDeletePayload(long Id);
+/// <summary><c>playlist.delete</c> (v14): <c>ExpectedRevision</c> es obligatorio; con una revisión caducada falla con <c>playlist.conflict</c> sin borrar nada.</summary>
+public sealed record PlaylistDeletePayload(long Id, int ExpectedRevision);
 
 /// <summary>
 /// Evento <c>playlist.changed</c> (a la ventana de control): el RESULTADO de un comando de escritura, correlacionado por su id (un fallo llega como <c>command.failed</c>).
