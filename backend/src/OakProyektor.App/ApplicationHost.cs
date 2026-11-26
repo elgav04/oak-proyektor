@@ -156,6 +156,27 @@ internal sealed class ApplicationHost : IAsyncDisposable
         services.AddSingleton<IIpcHandler, Handlers.AlertListHandler>();
         services.AddSingleton<IIpcHandler, Handlers.AlertSaveHandler>();
         services.AddSingleton<IIpcHandler, Handlers.AlertDeleteHandler>();
+        // Biblioteca local de medios (protocolo v17): los archivos se COPIAN a <datos>\media (reproducir nunca lee de un USB ni de la red); todo lo que toca disco o BD va por el carril lento.
+        services.AddSingleton(new Media.MediaStorage(Path.Combine(paths.DataDirectory, "media")));
+        services.AddSingleton<Media.IFreeSpaceProvider, Media.DriveFreeSpaceProvider>();
+        services.AddSingleton<Media.IMediaSourceOpener, Media.FileSourceOpener>();
+        services.AddSingleton<Data.Media.IMediaRepository, Data.Media.MediaRepository>();
+        services.AddSingleton<Media.MediaImportService>();
+        services.AddSingleton<Media.MediaLibraryMaintenance>();
+        services.AddSingleton<IIpcHandler, Handlers.MediaListHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.MediaGetHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.MediaImportHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.MediaCancelImportHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.MediaRenameHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.MediaMoveHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.MediaDeleteHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.MediaCreateFolderHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.MediaRenameFolderHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.MediaDeleteFolderHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.MediaReportProbeHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.MediaSetThumbnailHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.MediaVerifyLibraryHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.MediaSetBackgroundHandler>();
         configureServices?.Invoke(services);
         _services = services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
         _logger = _services.GetRequiredService<ILogger<ApplicationHost>>();
@@ -241,7 +262,9 @@ internal sealed class ApplicationHost : IAsyncDisposable
         var db = _services.GetRequiredService<DatabaseReadiness>().StartAsync(_services.GetRequiredService<IDatabaseInitializer>(), ct);
         // Respaldo diario: en segundo plano, tras una espera, sin lanzar nunca (todo fallo queda en el log y como aviso del panel).
         var backup = Task.Run(() => _services.GetRequiredService<Data.Backups.DatabaseBackupService>().RunDailyAsync(ct), CancellationToken.None);
-        _background = [.. pump, startup, db, backup];
+        // Biblioteca de medios: al arrancar borra copias a medias y archivos huérfanos y marca los que faltan (en segundo plano, nunca retrasa nada; solo conteos en el registro).
+        var media = Task.Run(() => _services.GetRequiredService<Media.MediaLibraryMaintenance>().RunAtStartupAsync(ct), CancellationToken.None);
+        _background = [.. pump, startup, db, backup, media];
     }
 
     private void OnMainClosing()

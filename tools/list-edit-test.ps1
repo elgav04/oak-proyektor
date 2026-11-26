@@ -19,6 +19,8 @@ param(
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
+$protoV = [regex]::Match((Get-Content (Join-Path $root "frontend\src\ipc\protocol.ts") -Raw), 'PROTOCOL_VERSION\s*=\s*(\d+)').Groups[1].Value
+if (-not $protoV) { throw 'No se pudo leer PROTOCOL_VERSION de frontend\src\ipc\protocol.ts' }
 $exe = Get-ChildItem (Join-Path $root "backend\src\OakProyektor.App\bin\Debug") -Recurse -Filter OakProyektor.App.exe | Select-Object -First 1
 if (-not $exe) { throw "Compila en Debug primero (npm run build en frontend/ y dotnet build)." }
 
@@ -66,6 +68,7 @@ function Invoke-Cdp($ws, $method, $params = @{}, $timeoutMs = 8000) {
     return $null
 }
 function Eval($ws, $expr, $timeoutMs = 8000) {
+    $expr = $expr.Replace('@@V@@', $protoV)   # la version del protocolo sale de frontend\src\ipc\protocol.ts: nunca un numero a mano
     $r = Invoke-Cdp $ws "Runtime.evaluate" @{ expression = $expr; awaitPromise = $true; returnByValue = $true } $timeoutMs
     if ($null -eq $r) { return $null }
     if ($r.result.exceptionDetails) { throw ("Error en la pagina: " + ($r.result.exceptionDetails | ConvertTo-Json -Depth 4 -Compress)) }
@@ -84,7 +87,7 @@ $probeJs = @'
   const log = [];
   window.__ipcProbe = {
     log,
-    send(type, kind, payload) { const id = crypto.randomUUID(); window.external.sendMessage(JSON.stringify({ v: 16, id, kind, type, payload })); return id; },
+    send(type, kind, payload) { const id = crypto.randomUUID(); window.external.sendMessage(JSON.stringify({ v: @@V@@, id, kind, type, payload })); return id; },
   };
   window.external.receiveMessage((raw) => { try { log.push(JSON.parse(raw)); } catch { /* ignorar */ } });
   window.__longTasks = [];
@@ -116,7 +119,7 @@ function Invoke-Write($cws, [string]$type, $payload) {
 }
 function Send-FromPanel($cws, [string]$type, $payload) {
     $b64 = ConvertTo-B64Json $payload
-    [void](Eval $cws ("(() => { const p = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob('" + $b64 + "'), c => c.charCodeAt(0)))); window.external.sendMessage(JSON.stringify({v:16,id:crypto.randomUUID(),kind:'command',type:'$type',payload:p})); return true; })()"))
+    [void](Eval $cws ("(() => { const p = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob('" + $b64 + "'), c => c.charCodeAt(0)))); window.external.sendMessage(JSON.stringify({v:@@V@@,id:crypto.randomUUID(),kind:'command',type:'$type',payload:p})); return true; })()"))
 }
 
 # Teclas de CONFIANZA del navegador (no eventos sinteticos de la pagina): pasan por la misma tuberia que el teclado real dentro de la pagina.

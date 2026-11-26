@@ -12,6 +12,8 @@ import { Diagnostics } from "./Diagnostics";
 import { isDirty } from "./songs/controller";
 import { ListTab } from "./lists/ListTab";
 import { getListController, getListEditor } from "./lists/instance";
+import { getMediaController } from "./media/instance";
+import { MediaTab } from "./media/MediaTab";
 import { getSongController } from "./songs/instance";
 import { SongsTab } from "./songs/SongsTab";
 import { describeOutput, type OutputNotice } from "./outputNotice";
@@ -79,7 +81,7 @@ export function App() {
   // Elección del operador antes de abrir: ID del monitor, o null = automático. Es estado de la vista, no de negocio.
   const [selected, setSelected] = useState<string | null>(null);
   // Pestaña activa y si se ve la configuración de la Biblia: estado de la vista, no de negocio.
-  const [tab, setTab] = useState<"bible" | "songs" | "lists" | "output" | "diagnostics">("bible");
+  const [tab, setTab] = useState<"bible" | "songs" | "lists" | "media" | "output" | "diagnostics">("bible");
   const [bibleSettingsOpen, setBibleSettingsOpen] = useState(false);
   const bibleController = getBibleController();
   const songController = getSongController();
@@ -279,7 +281,7 @@ export function App() {
       <AlertBar controller={getAlertController()} connected={connected} output={output} />
 
       <nav aria-label="Secciones" className="flex gap-2 border-b">
-        {([["bible", "Biblia"], ["songs", "Canciones"], ["lists", "Lista"], ["output", "Salida"], ["diagnostics", "Diagnóstico"]] as const).map(([key, label]) => (
+        {([["bible", "Biblia"], ["songs", "Canciones"], ["lists", "Lista"], ["media", "Biblioteca"], ["output", "Salida"], ["diagnostics", "Diagnóstico"]] as const).map(([key, label]) => (
           <button
             key={key}
             type="button"
@@ -303,6 +305,8 @@ export function App() {
       {tab === "songs" && <SongsTab controller={songController} connected={connected} output={output} />}
 
       {tab === "lists" && <ListTab controller={listController} editor={listEditor} connected={connected} output={output} />}
+
+      {tab === "media" && <MediaTab controller={getMediaController()} connected={connected} />}
 
       {tab === "diagnostics" && <Diagnostics />}
 

@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using OakProyektor.App;
 using OakProyektor.App.Handlers;
+using OakProyektor.App.Media;
 using OakProyektor.Core.Display;
 using OakProyektor.Core.Output;
 using OakProyektor.Ipc;
@@ -25,13 +26,16 @@ internal sealed class NoBibles : OakProyektor.Data.Scripture.IBibleQueryService
 public class HandlerTests
 {
     private static string Msg(string kind, string type, string payload = "{}") =>
-        $$"""{"v":16,"id":"q1","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
+        $$"""{"v":17,"id":"q1","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
 
     private static (IpcDispatcher Dispatcher, FakeOutputController Output) Create(params DisplayInfo[] displays)
     {
         var output = new FakeOutputController();
         var songs = new OakProyektor.Tests.Songs.NoSongs();
         var playlists = new OakProyektor.Tests.Playlists.NoPlaylists();
+        var media = new OakProyektor.Tests.Media.NoMedia();
+        var mediaStorage = new MediaStorage(Path.Combine(Path.GetTempPath(), "oak-handler-test-media-" + Guid.NewGuid().ToString("N")));
+        var importer = new MediaImportService(media, mediaStorage, new PhysicalMediaFileSystem(), new DriveFreeSpaceProvider(), new FileSourceOpener(), new Outbox(NullLogger<Outbox>.Instance), NullLogger<MediaImportService>.Instance);
         IIpcHandler[] handlers =
         [
             new DisplayListHandler(new FakeDisplayManager(displays)),
@@ -81,6 +85,14 @@ public class HandlerTests
             new AlertShowHandler(output, new OakProyektor.Tests.Alerts.NoAlertRecorder(), new InMemorySettings()), new AlertHideHandler(output), new AlertGetSettingsHandler(new InMemorySettings()),
             new AlertSetSettingsHandler(new InMemorySettings()), new AlertListHandler(new OakProyektor.Tests.Alerts.NoAlerts()),
             new AlertSaveHandler(new OakProyektor.Tests.Alerts.NoAlerts(), new Outbox(NullLogger<Outbox>.Instance)), new AlertDeleteHandler(new OakProyektor.Tests.Alerts.NoAlerts(), new Outbox(NullLogger<Outbox>.Instance)),
+            // Biblioteca de medios (v17): una biblioteca vacía; la importación valida y falla sola (sin tocar nada) con el payload vacío.
+            new MediaListHandler(media, mediaStorage, new DriveFreeSpaceProvider()), new MediaGetHandler(media, mediaStorage), new MediaImportHandler(importer), new MediaCancelImportHandler(importer),
+            new MediaRenameHandler(media, new Outbox(NullLogger<Outbox>.Instance)), new MediaMoveHandler(media, new Outbox(NullLogger<Outbox>.Instance)),
+            new MediaDeleteHandler(media, mediaStorage, output, new Outbox(NullLogger<Outbox>.Instance), NullLogger<MediaDeleteHandler>.Instance),
+            new MediaCreateFolderHandler(media, new Outbox(NullLogger<Outbox>.Instance)), new MediaRenameFolderHandler(media, new Outbox(NullLogger<Outbox>.Instance)), new MediaDeleteFolderHandler(media, new Outbox(NullLogger<Outbox>.Instance)),
+            new MediaReportProbeHandler(media, new Outbox(NullLogger<Outbox>.Instance)), new MediaSetThumbnailHandler(media, mediaStorage, new Outbox(NullLogger<Outbox>.Instance)),
+            new MediaVerifyLibraryHandler(new MediaLibraryMaintenance(media, mediaStorage, NullLogger<MediaLibraryMaintenance>.Instance), new Outbox(NullLogger<Outbox>.Instance)),
+            new MediaSetBackgroundHandler(media, mediaStorage, new PhysicalMediaFileSystem(), output),
         ];
         return (new IpcDispatcher(handlers, NullLogger<IpcDispatcher>.Instance), output);
     }

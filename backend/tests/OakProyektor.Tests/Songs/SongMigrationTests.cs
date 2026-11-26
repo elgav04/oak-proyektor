@@ -51,8 +51,8 @@ public sealed class SongMigrationTests : IDisposable
 
         var result = await _db.Initializer.InitializeAsync(CancellationToken.None);
 
-        Assert.Equal((8, 12), (result.FromVersion, result.ToVersion));
-        Assert.Equal([9, 10, 11, 12], result.Applied);
+        Assert.Equal((8, 13), (result.FromVersion, result.ToVersion));
+        Assert.Equal([9, 10, 11, 12, 13], result.Applied);
         Assert.NotNull(result.BackupPath);   // la copia previa a migrar, que ya existía
         await using var d = await _db.OpenAsync();
         var sections = (await d.QueryAsync<(long SongId, long Position, string Kind, string Label, string Text)>(
@@ -91,7 +91,7 @@ public sealed class SongMigrationTests : IDisposable
         Assert.Equal((usedInService, 0L), (item.SongId, item.IsMissing));
         Assert.Empty(await d.QueryAsync("PRAGMA foreign_key_check"));
         Assert.Equal(1L, await d.ExecuteScalarAsync<long>("PRAGMA foreign_keys"));
-        Assert.Equal(12L, await d.ExecuteScalarAsync<long>("PRAGMA user_version"));
+        Assert.Equal(13L, await d.ExecuteScalarAsync<long>("PRAGMA user_version"));
     }
 
     [Fact]
@@ -235,7 +235,7 @@ public sealed class SongMigrationTests : IDisposable
 
         var result = await _db.Initializer.InitializeAsync(CancellationToken.None);
 
-        Assert.Equal([10, 11, 12], result.Applied);
+        Assert.Equal([10, 11, 12, 13], result.Applied);
         var after = (await repo.GetAsync(id, CancellationToken.None))!;
         Assert.Equal(before.Sections, after.Sections);
         Assert.Equal(before.Arrangement, after.Arrangement);

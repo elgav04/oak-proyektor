@@ -17,7 +17,7 @@ public class InboundProcessorTests
     }
 
     private static string Cmd(string type, string payload = "{}", string id = "x") =>
-        $$"""{"v":16,"id":"{{id}}","kind":"command","type":"{{type}}","payload":{{payload}}}""";
+        $$"""{"v":17,"id":"{{id}}","kind":"command","type":"{{type}}","payload":{{payload}}}""";
 
     private static (InboundQueue Intake, Outbox Outbox, InboundProcessor Processor) Create(params IIpcHandler[] handlers) =>
         CreateWithCapacity(InboundProcessor.DefaultLaneCapacity, handlers);
@@ -120,7 +120,7 @@ public class InboundProcessorTests
     [InlineData("command", "song.delete", IpcLane.Slow)]
     public void Every_message_belongs_to_the_lane_its_urgency_asks_for(string kind, string type, IpcLane lane)
     {
-        Assert.True(IpcSerializer.TryParse($$$"""{"v":16,"id":"x","kind":"{{{kind}}}","type":"{{{type}}}","payload":{}}""", out var env, out var err), err);
+        Assert.True(IpcSerializer.TryParse($$$"""{"v":17,"id":"x","kind":"{{{kind}}}","type":"{{{type}}}","payload":{}}""", out var env, out var err), err);
         Assert.Equal(lane, IpcPriority.LaneOf(env!));
     }
 
@@ -129,7 +129,8 @@ public class InboundProcessorTests
     {
         // Lo que NO es Live se enumera a mano: si alguien añade un comando que toca disco o ventanas y lo olvida, queda en Live y este test lo obliga a decidir.
         var slow = IpcCatalog.Messages.Where(m => IpcPriority.LaneOf(new IpcEnvelope(IpcCatalog.ProtocolVersion, "x", m.Kind, m.Type, default)) == IpcLane.Slow).Select(m => m.Type).Distinct().Order().ToArray();
-        Assert.Equal(["alert.delete", "alert.save", "bible.import", "bible.search", "output.close", "output.open", "output.retryBackground", "output.setBackground",
+        Assert.Equal(["alert.delete", "alert.save", "bible.import", "bible.search",
+                      "media.createFolder", "media.delete", "media.deleteFolder", "media.import", "media.move", "media.rename", "media.renameFolder", "media.reportProbe", "media.setBackground", "media.setThumbnail", "media.verifyLibrary", "output.close", "output.open", "output.retryBackground", "output.setBackground",
                       "playlist.addItem", "playlist.create", "playlist.delete", "playlist.duplicate", "playlist.moveItem", "playlist.removeItem", "playlist.update", "playlist.updateItem",
                       "song.delete", "song.restoreRevision", "song.save", "song.search"], slow);
     }
@@ -333,7 +334,7 @@ public class InboundProcessorTests
         Assert.Equal(Targets.Output, target1);
 
         // Una query descartada recibe un reply con error (no un command.failed), correlacionado por su id: el cliente la rechaza al instante.
-        intake.Enqueue(WindowKind.Control, """{"v":16,"id":"q9","kind":"query","type":"bible.search","payload":{}}""");
+        intake.Enqueue(WindowKind.Control, """{"v":17,"id":"q9","kind":"query","type":"bible.search","payload":{}}""");
         var (target2, reply) = await NextOutboundAsync(outbox);
         Assert.Equal(Targets.Control, target2);
         Assert.Equal(("reply", IpcTypes.BibleSearch, "q9"), (reply.Kind, reply.Type, reply.Id));

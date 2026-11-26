@@ -22,11 +22,14 @@
  * `playlist.moveItem`, `playlist.removeItem`, `playlist.updateItem`, `playlist.duplicate` y `playlist.delete`; evento `playlist.changed`. `output.showContent` lleva `origin` (ids de lista y
  * elemento, o nulo), el `Slide` lo conserva y `OutputState.schemaVersion` pasa a 2. `song.get` y `song.changed` llevan `usedInLists` (las listas por id, nombre y fecha).
  * v14: `playlist.delete` lleva `expectedRevision` (con una revisión caducada falla con `playlist.conflict` y no borra nada).
+ * v17: biblioteca local de medios (docs/DISENO_MEDIOS.md): queries `media.list` y `media.get`; comandos `media.import`, `media.cancelImport`, `media.rename`, `media.move`, `media.delete`,
+ * `media.createFolder`, `media.renameFolder`, `media.deleteFolder`, `media.reportProbe`, `media.setThumbnail`, `media.verifyLibrary` y `media.setBackground`; eventos `media.importProgress`,
+ * `media.importFinished` y `media.changed` (sin nombres ni rutas en eventos de progreso; ids y bytes).
  * v16: `AlertSettingsPayload` lleva `tickerEnabled` (interruptor de seguridad del desplazamiento; apagado, `alert.show` en modo `ticker` se rechaza).
  * v15: alertas rápidas (capa 3): `OutputState.overlays` pasa de `{ items }` a `{ alert }` (`schemaVersion` 3); comandos `alert.show` y `alert.hide` (carril de PRIORIDAD: solo tocan memoria),
  * `alert.setSettings`, `alert.save` y `alert.delete`; queries `alert.getSettings` y `alert.list`; evento `alert.changed` (solo ids). Freeze ya NO congela la alerta.
  */
-export const PROTOCOL_VERSION = 16;
+export const PROTOCOL_VERSION = 17;
 
 export type MessageKind = "command" | "event" | "query" | "reply";
 
@@ -117,6 +120,25 @@ export const MESSAGE_CATALOG = [
   { type: "alert.save", kind: "command" },
   { type: "alert.delete", kind: "command" },
   { type: "alert.changed", kind: "event" },
+  { type: "media.list", kind: "query" },
+  { type: "media.list", kind: "reply" },
+  { type: "media.get", kind: "query" },
+  { type: "media.get", kind: "reply" },
+  { type: "media.import", kind: "command" },
+  { type: "media.cancelImport", kind: "command" },
+  { type: "media.rename", kind: "command" },
+  { type: "media.move", kind: "command" },
+  { type: "media.delete", kind: "command" },
+  { type: "media.createFolder", kind: "command" },
+  { type: "media.renameFolder", kind: "command" },
+  { type: "media.deleteFolder", kind: "command" },
+  { type: "media.reportProbe", kind: "command" },
+  { type: "media.setThumbnail", kind: "command" },
+  { type: "media.verifyLibrary", kind: "command" },
+  { type: "media.setBackground", kind: "command" },
+  { type: "media.importProgress", kind: "event" },
+  { type: "media.importFinished", kind: "event" },
+  { type: "media.changed", kind: "event" },
   { type: "bible.setSettings", kind: "command" },
 ] as const;
 
@@ -960,6 +982,154 @@ export interface AlertSettingsPayload {
   tickerEnabled: boolean;
 }
 
+/** Tipo de un elemento de la biblioteca de medios (v17). */
+export type MediaItemKind = "video" | "audio" | "image";
+/** `pending`: copiado y sin verificar; `ok`: se reproduce en este equipo; `unsupported`: no se puede proyectar (`statusCode` dice por qué); `missing`: el archivo desapareció. */
+export type MediaStatus = "pending" | "ok" | "unsupported" | "missing";
+
+export interface MediaFolderDto {
+  id: number;
+  name: string;
+  itemCount: number;
+}
+
+/**
+ * Un elemento de la biblioteca. `fileUrl`: URL `file:///` de la COPIA local (nula si falta); la usa el panel para verificar y sacar la miniatura. `thumbnailUrl` nula = sin miniatura aún.
+ * `statusCode`/`statusMessage`: motivo si no se puede usar o aviso si se puede (p. ej. HEVC). `durationMs` nulo = desconocida.
+ */
+export interface MediaItemDto {
+  id: number;
+  kind: MediaItemKind;
+  name: string;
+  folderId: number | null;
+  originalFileName: string;
+  ext: string;
+  bytes: number;
+  durationMs: number | null;
+  width: number | null;
+  height: number | null;
+  container: string | null;
+  videoCodec: string | null;
+  audioCodec: string | null;
+  hasAudio: boolean;
+  status: MediaStatus;
+  statusCode: string | null;
+  statusMessage: string | null;
+  fileUrl: string | null;
+  thumbnailUrl: string | null;
+  revision: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** `folderId` nulo = todas las carpetas; `onlyUnfiled` = solo los que no están en ninguna; `query` filtra por nombre; como mucho 500 por consulta. */
+export interface MediaListRequest {
+  folderId: number | null;
+  onlyUnfiled: boolean;
+  kind: MediaItemKind | null;
+  query: string | null;
+  limit: number | null;
+}
+
+/** `totalBytes`/`totalItems`: toda la biblioteca; `freeBytes`: espacio libre del disco de datos (−1 si no se sabe). */
+export interface MediaListPayload {
+  folders: MediaFolderDto[];
+  items: MediaItemDto[];
+  truncated: boolean;
+  totalItems: number;
+  totalBytes: number;
+  freeBytes: number;
+}
+
+export interface MediaGetRequest {
+  id: number;
+}
+
+/** Vuelve al instante: la copia corre en segundo plano (una a la vez). `path` es la ruta COMPLETA del archivo (local, extraíble o de red). */
+export interface MediaImportPayload {
+  path: string;
+  name: string | null;
+  folderId: number | null;
+}
+
+export interface MediaRenamePayload {
+  id: number;
+  name: string;
+}
+
+export interface MediaMovePayload {
+  id: number;
+  folderId: number | null;
+}
+
+/** Se rechaza (`media.inUse`) si es el fondo que está en la salida. */
+export interface MediaDeletePayload {
+  id: number;
+}
+
+export interface MediaCreateFolderPayload {
+  name: string;
+}
+
+export interface MediaRenameFolderPayload {
+  id: number;
+  name: string;
+}
+
+export interface MediaDeleteFolderPayload {
+  id: number;
+}
+
+/** Lo que el panel averiguó al cargar la copia en su reproductor oculto. `errorCode`: "unsupported" | "audioUnsupported" | "decode" | "timeout". */
+export interface MediaReportProbePayload {
+  mediaId: number;
+  ok: boolean;
+  durationMs: number | null;
+  width: number | null;
+  height: number | null;
+  errorCode: string | null;
+}
+
+/** Miniatura JPEG (≤ 200 KB, ≤ 640×360) en base64. */
+export interface MediaSetThumbnailPayload {
+  mediaId: number;
+  jpegBase64: string;
+}
+
+export interface MediaSetBackgroundPayload {
+  mediaId: number;
+  muted: boolean;
+  transitionMs: number;
+}
+
+/** Avance de la importación (`importId` = id del comando `media.import`). Solo bytes: ni nombres ni rutas. */
+export interface MediaImportProgressPayload {
+  importId: string;
+  phase: string;
+  doneBytes: number;
+  totalBytes: number;
+}
+
+/** Un duplicado NO es un fallo técnico: `errorCode` = "media.duplicate" con `duplicateOfId` y `duplicateOfName`. `warningCode`: importó con un aviso (HEVC, AC-3…). */
+export interface MediaImportFinishedPayload {
+  importId: string;
+  ok: boolean;
+  errorCode: string | null;
+  errorMessage: string | null;
+  mediaId: number | null;
+  warningCode: string | null;
+  warningMessage: string | null;
+  duplicateOfId: number | null;
+  duplicateOfName: string | null;
+}
+
+/** `kind`: "added" | "updated" | "deleted" | "folders" | "verified". `count`: faltantes al verificar. */
+export interface MediaChangedPayload {
+  commandId: string;
+  kind: string;
+  mediaId: number | null;
+  count: number;
+}
 /** Payload de cada comando (UI → C#). */
 export interface CommandPayloads {
   "output.open": OutputOpenPayload;
@@ -995,6 +1165,18 @@ export interface CommandPayloads {
   "alert.setSettings": AlertSettingsPayload;
   "alert.save": AlertSavePayload;
   "alert.delete": AlertDeletePayload;
+  "media.import": MediaImportPayload;
+  "media.cancelImport": EmptyPayload;
+  "media.rename": MediaRenamePayload;
+  "media.move": MediaMovePayload;
+  "media.delete": MediaDeletePayload;
+  "media.createFolder": MediaCreateFolderPayload;
+  "media.renameFolder": MediaRenameFolderPayload;
+  "media.deleteFolder": MediaDeleteFolderPayload;
+  "media.reportProbe": MediaReportProbePayload;
+  "media.setThumbnail": MediaSetThumbnailPayload;
+  "media.verifyLibrary": EmptyPayload;
+  "media.setBackground": MediaSetBackgroundPayload;
 }
 
 /** Payload de cada evento (C# → UI). */
@@ -1009,6 +1191,9 @@ export interface EventPayloads {
   "song.changed": SongChangedPayload;
   "playlist.changed": PlaylistChangedPayload;
   "alert.changed": AlertChangedPayload;
+  "media.importProgress": MediaImportProgressPayload;
+  "media.importFinished": MediaImportFinishedPayload;
+  "media.changed": MediaChangedPayload;
 }
 
 /** Payload de cada query y de su reply. */
@@ -1035,6 +1220,8 @@ export interface QueryPayloads {
   "playlist.getSettings": { request: EmptyPayload; reply: PlaylistSettingsPayload };
   "alert.getSettings": { request: EmptyPayload; reply: AlertSettingsPayload };
   "alert.list": { request: EmptyPayload; reply: AlertListPayload };
+  "media.list": { request: MediaListRequest; reply: MediaListPayload };
+  "media.get": { request: MediaGetRequest; reply: MediaItemDto };
 }
 
 export type CommandType = keyof CommandPayloads;

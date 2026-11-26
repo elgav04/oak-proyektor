@@ -140,6 +140,25 @@ public partial class ProtocolFormatTests
         new(typeof(AlertDeletePayload), "AlertDeletePayload", Direction.ToBackend),
         new(typeof(AlertChangedPayload), "AlertChangedPayload", Direction.FromBackend),
         new(typeof(AlertSettingsPayload), "AlertSettingsPayload", Direction.FromBackend),
+        // Biblioteca de medios (v17)
+        new(typeof(MediaFolderDto), "MediaFolderDto", Direction.FromBackend),
+        new(typeof(MediaItemDto), "MediaItemDto", Direction.FromBackend),
+        new(typeof(MediaListRequest), "MediaListRequest", Direction.ToBackend),
+        new(typeof(MediaListPayload), "MediaListPayload", Direction.FromBackend),
+        new(typeof(MediaGetRequest), "MediaGetRequest", Direction.ToBackend),
+        new(typeof(MediaImportPayload), "MediaImportPayload", Direction.ToBackend),
+        new(typeof(MediaRenamePayload), "MediaRenamePayload", Direction.ToBackend),
+        new(typeof(MediaMovePayload), "MediaMovePayload", Direction.ToBackend),
+        new(typeof(MediaDeletePayload), "MediaDeletePayload", Direction.ToBackend),
+        new(typeof(MediaCreateFolderPayload), "MediaCreateFolderPayload", Direction.ToBackend),
+        new(typeof(MediaRenameFolderPayload), "MediaRenameFolderPayload", Direction.ToBackend),
+        new(typeof(MediaDeleteFolderPayload), "MediaDeleteFolderPayload", Direction.ToBackend),
+        new(typeof(MediaReportProbePayload), "MediaReportProbePayload", Direction.ToBackend),
+        new(typeof(MediaSetThumbnailPayload), "MediaSetThumbnailPayload", Direction.ToBackend),
+        new(typeof(MediaSetBackgroundPayload), "MediaSetBackgroundPayload", Direction.ToBackend),
+        new(typeof(MediaImportProgressPayload), "MediaImportProgressPayload", Direction.FromBackend),
+        new(typeof(MediaImportFinishedPayload), "MediaImportFinishedPayload", Direction.FromBackend),
+        new(typeof(MediaChangedPayload), "MediaChangedPayload", Direction.FromBackend),
     ];
 
     /// <summary>Alias de tipo de protocol.ts → enum de C# que representa. <c>RecoverReason</c> es un SUBCONJUNTO de <c>OutputPauseReason</c> a propósito.</summary>
@@ -158,9 +177,11 @@ public partial class ProtocolFormatTests
         ["PlaylistOnItemEnd"] = typeof(PlaylistOnItemEnd),
         ["AlertMode"] = typeof(AlertMode),
         ["AlertPosition"] = typeof(AlertPosition),
+        ["MediaItemKind"] = typeof(OakProyektor.Core.Media.MediaItemKind),
+        ["MediaStatus"] = typeof(OakProyektor.Core.Media.MediaStatus),
     };
 
-    private static readonly Type[] WireEnums = [typeof(MasterMode), typeof(DatabaseState), typeof(OutputPauseReason), typeof(DisplayLostPolicy), typeof(BackgroundKind), typeof(TextAlign), typeof(VerticalAlign), typeof(BackgroundFailureReason), typeof(SongAtEnd), typeof(PlaylistOnItemEnd), typeof(AlertMode), typeof(AlertPosition)];
+    private static readonly Type[] WireEnums = [typeof(MasterMode), typeof(DatabaseState), typeof(OutputPauseReason), typeof(DisplayLostPolicy), typeof(BackgroundKind), typeof(TextAlign), typeof(VerticalAlign), typeof(BackgroundFailureReason), typeof(SongAtEnd), typeof(PlaylistOnItemEnd), typeof(AlertMode), typeof(AlertPosition), typeof(OakProyektor.Core.Media.MediaItemKind), typeof(OakProyektor.Core.Media.MediaStatus)];
 
     /// <summary>Nombre en protocol.ts de los tipos de C# cuyo nombre difiere.</summary>
     private static string TsNameOf(Type t) => t == typeof(IpcError) ? "IpcErrorPayload" : t.Name;
@@ -185,6 +206,7 @@ public partial class ProtocolFormatTests
         [14] = "e0768d6ecbc44666b7309de16b19dc0587e45d1bace62727cf3782ed2c05b2bf",
         [15] = "9a98aaa8e55b263b37488e12c03af0389f1466eafe4218765c2a51771785bd6a",
         [16] = "e909a84aa5f125e235cf600c31fa72392b7c083cd1aecd6f133ef8817b8a02e4",
+        [17] = "0d4f38db9c0da33f9fb973a868e093bd0304935e6fc4683f8dc17f36efb247e8",
     };
 
     // ───────────────────────────── lectura de C# ─────────────────────────────

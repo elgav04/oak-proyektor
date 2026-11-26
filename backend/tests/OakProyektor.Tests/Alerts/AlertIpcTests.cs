@@ -135,7 +135,7 @@ public sealed class AlertIpcTests : IAsyncLifetime
         Assert.Equal(0, _output.Alerts.Single().DurationSec);
 
         // Un modo desconocido ni siquiera deserializa: el despachador lo rechaza sin que llegue nada a la salida.
-        var raw = await _dispatcher.DispatchAsync("""{"v":16,"id":"c9","kind":"command","type":"alert.show","payload":{"text":"AVISO DE PRUEBA 1","mode":"volando","durationSec":30}}""", CancellationToken.None);
+        var raw = await _dispatcher.DispatchAsync("""{"v":17,"id":"c9","kind":"command","type":"alert.show","payload":{"text":"AVISO DE PRUEBA 1","mode":"volando","durationSec":30}}""", CancellationToken.None);
         Assert.Equal(IpcTypes.CommandFailed, raw!.Type);
         Assert.Single(_output.Alerts);   // solo la de duración 0
     }

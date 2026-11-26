@@ -131,7 +131,7 @@ public static partial class MediaPathValidator
     /// <summary>
     /// <c>file:///C:/carpeta/archivo.mp4</c> con cada segmento escapado. No se usa <c>new Uri(ruta).AbsoluteUri</c>: no escapa «%», y «a%20b.mp4» apuntaría a «a b.mp4» (otro archivo).
     /// </summary>
-    internal static string ToFileUrl(string canonicalPath)
+    public static string ToFileUrl(string canonicalPath)
     {
         var rest = canonicalPath[3..].Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries);
         return $"file:///{char.ToUpperInvariant(canonicalPath[0])}:/" + string.Join("/", rest.Select(Uri.EscapeDataString));

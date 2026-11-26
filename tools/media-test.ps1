@@ -27,6 +27,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
+$protoV = [regex]::Match((Get-Content (Join-Path $root "frontend\src\ipc\protocol.ts") -Raw), 'PROTOCOL_VERSION\s*=\s*(\d+)').Groups[1].Value
+if (-not $protoV) { throw 'No se pudo leer PROTOCOL_VERSION de frontend\src\ipc\protocol.ts' }
 $exe = Get-ChildItem (Join-Path $root "backend\src\OakProyektor.App\bin\Debug") -Recurse -Filter OakProyektor.App.exe | Select-Object -First 1
 if (-not $exe) { throw "Compila en Debug primero (npm run build en frontend/ y dotnet build)." }
 
@@ -75,6 +77,7 @@ function Invoke-Cdp($ws, $method, $params = @{}, $timeoutMs = 8000) {
     return $null
 }
 function Eval($ws, $expr, $timeoutMs = 8000) {
+    $expr = $expr.Replace('@@V@@', $protoV)   # la version del protocolo sale de frontend\src\ipc\protocol.ts: nunca un numero a mano
     $r = Invoke-Cdp $ws "Runtime.evaluate" @{ expression = $expr; awaitPromise = $true; returnByValue = $true } $timeoutMs
     if ($null -eq $r) { return $null }
     if ($r.result.exceptionDetails) { throw ("Error en la pagina: " + ($r.result.exceptionDetails | ConvertTo-Json -Depth 4 -Compress)) }
@@ -82,7 +85,7 @@ function Eval($ws, $expr, $timeoutMs = 8000) {
 }
 function Send-Command($ws, [string]$type, $payload) {
     $json = $payload | ConvertTo-Json -Depth 8 -Compress
-    [void](Eval $ws ("window.external.sendMessage(JSON.stringify({v:16,id:crypto.randomUUID(),kind:'command',type:'$type',payload:$json}));true"))
+    [void](Eval $ws ("window.external.sendMessage(JSON.stringify({v:@@V@@,id:crypto.randomUUID(),kind:'command',type:'$type',payload:$json}));true"))
 }
 
 # Memoria PRIVADA de los procesos del navegador de la SALIDA (su perfil esta en la linea de comandos), por tipo.
@@ -138,10 +141,10 @@ try {
     if (-not $control) { throw "No aparecio el panel" }
     $cws = Connect-Cdp $control.webSocketDebuggerUrl
     Start-Sleep -Seconds 2
-    $list = Eval $cws '(async () => { const id = crypto.randomUUID(); return await new Promise((resolve) => { window.external.receiveMessage((raw) => { const m = JSON.parse(raw); if (m.id === id) resolve(JSON.stringify(m.payload)); }); window.external.sendMessage(JSON.stringify({ v:16, id, kind: "query", type: "display.list", payload: {} })); }); })()'
+    $list = Eval $cws '(async () => { const id = crypto.randomUUID(); return await new Promise((resolve) => { window.external.receiveMessage((raw) => { const m = JSON.parse(raw); if (m.id === id) resolve(JSON.stringify(m.payload)); }); window.external.sendMessage(JSON.stringify({ v:@@V@@, id, kind: "query", type: "display.list", payload: {} })); }); })()'
     $panelId = ((($list | ConvertFrom-Json).result.displays) | Where-Object { $_.hostsPanel } | Select-Object -First 1).id
     if (-not $panelId) { throw "No se pudo leer el monitor del panel: $list" }
-    [void](Eval $cws ("window.external.sendMessage(JSON.stringify({v:16,id:crypto.randomUUID(),kind:'command',type:'output.open',payload:{displayId:" + ($panelId | ConvertTo-Json -Compress) + "}}));true"))
+    [void](Eval $cws ("window.external.sendMessage(JSON.stringify({v:@@V@@,id:crypto.randomUUID(),kind:'command',type:'output.open',payload:{displayId:" + ($panelId | ConvertTo-Json -Compress) + "}}));true"))
     $output = $null
     for ($i = 0; $i -lt 40 -and -not $output; $i++) { Start-Sleep -Milliseconds 500; $output = Get-Targets "output" | Where-Object { $_.type -eq "page" -and $_.url -match "output\.html" } | Select-Object -First 1 }
     if (-not $output) { throw "No aparecio la ventana de salida" }

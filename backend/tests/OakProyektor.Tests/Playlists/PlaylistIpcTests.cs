@@ -262,9 +262,9 @@ public sealed class PlaylistIpcTests : IAsyncLifetime
         Assert.Equal(PlaylistOnItemEnd.Next, _settings.Current.Playlists.OnItemEnd);
 
         // Un valor desconocido o numérico ni siquiera se interpreta; lo guardado sigue igual.
-        var bad = await _dispatcher.DispatchAsync("""{"v":16,"id":"s","kind":"command","type":"playlist.setSettings","payload":{"onItemEnd":"explotar"}}""", CancellationToken.None);
+        var bad = await _dispatcher.DispatchAsync("""{"v":17,"id":"s","kind":"command","type":"playlist.setSettings","payload":{"onItemEnd":"explotar"}}""", CancellationToken.None);
         Assert.Equal(IpcTypes.CommandFailed, bad!.Type);
-        var numeric = await _dispatcher.DispatchAsync("""{"v":16,"id":"s2","kind":"command","type":"playlist.setSettings","payload":{"onItemEnd":99}}""", CancellationToken.None);
+        var numeric = await _dispatcher.DispatchAsync("""{"v":17,"id":"s2","kind":"command","type":"playlist.setSettings","payload":{"onItemEnd":99}}""", CancellationToken.None);
         Assert.Equal(IpcTypes.CommandFailed, numeric!.Type);
         Assert.Equal(PlaylistOnItemEnd.Next, _settings.Current.Playlists.OnItemEnd);
     }
@@ -274,7 +274,7 @@ public sealed class PlaylistIpcTests : IAsyncLifetime
     private const string Theme = """{"fontFamily":"Arial","fontSize":72,"color":"#FFFFFF","outlineWidth":0,"outlineColor":"#000000","shadowBlur":0,"shadowOffset":0,"shadowColor":"#000000","align":"center","verticalAlign":"middle","lineHeight":1.2,"marginTop":50,"marginRight":50,"marginBottom":50,"marginLeft":50,"autoFit":true,"minFontSize":24}""";
 
     private Task<IpcEnvelope?> ShowAsync(string? originJson, string id = "show") =>
-        _dispatcher.DispatchAsync("{\"v\":16,\"id\":\"" + id + "\",\"kind\":\"command\",\"type\":\"output.showContent\",\"payload\":{\"blocks\":[\"texto sintético\"],\"theme\":" + Theme + ",\"transitionMs\":400"
+        _dispatcher.DispatchAsync("{\"v\":17,\"id\":\"" + id + "\",\"kind\":\"command\",\"type\":\"output.showContent\",\"payload\":{\"blocks\":[\"texto sintético\"],\"theme\":" + Theme + ",\"transitionMs\":400"
             + (originJson is null ? "" : ",\"origin\":" + originJson) + "}}", CancellationToken.None);
 
     [Fact]

@@ -334,3 +334,15 @@ Mensajes (códigos estables `media.*`, texto en español puesto por el backend, 
 **Prompt 3 — Listas, fondo por canción y cierre (protocolo v19, migración 14).** Tipo `MEDIA` en `PlaylistItems` (reconstrucción sin perder nada), `StartMode`/`OnEnd`/`Loop`, navegación y activo derivados del `origin`, `media.ended { next }` con el panel, modo EDITAR (añadir desde la biblioteca), `Songs.BackgroundMediaId`, mensajes de formatos no soportados completos, prueba de resistencia (`soak`) con video en primer plano + audio + texto, y la documentación final en `CLAUDE.md`.
 
 Cada prompt empieza con el árbol limpio (commit previo) y termina informando por separado lo verificado y lo no verificado.
+
+
+## Estado del prompt 1 (biblioteca de medios; 2026-11-26)
+
+Hecho: migración 13, importación con copia y SHA-256, duplicados por contenido, disco lleno, abandono a los 15 s sin avance, sonda de cabeceras (duración y códec), verificación y miniaturas en el navegador del panel, pestaña «Biblioteca», protocolo v17 y scripts de `tools/` con la versión leída de `protocol.ts`.
+
+Desviaciones respecto al diseño:
+- No existen `media.getSettings/setSettings` en la v17: los límites (4 GiB, reserva `max(1 GiB, 5 %)`, 15 s, 200 KB de miniatura) son constantes en `MediaLimits`. Se pueden pasar a ajustes cuando haga falta.
+- Un formato claramente no soportado se rechaza al importar por sus cabeceras; `unsupported` como estado solo aparece cuando el navegador no logra reproducir un archivo ya importado.
+- `media.cancelImport` va por el carril en vivo (solo activa un token), no por el lento.
+
+Decisiones tomadas en las preguntas abiertas (recomendaciones del diseño): el fondo sigue sin pausarse bajo un video en primer plano; Texto limpio/Negro/Logo pausan y silencian el video en primer plano; modo de inicio PLAY para video y READY para audio; límite de 4 GiB por archivo y reserva de disco `max(1 GiB, 5 %)`; carpetas planas sin etiquetas; ffmpeg solo como ayuda opcional (no es necesario); audio MP3/M4A/AAC/WAV/FLAC.

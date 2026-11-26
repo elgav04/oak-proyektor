@@ -1,4 +1,4 @@
-﻿namespace OakProyektor.Ipc;
+namespace OakProyektor.Ipc;
 
 /// <summary>Carril de entrada de un mensaje (ver <see cref="IpcPriority.LaneOf"/>).</summary>
 public enum IpcLane
@@ -46,7 +46,10 @@ public static class IpcPriority
                 or IpcTypes.SongSearch or IpcTypes.SongSave or IpcTypes.SongRestoreRevision or IpcTypes.SongDelete
                 or IpcTypes.PlaylistCreate or IpcTypes.PlaylistUpdate or IpcTypes.PlaylistAddItem or IpcTypes.PlaylistMoveItem or IpcTypes.PlaylistRemoveItem
                 or IpcTypes.PlaylistUpdateItem or IpcTypes.PlaylistDuplicate or IpcTypes.PlaylistDelete
-                or IpcTypes.AlertSave or IpcTypes.AlertDelete => IpcLane.Slow,
+                or IpcTypes.AlertSave or IpcTypes.AlertDelete
+                // Biblioteca de medios: TODO lo que toca disco o la BD (importar, renombrar, mover, borrar, carpetas, miniaturas, verificar, servir un fondo) va por el carril lento.
+                or IpcTypes.MediaImport or IpcTypes.MediaRename or IpcTypes.MediaMove or IpcTypes.MediaDelete or IpcTypes.MediaCreateFolder or IpcTypes.MediaRenameFolder
+                or IpcTypes.MediaDeleteFolder or IpcTypes.MediaReportProbe or IpcTypes.MediaSetThumbnail or IpcTypes.MediaVerifyLibrary or IpcTypes.MediaSetBackground => IpcLane.Slow,
             _ => IpcLane.Live,
         };
     }

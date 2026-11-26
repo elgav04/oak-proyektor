@@ -33,10 +33,10 @@ public sealed class AlertDataTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task The_migration_adds_only_the_alerts_table_and_leaves_the_version_at_12()
+    public async Task The_migration_adds_only_the_alerts_table()
     {
         await using var c = await _db.OpenAsync();
-        Assert.Equal(12L, await c.ExecuteScalarAsync<long>("PRAGMA user_version"));
+        Assert.Equal((long)OakProyektor.Data.DatabaseInitializer.LatestSchemaVersion, await c.ExecuteScalarAsync<long>("PRAGMA user_version"));
         Assert.Equal(1L, await c.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'Alerts'"));
         Assert.Equal(0L, await c.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM Alerts"));
         Assert.Empty(await c.QueryAsync("PRAGMA foreign_key_check"));

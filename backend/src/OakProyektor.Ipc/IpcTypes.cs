@@ -1,4 +1,4 @@
-﻿namespace OakProyektor.Ipc;
+namespace OakProyektor.Ipc;
 
 public static class IpcKind
 {
@@ -76,6 +76,23 @@ public static class IpcTypes
     public const string AlertSave = "alert.save";
     public const string AlertDelete = "alert.delete";
     public const string AlertChanged = "alert.changed";
+    public const string MediaList = "media.list";
+    public const string MediaGet = "media.get";
+    public const string MediaImport = "media.import";
+    public const string MediaCancelImport = "media.cancelImport";
+    public const string MediaRename = "media.rename";
+    public const string MediaMove = "media.move";
+    public const string MediaDelete = "media.delete";
+    public const string MediaCreateFolder = "media.createFolder";
+    public const string MediaRenameFolder = "media.renameFolder";
+    public const string MediaDeleteFolder = "media.deleteFolder";
+    public const string MediaReportProbe = "media.reportProbe";
+    public const string MediaSetThumbnail = "media.setThumbnail";
+    public const string MediaVerifyLibrary = "media.verifyLibrary";
+    public const string MediaSetBackground = "media.setBackground";
+    public const string MediaImportProgress = "media.importProgress";
+    public const string MediaImportFinished = "media.importFinished";
+    public const string MediaChanged = "media.changed";
 }
 
 public sealed record MessageDescriptor(string Type, string Kind);
@@ -108,12 +125,15 @@ public static class IpcCatalog
     /// <c>output.showContent</c> lleva <c>origin</c> (ids de lista y elemento, o nulo), el <c>Slide</c> lo conserva y <c>OutputState.SchemaVersion</c> pasa a 2.
     /// <c>song.get</c> y <c>song.changed</c> llevan <c>usedInLists</c> (las listas por id, nombre y fecha).
     /// v14: <c>playlist.delete</c> lleva <c>expectedRevision</c> (una vista desactualizada no borra una lista que otra ventana acaba de cambiar; falla con <c>playlist.conflict</c>).
+    /// v17: biblioteca local de medios (docs/DISENO_MEDIOS.md, prompt 1): queries `media.list` y `media.get`; comandos `media.import`, `media.cancelImport`, `media.rename`, `media.move`, `media.delete`,
+    /// `media.createFolder`, `media.renameFolder`, `media.deleteFolder`, `media.reportProbe` y `media.setThumbnail` (los manda el panel tras verificar el archivo en su reproductor), `media.verifyLibrary` y
+    /// `media.setBackground { mediaId }`; eventos `media.importProgress`, `media.importFinished` y `media.changed` (sin nombres ni rutas, solo ids y bytes). Migración 13.
     /// v16: `AlertSettingsPayload` y `AlertDisplaySettings` llevan `tickerEnabled` (interruptor de seguridad del desplazamiento; apagado, `alert.show` en modo `ticker` se rechaza).
     /// v15: alertas rápidas (capa 3): <c>OutputState.overlays</c> pasa de <c>{ items }</c> a <c>{ alert }</c> (una <c>AlertOverlay</c> o nulo; <c>schemaVersion</c> 3); comandos <c>alert.show</c> y
     /// <c>alert.hide</c> (carril de PRIORIDAD: solo tocan memoria), <c>alert.setSettings</c>, <c>alert.save</c> y <c>alert.delete</c>; queries <c>alert.getSettings</c> y <c>alert.list</c>;
     /// evento <c>alert.changed</c> (resultado de guardar o borrar; solo ids). Freeze ya NO congela la alerta.
     /// </summary>
-    public const int ProtocolVersion = 16;
+    public const int ProtocolVersion = 17;
 
     public static IReadOnlyList<MessageDescriptor> Messages { get; } =
     [
@@ -204,6 +224,25 @@ public static class IpcCatalog
         new(IpcTypes.AlertSave, IpcKind.Command),
         new(IpcTypes.AlertDelete, IpcKind.Command),
         new(IpcTypes.AlertChanged, IpcKind.Event),
+        new(IpcTypes.MediaList, IpcKind.Query),
+        new(IpcTypes.MediaList, IpcKind.Reply),
+        new(IpcTypes.MediaGet, IpcKind.Query),
+        new(IpcTypes.MediaGet, IpcKind.Reply),
+        new(IpcTypes.MediaImport, IpcKind.Command),
+        new(IpcTypes.MediaCancelImport, IpcKind.Command),
+        new(IpcTypes.MediaRename, IpcKind.Command),
+        new(IpcTypes.MediaMove, IpcKind.Command),
+        new(IpcTypes.MediaDelete, IpcKind.Command),
+        new(IpcTypes.MediaCreateFolder, IpcKind.Command),
+        new(IpcTypes.MediaRenameFolder, IpcKind.Command),
+        new(IpcTypes.MediaDeleteFolder, IpcKind.Command),
+        new(IpcTypes.MediaReportProbe, IpcKind.Command),
+        new(IpcTypes.MediaSetThumbnail, IpcKind.Command),
+        new(IpcTypes.MediaVerifyLibrary, IpcKind.Command),
+        new(IpcTypes.MediaSetBackground, IpcKind.Command),
+        new(IpcTypes.MediaImportProgress, IpcKind.Event),
+        new(IpcTypes.MediaImportFinished, IpcKind.Event),
+        new(IpcTypes.MediaChanged, IpcKind.Event),
     ];
 }
 

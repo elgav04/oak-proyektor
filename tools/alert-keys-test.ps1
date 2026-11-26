@@ -57,6 +57,7 @@ function Invoke-Cdp($ws, $method, $params = @{}, $timeoutMs = 8000) {
     return $null
 }
 function Eval($ws, $expr, $timeoutMs = 8000) {
+    $expr = $expr.Replace('@@V@@', $protoV)   # la version del protocolo sale de frontend\src\ipc\protocol.ts: nunca un numero a mano
     $r = Invoke-Cdp $ws "Runtime.evaluate" @{ expression = $expr; awaitPromise = $true; returnByValue = $true } $timeoutMs
     if ($null -eq $r) { return $null }
     if ($r.result.exceptionDetails) { throw ("Error en la pagina: " + ($r.result.exceptionDetails | ConvertTo-Json -Depth 4 -Compress)) }
@@ -64,7 +65,7 @@ function Eval($ws, $expr, $timeoutMs = 8000) {
 }
 function Send-Command($ws, [string]$type, $payload) {
     $json = $payload | ConvertTo-Json -Depth 8 -Compress
-    [void](Eval $ws ("window.external.sendMessage(JSON.stringify({v:16,id:crypto.randomUUID(),kind:'command',type:'$type',payload:$json}));true"))
+    [void](Eval $ws ("window.external.sendMessage(JSON.stringify({v:@@V@@,id:crypto.randomUUID(),kind:'command',type:'$type',payload:$json}));true"))
 }
 
 # Memoria PRIVADA de los procesos del navegador de la SALIDA (su perfil esta en la linea de comandos), por tipo.

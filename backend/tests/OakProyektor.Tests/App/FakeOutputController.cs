@@ -8,7 +8,9 @@ namespace OakProyektor.Tests.App;
 internal sealed class FakeOutputController : IOutputController
 {
     public List<string> Calls { get; } = [];
-    public OutputStateChangedPayload Snapshot() => new(1, OutputState.Initial, new OutputWindowStatus(false, null, false, false, null, true, null, null, DisplayLostPolicy.WarnAndWait, false, false, []));
+    /// <summary>El estado que devuelve <c>Snapshot</c> (los tests lo cambian, p. ej. para simular un fondo en la salida).</summary>
+    public OutputState State { get; set; } = OutputState.Initial;
+    public OutputStateChangedPayload Snapshot() => new(1, State, new OutputWindowStatus(false, null, false, false, null, true, null, null, DisplayLostPolicy.WarnAndWait, false, false, []));
     /// <summary>El número de llegada recibido en cada llamada a <c>Open</c> / <c>EmergencyPause</c>, en orden.</summary>
     public List<long> Orders { get; } = [];
     public void Open(string? displayId, long order = 0) { Calls.Add($"open:{displayId ?? "auto"}"); Orders.Add(order); }
