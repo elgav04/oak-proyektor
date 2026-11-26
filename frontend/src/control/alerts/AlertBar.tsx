@@ -49,9 +49,10 @@ function Row({ alert, controller, connected, now }: { alert: SavedAlertDto; cont
 export function AlertBar({ controller, connected, output }: { controller: AlertController; connected: boolean; output: OutputStateChangedPayload | null }) {
   const s = useStore(controller.store);
   const status = alertLiveStatus(output);
-  const now = useNow(status.kind !== "none" || s.pinned.length + s.recent.length > 0);
   const [open, setOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // El reloj de 1 s SOLO corre si hay una alerta en el estado confirmado (cuenta atrás) o la lista está abierta (antigüedades): con alertas guardadas y nada a la vista no hay re-renders periódicos.
+  const now = useNow(status.kind !== "none" || open);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Al conectar (y al reconectar tras un silencio) se leen los ajustes y la lista: el backend es la fuente de verdad.
@@ -152,6 +153,19 @@ export function AlertBar({ controller, connected, output }: { controller: AlertC
         {!suggestion && problem && text.length > 0 && <span className="text-red-700" data-testid="alert-problem">{problem}</span>}
         {status.kind === "live" && text.length > 0 && text !== status.alert.text && <span className="text-xs text-neutral-600">Mostrar reemplazará el aviso que está en pantalla.</span>}
       </div>
+
+      {s.savedNotice && (
+        <div role="alert" data-testid="alert-saved-notice" className="flex flex-wrap items-center gap-3 rounded-md border-2 border-amber-600 bg-amber-100 p-2 text-sm text-amber-950">
+          <span>{s.savedNotice.message}</span>
+          {s.savedNotice.canTicker && (
+            <Button size="sm" disabled={!connected} onClick={() => {
+              const target = [...s.pinned, ...s.recent].find((a) => a.id === s.savedNotice?.alertId);
+              if (target) controller.showSavedAsTicker(target);
+            }}>Mostrar con desplazamiento</Button>
+          )}
+          <Button size="sm" variant="outline" onClick={() => { controller.dismissSavedNotice(); }}>Cerrar aviso</Button>
+        </div>
+      )}
 
       {open && (
         <div className="flex flex-col gap-3 border-t pt-3" data-testid="alert-drawer">

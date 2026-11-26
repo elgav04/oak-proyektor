@@ -10,7 +10,7 @@ const win = setupDom();
 for (const name of ["KeyboardEvent", "MouseEvent", "InputEvent", "HTMLInputElement", "HTMLSelectElement", "HTMLButtonElement", "HTMLLIElement"]) {
   if (win[name]) globalThis[name] = win[name];
 }
-const { act, createElement } = await import("react");
+const { act, createElement, Profiler } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const model = await loadTs("/src/control/alerts/model.ts");
 const shortcuts = await loadTs("/src/control/alerts/alertShortcuts.ts");
@@ -503,4 +503,141 @@ test("higiene del panel: la barra no usa alert/confirm/prompt ni bucles de esper
     assert.doesNotMatch(src, /\b(window\.)?(alert|confirm|prompt)\(/, `${f} usa un diálogo del sistema`);
     assert.doesNotMatch(src, /while\s*\(\s*true\s*\)/, `${f} tiene un bucle infinito`);
   }
+});
+
+// ───────────────────────── revisión: ▶ de una fila aplica la misma medición que el cuadro ─────────────────────────
+
+test("▶ de una fila guardada: si NO cabe en la cinta no se manda, se avisa con el motivo y se ofrece el desplazamiento SIN cambiar de modo en silencio", async () => {
+  const b = createAlertBackend();
+  const longOne = b.seed("w".repeat(300), { pinned: true });
+  const shortOne = b.seed("AVISO CORTO DE PRUEBA", { pinned: true });
+  const c = createAlertController({ api: b.client, measurer: simulatedMeasurer, listRefreshDelayMs: 10 });
+  await c.init();
+  const rows = c.store.getState().pinned;
+  const long = rows.find((r) => r.id === longOne.id);
+  const short = rows.find((r) => r.id === shortOne.id);
+
+  assert.equal(c.showSaved(long), false, "no se manda");
+  await sleep(20);
+  assert.equal(b.sent("alert.show").length, 0);
+  const notice = c.store.getState().savedNotice;
+  assert.equal(notice.alertId, long.id);
+  assert.match(notice.message, /No cabe/);
+  assert.equal(notice.canTicker, true, "se ofrece el desplazamiento");
+  assert.equal(c.store.getState().mode, "band", "el modo NO cambió en silencio");
+
+  assert.equal(c.showSaved(short), true, "uno que cabe se muestra como siempre");
+  await sleep(20);
+  assert.deepEqual(b.sent("alert.show").map((x) => [x.payload.text, x.payload.mode]), [["AVISO CORTO DE PRUEBA", "band"]]);
+  assert.equal(c.store.getState().savedNotice, null, "mostrar bien limpia el aviso");
+
+  // El operador acepta la oferta: ESO sí cambia el modo (explícito) y se manda como desplazamiento.
+  c.showSaved(long);
+  assert.equal(c.showSavedAsTicker(long), true);
+  await sleep(20);
+  assert.deepEqual(b.sent("alert.show").at(-1).payload, { text: "w".repeat(300), mode: "ticker", durationSec: 30 });
+  assert.equal(c.store.getState().mode, "ticker");
+  assert.equal(c.store.getState().savedNotice, null);
+  c.dispose();
+});
+
+test("▶ de una fila con el desplazamiento DESACTIVADO: lo dice, no lo ofrece y nunca lo manda como cinta en silencio", async () => {
+  const b = createAlertBackend({ tickerEnabled: false });
+  const longOne = b.seed("w".repeat(300), { pinned: true });
+  const shortOne = b.seed("AVISO CORTO DE PRUEBA", { pinned: true });
+  const c = createAlertController({ api: b.client, measurer: simulatedMeasurer });
+  await c.init();
+  const long = c.store.getState().pinned.find((r) => r.id === longOne.id);
+  const short = c.store.getState().pinned.find((r) => r.id === shortOne.id);
+
+  assert.equal(c.showSaved(long), false);
+  const notice = c.store.getState().savedNotice;
+  assert.match(notice.message, /desactivado/);
+  assert.equal(notice.canTicker, false);
+  assert.equal(c.showSavedAsTicker(long), false, "tampoco por la puerta de atrás");
+
+  // Con el modo «desplazamiento» elegido y el desplazamiento desactivado, un aviso CORTO tampoco se manda como cinta a escondidas.
+  c.setMode("ticker");
+  assert.equal(c.showSaved(short), false);
+  assert.match(c.store.getState().savedNotice.message, /desactivado/);
+  assert.equal(b.commands.filter((x) => x.type === "alert.show").length, 0, "no se mandó nada");
+  c.dispose();
+});
+
+test("barra: el aviso de ▶ se ve aunque la lista esté cerrada, ofrece «Mostrar con desplazamiento» y un clic lo manda en ese modo", async () => {
+  const b = createAlertBackend();
+  const longOne = b.seed("w".repeat(300), { pinned: true });
+  const m = await mountBar({ backend: b });
+  await m.click(m.buttonByText(/▾ Alertas/));
+  await m.settle(40);
+  await m.click(m.q('[data-testid="alert-row"] button[aria-label^="Mostrar ahora"]'));
+  await m.settle(30);
+  assert.equal(b.sent("alert.show").length, 0);
+  await m.click(m.buttonByText(/▴ Alertas/));   // se cierra la lista: el aviso sigue a la vista
+  await m.settle(10);
+  const notice = m.q('[data-testid="alert-saved-notice"]');
+  assert.match(notice.textContent, /No cabe/);
+  assert.equal(m.controller.store.getState().mode, "band");
+  await m.click(m.buttonByText(/Mostrar con desplazamiento/));
+  await m.settle(40);
+  assert.deepEqual(b.sent("alert.show").map((x) => [x.payload.text, x.payload.mode]), [[longOne.text, "ticker"]]);
+  assert.equal(m.q('[data-testid="alert-saved-notice"]'), null);
+  await m.unmount();
+});
+
+// ───────────────────────── revisión: el reloj de 1 s solo corre si hace falta ─────────────────────────
+
+/** Cuenta los commits de React de la barra (Profiler) durante `ms`. */
+async function commitsDuring(m, ms) {
+  const baseline = m.commits;
+  await sleep(ms);   // SIN act: dentro de act React agrupa los ticks del reloj en un solo commit y no se vería el ritmo real
+  return m.commits - baseline;
+}
+
+async function mountCounted({ backend }) {
+  const controller = createAlertController({ api: backend.client, measurer: simulatedMeasurer, listRefreshDelayMs: 15 });
+  const container = win.document.createElement("div");
+  win.document.body.appendChild(container);
+  const root = createRoot(container);
+  const m = { commits: 0, controller, container, backend };
+  const render = async () => {
+    await act(async () => {
+      root.render(createElement(Profiler, { id: "alert-bar", onRender: () => { m.commits++; } }, createElement(AlertBar, { controller, connected: true, output: backend.output() })));
+    });
+  };
+  await render();
+  await act(async () => { await sleep(60); });
+  await render();
+  await act(async () => { await sleep(60); });
+  m.render = render;
+  m.q = (sel) => container.querySelector(sel);
+  m.click = async (el) => { await act(async () => { el.dispatchEvent(new win.MouseEvent("click", { bubbles: true, cancelable: true })); await sleep(0); }); };
+  m.unmount = async () => { await act(async () => { root.unmount(); }); controller.dispose(); container.remove(); };
+  return m;
+}
+
+test("con alertas guardadas, la lista CERRADA y nada en pantalla NO hay re-renders periódicos; con la lista abierta o con una alerta en el estado sí (cuenta atrás)", async () => {
+  const b = createAlertBackend();
+  b.seed("AVISO FIJO DE PRUEBA", { pinned: true });
+  b.seed("AVISO RECIENTE DE PRUEBA", { daysAgo: 1 });
+  const m = await mountCounted({ backend: b });
+  assert.equal(m.controller.store.getState().pinned.length + m.controller.store.getState().recent.length, 2, "hay alertas guardadas");
+  assert.equal(m.q('[data-testid="alert-status"]'), null, "nada en pantalla");
+  assert.equal(m.q('[data-testid="alert-drawer"]'), null, "lista cerrada");
+
+  assert.equal(await commitsDuring(m, 2500), 0, "ningún re-render en 2,5 s");
+
+  // Con la lista abierta el reloj corre (las antigüedades «hace 3 d» se mantienen al día).
+  await m.click(Array.from(m.container.querySelectorAll("button")).find((x) => /▾ Alertas/.test(x.textContent)));
+  assert.ok(await commitsDuring(m, 2300) >= 2, "con la lista abierta, un re-render por segundo");
+  await m.click(Array.from(m.container.querySelectorAll("button")).find((x) => /▴ Alertas/.test(x.textContent)));
+  assert.equal(await commitsDuring(m, 2300), 0, "al cerrarla vuelve a no haber ninguno");
+
+  // Con una alerta en el estado confirmado, la cuenta atrás cuenta.
+  b.controller = null;
+  b.client.send("alert.show", { text: "AVISO DE PRUEBA 1", mode: "band", durationSec: 30 });
+  await act(async () => { await sleep(40); });
+  await m.render();
+  assert.ok(await commitsDuring(m, 2300) >= 2, "con la alerta en pantalla, la cuenta atrás avanza");
+  await m.unmount();
 });

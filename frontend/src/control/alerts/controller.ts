@@ -21,6 +21,8 @@ export interface AlertState {
   /** El texto cargado desde una fila de la lista (solo para marcarla); NO significa que esté en pantalla. */
   loadedFrom: number | null;
   listError: string | null;
+  /** Por qué NO se mostró una alerta guardada con ▶ (no cabe en la cinta o el desplazamiento está desactivado). `canTicker`: se puede ofrecer mostrarla con desplazamiento. */
+  savedNotice: { alertId: number; message: string; canTicker: boolean } | null;
   settingsError: string | null;
   shortcuts: AlertShortcutBindings;
   shortcutError: string | null;
@@ -42,8 +44,14 @@ export interface AlertController {
   showProblem(): string | null;
   /** Manda `alert.show`. No marca nada como «en pantalla»: eso lo dice el backend en el estado de la salida. Devuelve false si no se mandó. */
   show(): boolean;
-  /** Muestra una alerta guardada con los ajustes actuales de modo y duración (botón ▶ de la fila). */
+  /**
+   * Muestra una alerta guardada con los ajustes actuales de modo y duración (botón ▶ de la fila), con la MISMA medición que el cuadro: si no cabe en la cinta NO se manda y
+   * `savedNotice` dice por qué (y ofrece el desplazamiento si está permitido). Nunca cambia de modo en silencio. Devuelve true si se mandó.
+   */
   showSaved(alert: SavedAlertDto): boolean;
+  /** El operador aceptó la oferta de `savedNotice`: cambia a desplazamiento (explícito) y la muestra. false si el desplazamiento está desactivado. */
+  showSavedAsTicker(alert: SavedAlertDto): boolean;
+  dismissSavedNotice(): void;
   hide(): void;
   pin(alert: SavedAlertDto, pinned: boolean): void;
   saveDraftPinned(): void;
@@ -69,7 +77,7 @@ const FALLBACK_THEME: AlertTheme | null = null;
 export function createAlertController(options: AlertControllerOptions): AlertController {
   const { api, measurer = null, shortcutStorage = null, listRefreshDelayMs = 900 } = options;
   const store = createStore<AlertState>(() => ({
-    draft: "", mode: "band", durationSec: 30, settings: null, fit: null, pinned: [], recent: [], loadedFrom: null, listError: null, settingsError: null,
+    draft: "", mode: "band", durationSec: 30, settings: null, fit: null, pinned: [], recent: [], loadedFrom: null, listError: null, savedNotice: null, settingsError: null,
     shortcuts: loadBindings(shortcutStorage), shortcutError: null, focusTick: 0,
   }));
   const patch = (changes: Partial<AlertState>): void => { store.setState(changes); };
@@ -106,9 +114,19 @@ export function createAlertController(options: AlertControllerOptions): AlertCon
 
   const offChanged = api.subscribe("alert.changed", () => { if (!disposed) void refreshList(); });
 
-  const effectiveMode = (): AlertMode => {
+  /** ¿Se puede mostrar este texto de una alerta GUARDADA con el modo elegido? Motivo (y si se ofrece el desplazamiento) si no. Misma regla que el cuadro. */
+  const savedProblem = (text: string): { message: string; canTicker: boolean } | null => {
     const s = store.getState();
-    return s.mode === "ticker" && s.settings?.tickerEnabled === false ? "band" : s.mode;
+    const tickerOk = s.settings?.tickerEnabled !== false;
+    if (s.mode === "ticker") return tickerOk ? null : { message: "El desplazamiento está desactivado en los ajustes de las alertas: elige la cinta.", canTicker: false };
+    const t = theme();
+    if (!measurer || !t) return null;
+    const fit = measurer.fit(text, t);
+    if (fit.state === "fits" || fit.state === "shrunk") return null;
+    const why = fit.state === "grows"
+      ? `No cabe en ${String(t.maxLines)} renglones ni con la letra mínima (${String(fit.fontSize)} px): la cinta crecería.`
+      : "No cabe en la cinta ni creciendo: se cortaría.";
+    return { message: `${why} ${tickerOk ? "Puedes mostrarlo con desplazamiento." : "El desplazamiento está desactivado en los ajustes: acorta el aviso."}`, canTicker: tickerOk };
   };
 
   const sendShow = (text: string, mode: AlertMode): void => {
@@ -137,7 +155,7 @@ export function createAlertController(options: AlertControllerOptions): AlertCon
       refit();
     },
     setMode(mode) {
-      patch({ mode });
+      patch({ mode, savedNotice: null });
       refit();
     },
     setDuration(sec) { patch({ durationSec: sec }); },
@@ -156,14 +174,25 @@ export function createAlertController(options: AlertControllerOptions): AlertCon
     },
     show() {
       if (controller.showProblem() !== null) return false;
-      sendShow(store.getState().draft.trim(), effectiveMode());
+      patch({ savedNotice: null });
+      sendShow(store.getState().draft.trim(), store.getState().mode);
       return true;
     },
     showSaved(alert) {
       if (alert.text.length === 0) return false;
-      sendShow(alert.text, effectiveMode());
+      const problem = savedProblem(alert.text);
+      if (problem) { patch({ savedNotice: { alertId: alert.id, ...problem } }); return false; }
+      patch({ savedNotice: null });
+      sendShow(alert.text, store.getState().mode);
       return true;
     },
+    showSavedAsTicker(alert) {
+      if (alert.text.length === 0 || store.getState().settings?.tickerEnabled === false) return false;
+      patch({ mode: "ticker", savedNotice: null });
+      sendShow(alert.text, "ticker");
+      return true;
+    },
+    dismissSavedNotice() { patch({ savedNotice: null }); },
     hide() { api.send("alert.hide", {}); },
     pin(alert, pinned) {
       if (pinned && store.getState().pinned.length >= ALERT_MAX_PINNED && !alert.pinned) {

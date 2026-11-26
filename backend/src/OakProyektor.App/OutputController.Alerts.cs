@@ -10,8 +10,8 @@ namespace OakProyektor.App;
 internal sealed partial class OutputController
 {
     private readonly AlertEngine _alerts = new(TimeProvider.System);   // solo bajo _gate
-    private readonly object _alertTimerGate = new();
-    private Timer? _alertTimer;                                        // solo bajo _alertTimerGate; nunca se toma _gate con este candado tomado
+    private readonly AlertTimerGuard _alertTimerGuard = new();          // regla de armado (candado propio): ignora un armado de una generación menor que la última
+    private Timer? _alertTimer;                                        // solo se toca DENTRO de _alertTimerGuard.TryArm/Cancel; nunca se toma _gate con ese candado tomado
 
     public bool ShowAlert(string text, AlertMode mode, int durationSec, long order = 0)
     {
@@ -40,13 +40,14 @@ internal sealed partial class OutputController
     public void HideAlert(long order = 0)
     {
         if (order <= 0) order = _clock.Next();
-        bool had;
+        bool had; long generation;
         lock (_gate)
         {
             had = _state.Overlays.Alert is not null;
             _state = _alerts.Hide(_state, order);
+            generation = _alerts.Generation;
         }
-        CancelAlertTimer();
+        CancelAlertTimer(generation);
         if (had) _logger.LogInformation("Alerta quitada por el operador");
         Publish();
     }
@@ -59,37 +60,34 @@ internal sealed partial class OutputController
     {
         try
         {
-            bool dropped;
+            bool dropped; long generation = 0;
             lock (_gate)
             {
                 dropped = _window is not null && _pause.IsPaused && _state.Overlays.Alert is not null;
-                if (dropped) _state = _alerts.Drop(_state);
+                if (dropped) { _state = _alerts.Drop(_state); generation = _alerts.Generation; }
             }
             if (!dropped) return;
-            CancelAlertTimer();
+            CancelAlertTimer(generation);
             _logger.LogWarning("La alerta se quitó porque la salida se pausó");
             _publisher.Publish(BuildSnapshot);
         }
         catch (Exception ex) { _logger.LogError(ex, "No se pudo quitar la alerta al pausar la salida"); }
     }
 
-    private void ArmAlertTimer(long generation, TimeSpan delay)
-    {
-        lock (_alertTimerGate)
+    /// <summary>Arma el temporizador de ESTA generación, salvo que ya se haya armado o cancelado una posterior (<see cref="AlertTimerGuard"/>): un rearmado tardío de un plazo viejo no puede destruir el de una alerta nueva.</summary>
+    private void ArmAlertTimer(long generation, TimeSpan delay) =>
+        _alertTimerGuard.TryArm(generation, () =>
         {
             _alertTimer?.Dispose();
             _alertTimer = new Timer(_ => OnAlertTimer(generation), null, delay, Timeout.InfiniteTimeSpan);
-        }
-    }
+        });
 
-    private void CancelAlertTimer()
-    {
-        lock (_alertTimerGate)
+    private void CancelAlertTimer(long generation) =>
+        _alertTimerGuard.Cancel(generation, () =>
         {
             _alertTimer?.Dispose();
             _alertTimer = null;
-        }
-    }
+        });
 
     /// <summary>Disparo del temporizador: solo quita la alerta si ese plazo sigue siendo el vigente (un disparo viejo no puede quitar una alerta nueva). Nunca lanza.</summary>
     private void OnAlertTimer(long generation)
