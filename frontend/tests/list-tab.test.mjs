@@ -17,6 +17,7 @@ const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { ListTab } = await loadTs("/src/control/lists/ListTab.tsx");
 const { createListController } = await loadTs("/src/control/lists/controller.ts");
+const { createListEditor } = await loadTs("/src/control/lists/editor.ts");
 const { OutputScreen } = await loadTs("/src/output/OutputScreen.tsx");
 after(closeServer);
 
@@ -39,10 +40,11 @@ function scenario(options = {}) {
 async function mount({ options, reuse = null } = {}) {
   const s = reuse ?? scenario(options);
   const controller = createListController({ api: s.b.client, getOutput: () => s.b.output(), createFit: fakeFit, sendIntervalMs: 20, prefetchDelayMs: 10, today: () => "2026-11-29", storage: null, inflightMs: 400 });
+  const editor = createListEditor({ api: s.b.client, list: controller, today: () => "2026-11-29", searchDebounceMs: 5, confirmTimeoutMs: 2000 });
   const container = win.document.createElement("div");
   win.document.body.appendChild(container);
   const root = createRoot(container);
-  const render = async () => { await act(async () => { root.render(createElement(ListTab, { controller, connected: true, output: s.b.output() })); }); };
+  const render = async () => { await act(async () => { root.render(createElement(ListTab, { controller, editor, connected: true, output: s.b.output() })); }); };
   await render();
   await act(async () => { await sleep(60); });
   await render();
@@ -60,10 +62,10 @@ async function mount({ options, reuse = null } = {}) {
   };
   /** Cambia lo que CONFIRMA el backend (modo maestro, ventana) y vuelve a pintar con eso. */
   const confirmed = async (fn) => { fn(s.b); await render(); };
-  return { ...s, controller, container, q, qa, settle, press, render, confirmed, unmount: async () => { await act(async () => { root.unmount(); }); controller.dispose(); } };
+  return { ...s, controller, editor, container, q, qa, settle, press, render, confirmed, unmount: async () => { await act(async () => { root.unmount(); }); editor.dispose(); controller.dispose(); } };
 }
 
-const rows = (m) => m.qa('[role="option"]');
+const rows = (m) => m.qa('[data-testid="items"] [role="option"]');
 const activeRows = (m) => rows(m).filter((r) => r.dataset.active === "true").map((r) => Number(r.dataset.itemId));
 const cursorRow = (m) => Number(rows(m).find((r) => r.dataset.cursor === "true")?.dataset.itemId);
 
@@ -223,26 +225,26 @@ test("MINIATURA del siguiente elemento: su título y su primera diapositiva, sin
     assert.equal(m.q('[data-testid="next-title"]').textContent, "Canción A", "tras C viene la segunda A");
   } finally { await m.unmount(); }
 });
-test("el modo EN VIVO NO dibuja controles de edición; Ctrl+E alterna con el modo EDITAR, donde las teclas no proyectan nada", async () => {
+test("el modo EN VIVO NO dibuja controles de edición; Ctrl+E alterna con el modo EDITAR, donde las teclas de proyección no hacen nada", async () => {
   const m = await mount();
   try {
     const labels = m.qa("button").map((b) => b.textContent);
     assert.ok(labels.every((t) => !/añadir|agregar|mover|quitar elemento|borrar|eliminar|duplicar|renombrar|nueva lista/i.test(t)), `botones: ${labels.join(" | ")}`);
     assert.equal(m.qa("input, textarea").length, 0, "ni cuadros de texto");
     assert.equal(m.qa("[draggable='true']").length, 0, "ni arrastrar para reordenar");
+    assert.equal(m.q('[data-testid="list-editor"]'), null);
     await m.press("e", { ctrlKey: true });
     assert.equal(m.q('[data-testid="list-tab"]').dataset.mode, "edit");
-    assert.ok(m.q('[data-testid="edit-placeholder"]'));
+    assert.ok(m.q('[data-testid="list-editor"]'), "aparece el editor");
     assert.equal(rows(m).length, 0, "la lista en vivo se esconde");
     await m.press("Enter"); await m.press("ArrowRight"); await m.press("ArrowRight", { ctrlKey: true }); await m.press("Escape");
     await m.settle();
-    assert.equal(m.b.commands.length, 0, "en modo EDITAR ninguna tecla proyecta ni limpia");
+    assert.equal(m.b.commands.length, 0, "en modo EDITAR esas teclas no proyectan ni limpian");
     await m.press("e", { ctrlKey: true });
     assert.equal(m.q('[data-testid="list-tab"]').dataset.mode, "live");
     assert.equal(rows(m).length, 6);
   } finally { await m.unmount(); }
 });
-
 test("con el foco en un cuadro de texto ninguna tecla de la pestaña actúa (Ctrl+←/→ y Ctrl+E son del cuadro)", async () => {
   const m = await mount();
   try {

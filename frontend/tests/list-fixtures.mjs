@@ -31,6 +31,7 @@ export function createListBackend(options = {}) {
   const state = {
     playlistSettings: { onItemEnd: options.onItemEnd ?? "stay" },
     songSettings: { theme: THEME, transitionMs: 400, atEnd: "stay" },
+    installedBibles: options.installedBibles ?? ["TST"],
     bibleSettings: { defaultBible: "TST", projectOnNavigate: false, superscriptNumbers: true, showAttribution: true, transitionMs: 280, theme: BIBLE_THEME, shortNames: [] },
     output: null,
     master: "live",
@@ -70,7 +71,7 @@ export function createListBackend(options = {}) {
     const base = { id: nextItemId++, position: list.items.length, songId: null, bookNumber: null, chapter: null, verseStart: null, verseEnd: null, bibleAbbreviation: null, note: null, clearOnActivate: false, resolution: null, offeredBible: null, isMissing: false };
     let item;
     if (spec.song !== undefined) item = { ...base, itemType: "song", songId: spec.song, title: spec.title ?? songs.get(spec.song)?.title ?? "Canción" };
-    else if (spec.passage) { const [b, c, s, e, bible] = spec.passage; item = { ...base, itemType: "passage", title: spec.title ?? `Libro ${b} ${c}:${s}${e ? `-${e}` : ""}`, bookNumber: b, chapter: c, verseStart: s, verseEnd: e ?? null, bibleAbbreviation: bible, resolution: spec.resolution ?? "resolved" }; }
+    else if (spec.passage) { const [b, c, s, e, bible] = spec.passage; item = { ...base, itemType: "passage", title: spec.title ?? `Libro ${b} ${c}:${s}${e ? `-${e}` : ""}`, bookNumber: b, chapter: c, verseStart: s, verseEnd: e ?? null, bibleAbbreviation: bible, forcedResolution: spec.resolution ?? null }; }
     else item = { ...base, itemType: "note", title: spec.note, note: spec.text ?? null, clearOnActivate: spec.clear ?? false };
     list.items.push(item);
     return item;
@@ -78,8 +79,13 @@ export function createListBackend(options = {}) {
   const view = (list) => {
     const items = list.items.map((it, i) => {
       const missing = it.itemType === "song" && !songs.has(it.songId);
-      const projectable = it.itemType === "song" ? !missing : it.itemType === "passage" ? it.resolution === "resolved" : false;
-      return { ...it, position: i, title: it.itemType === "song" && !missing ? songs.get(it.songId).title : it.title, isMissing: missing, projectable };
+      const installed = state.installedBibles.includes(it.bibleAbbreviation);
+      const resolution = it.itemType !== "passage" ? null : (it.forcedResolution ?? (installed ? "resolved" : "bibleNotInstalled"));
+      const offeredBible = resolution === "bibleNotInstalled" && state.installedBibles.includes(state.bibleSettings.defaultBible) ? state.bibleSettings.defaultBible : null;
+      const projectable = it.itemType === "song" ? !missing : it.itemType === "passage" ? resolution === "resolved" : false;
+      const { forcedResolution, ...rest } = it;
+      void forcedResolution;
+      return { ...rest, position: i, title: it.itemType === "song" && !missing ? songs.get(it.songId).title : it.title, isMissing: missing, resolution, offeredBible, projectable };
     });
     return { id: list.id, name: list.name, serviceDate: list.serviceDate, notes: list.notes, revision: list.revision, createdAt: list.createdAt, updatedAt: list.updatedAt, missingCount: items.filter((i) => i.isMissing).length, items };
   };
@@ -105,6 +111,12 @@ export function createListBackend(options = {}) {
       case "bible.getSettings": return reply(req, state.bibleSettings);
       case "playlist.list": return reply(req, { truncated: false, playlists: [...lists.values()].map((l) => { const v = view(l); return { id: l.id, name: l.name, serviceDate: l.serviceDate, itemCount: v.items.length, missingCount: v.missingCount, revision: l.revision }; }) });
       case "playlist.get": { const l = lists.get(req.payload.id); return l ? reply(req, view(l)) : fail(req, "playlist.notFound", "La lista no existe (puede que se haya borrado)."); }
+      case "song.list": return reply(req, { truncated: false, songs: [...songs.values()].map((s) => ({ id: s.id, title: s.title, author: null, updatedAt: s.updatedAt, fragment: null })) });
+      case "song.search": {
+        const q = req.payload.query.toLowerCase();
+        return reply(req, { query: req.payload.query, truncated: false, songs: [...songs.values()].filter((s) => s.title.toLowerCase().includes(q)).map((s) => ({ id: s.id, title: s.title, author: null, updatedAt: s.updatedAt, fragment: null })) });
+      }
+      case "bible.list": return reply(req, { bibles: state.installedBibles.map((a, i) => ({ id: i + 1, abbreviation: a, name: `Biblia sintética ${a}`, language: "es", attribution: "", numberingProfile: null, books: 1, verses: 3 })) });
       case "song.get": { const s = songs.get(req.payload.id); return s ? reply(req, s) : fail(req, "song.notFound", "La canción no existe (puede que se haya borrado)."); }
       case "bible.chapter": {
         const c = chapters.get(`${req.payload.bible}:${req.payload.bookNumber}:${req.payload.chapter}`);
@@ -113,6 +125,57 @@ export function createListBackend(options = {}) {
       default: return fail(req, "unknown_message", req.type);
     }
   };
+
+  // ───── escrituras de listas (con la misma semántica de revisión que el backend real) ─────
+  const changed = (cmd, listId, revision, kind, extra = {}) => event("playlist.changed", { commandId: cmd.id, playlistId: listId, revision, kind, itemId: extra.itemId ?? null, sourceId: extra.sourceId ?? null, copied: extra.copied ?? 0, skipped: extra.skipped ?? 0 });
+  const failed = (cmd, code, message) => event("command.failed", { commandId: cmd.id, commandType: cmd.type, error: { code, message } });
+  const holdWrites = []; let holdAll = false;
+  const handleWrite = (cmd) => {
+    const p = cmd.payload;
+    if (holdAll) { holdWrites.push(cmd); return; }
+    writes.push(cmd.type);
+    if (cmd.type === "playlist.create") {
+      if (!p.name || p.name.trim() === "") return failed(cmd, "playlist.invalidRequest", "La lista necesita un nombre.");
+      const l = addList({ name: p.name.trim(), date: p.serviceDate ?? null });
+      return changed(cmd, l.id, 1, "created");
+    }
+    if (cmd.type === "playlist.duplicate") {
+      const src = lists.get(p.id); if (!src) return failed(cmd, "playlist.notFound", "La lista no existe.");
+      const v = view(src); const keep = v.items.filter((i) => !i.isMissing);
+      const copy = addList({ name: p.name.trim(), date: p.serviceDate ?? null });
+      for (const i of keep) copy.items.push({ ...i, id: nextItemId++ });
+      return changed(cmd, copy.id, 1, "duplicated", { sourceId: src.id, copied: keep.length, skipped: v.items.length - keep.length });
+    }
+    const listId = p.playlistId ?? p.id;
+    const list = lists.get(listId);
+    if (!list) return failed(cmd, "playlist.notFound", "La lista no existe (puede que se haya borrado).");
+    if (cmd.type === "playlist.delete") { lists.delete(listId); return changed(cmd, listId, 0, "deleted"); }
+    if (p.expectedRevision !== undefined && p.expectedRevision !== list.revision) return failed(cmd, "playlist.conflict", "La lista cambió desde que la abriste.");
+    if (cmd.type === "playlist.update") { list.name = p.name.trim(); list.serviceDate = p.serviceDate ?? null; list.notes = p.notes ?? ""; list.revision++; return changed(cmd, listId, list.revision, "updated"); }
+    if (cmd.type === "playlist.addItem") {
+      const d = p.item; if (list.items.length >= 100) return failed(cmd, "playlist.full", "La lista ya tiene 100 elementos.");
+      if (d.itemType === "song" && !songs.has(d.songId)) return failed(cmd, "playlist.invalidRequest", "La canción que se quiere añadir no existe.");
+      const spec = d.itemType === "song" ? { song: d.songId } : d.itemType === "passage" ? { passage: [d.bookNumber, d.chapter, d.verseStart, d.verseEnd, d.bibleAbbreviation], title: d.title ?? undefined } : { note: d.title, text: d.note, clear: d.clearOnActivate };
+      const item = addItem(listId, spec);
+      list.items.pop();
+      const at = p.position ?? list.items.length;
+      list.items.splice(Math.max(0, Math.min(list.items.length, at)), 0, item);
+      list.revision++;
+      return changed(cmd, listId, list.revision, "itemAdded", { itemId: item.id });
+    }
+    const at = list.items.findIndex((i) => i.id === p.itemId);
+    if (at < 0) return failed(cmd, "playlist.itemNotFound", "El elemento ya no está en la lista.");
+    if (cmd.type === "playlist.moveItem") { const [it] = list.items.splice(at, 1); list.items.splice(p.toIndex, 0, it); list.revision++; return changed(cmd, listId, list.revision, "itemMoved", { itemId: p.itemId }); }
+    if (cmd.type === "playlist.removeItem") { list.items.splice(at, 1); list.revision++; return changed(cmd, listId, list.revision, "itemRemoved", { itemId: p.itemId }); }
+    if (cmd.type === "playlist.updateItem") {
+      const it = list.items[at];
+      if (it.itemType === "note") { if (p.title != null) it.title = p.title; if (p.note != null) it.note = p.note === "" ? null : p.note; if (p.clearOnActivate != null) it.clearOnActivate = p.clearOnActivate; }
+      else if (it.itemType === "passage" && p.bibleAbbreviation) it.bibleAbbreviation = p.bibleAbbreviation;
+      else return failed(cmd, "playlist.invalidRequest", "Este tipo de elemento no tiene campos editables.");
+      list.revision++; return changed(cmd, listId, list.revision, "itemUpdated", { itemId: p.itemId });
+    }
+  };
+  const writes = [];
 
   let slideCounter = 0;
   const handleCommand = (cmd) => {
@@ -129,6 +192,8 @@ export function createListBackend(options = {}) {
         return;
       case "output.clearContent": state.slide = null; if (options.autoConfirm !== false) confirm(); return;
       case "playlist.setSettings": state.playlistSettings = { ...cmd.payload }; return;
+      case "playlist.create": case "playlist.update": case "playlist.addItem": case "playlist.moveItem": case "playlist.removeItem": case "playlist.updateItem": case "playlist.duplicate": case "playlist.delete":
+        return handleWrite(cmd);
       default: return;
     }
   };
@@ -159,6 +224,15 @@ export function createListBackend(options = {}) {
     event,
     removeSong: (id) => { songs.delete(id); event("song.changed", { commandId: "x", songId: id, revision: 0, kind: "deleted", usedInServices: 1, usedInLists: [] }); },
     failNext: (type, code, message) => { failure = { type, code, message }; },
+    /** Los comandos de escritura de listas que sí se aplicaron (en orden). */
+    writes,
+    /** Retiene las escrituras (el backend «tarda») hasta `releaseWrites()`. */
+    holdWrites: () => { holdAll = true; },
+    releaseWrites: () => { holdAll = false; while (holdWrites.length > 0) handleWrite(holdWrites.shift()); },
+    /** Otra ventana edita la lista: sube su revisión SIN avisar a este panel. */
+    externalEdit: (listId, fn) => { const l = lists.get(listId); fn(l); l.revision++; },
+    /** …y esta vez sí avisa (llega `playlist.changed`). */
+    externalEditNotify: (listId, fn) => { const l = lists.get(listId); fn(l); l.revision++; event("playlist.changed", { commandId: "otra-ventana", playlistId: listId, revision: l.revision, kind: "itemAdded", itemId: null, sourceId: null, copied: 0, skipped: 0 }); },
   };
 }
 

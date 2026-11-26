@@ -9,7 +9,7 @@ import { getBibleController, getImportController } from "./bible/instance";
 import { Diagnostics } from "./Diagnostics";
 import { isDirty } from "./songs/controller";
 import { ListTab } from "./lists/ListTab";
-import { getListController } from "./lists/instance";
+import { getListController, getListEditor } from "./lists/instance";
 import { getSongController } from "./songs/instance";
 import { SongsTab } from "./songs/SongsTab";
 import { describeOutput, type OutputNotice } from "./outputNotice";
@@ -81,6 +81,7 @@ export function App() {
   const bibleController = getBibleController();
   const songController = getSongController();
   const listController = getListController();
+  const listEditor = getListEditor();
   // Cambios sin guardar en el editor de canciones: se ven en la pestaña aunque estés en otra (el controlador vive con la página y no los pierde).
   const songsDirty = useStore(songController.store, (s) => isDirty(s.editor));
 
@@ -290,12 +291,12 @@ export function App() {
         (bibleSettingsOpen ? (
           <BibleSettingsView controller={bibleController} importer={getImportController()} connected={connected} onClose={() => { setBibleSettingsOpen(false); }} />
         ) : (
-          <BibleTab controller={bibleController} connected={connected} output={output} onOpenSettings={() => { setBibleSettingsOpen(true); }} />
+          <BibleTab controller={bibleController} connected={connected} output={output} onOpenSettings={() => { setBibleSettingsOpen(true); }} onAddToList={(item, label) => listEditor.addPassage(item, label)} />
         ))}
 
       {tab === "songs" && <SongsTab controller={songController} connected={connected} output={output} />}
 
-      {tab === "lists" && <ListTab controller={listController} connected={connected} output={output} />}
+      {tab === "lists" && <ListTab controller={listController} editor={listEditor} connected={connected} output={output} />}
 
       {tab === "diagnostics" && <Diagnostics />}
 

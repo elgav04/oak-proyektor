@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useStore } from "zustand";
 import { Button } from "@/components/ui/button";
 import type { OutputStateChangedPayload, PlaylistItemDto } from "@/ipc/protocol";
@@ -6,6 +6,8 @@ import { LIST_SHORTCUTS, matchListShortcut } from "../shortcuts";
 import { activeFromOutput, badgeText, listLiveStatus, stepItem } from "./active";
 import { BlocksCanvas } from "./BlocksCanvas";
 import type { ListController } from "./controller";
+import type { ListEditor } from "./editor";
+import { ListEditorView } from "./ListEditor";
 
 const BADGE_CLASS = { live: "bg-red-600 text-white", hidden: "bg-amber-500 text-black", ready: "bg-neutral-300 text-neutral-900" } as const;
 const TYPE_LABEL: Record<string, string> = { song: "Canción", passage: "Pasaje", note: "Nota" };
@@ -30,8 +32,9 @@ function rowProblem(item: PlaylistItemDto): string | null {
  * Pestaña «Lista», modo EN VIVO: la lista del culto con el elemento ACTIVO (derivado del `origin` que confirma el backend) y el cursor, las teclas del mapa único
  * (`../shortcuts.ts`) y la miniatura del siguiente elemento. El modo en vivo NO dibuja ningún control de edición (nada que mueva la lista por error); Ctrl+E alterna.
  */
-export function ListTab({ controller, connected, output = null }: { controller: ListController; connected: boolean; output?: OutputStateChangedPayload | null }) {
+export function ListTab({ controller, editor, connected, output = null }: { controller: ListController; editor: ListEditor; connected: boolean; output?: OutputStateChangedPayload | null }) {
   const s = useStore(controller.store);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     void controller.onShow();
@@ -41,13 +44,20 @@ export function ListTab({ controller, connected, output = null }: { controller: 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
       const target = event.target instanceof Element ? (event.target as HTMLElement) : null;
-      const action = matchListShortcut(event, target, { mode: controller.store.getState().mode });
+      const mode = controller.store.getState().mode;
+      const action = matchListShortcut(event, target, { mode });
       if (!action) return;
       event.preventDefault();
-      if (event.repeat && action !== "slideNext" && action !== "slidePrev" && action !== "cursorNext" && action !== "cursorPrev") return;
+      if (event.repeat && !["slideNext", "slidePrev", "cursorNext", "cursorPrev", "itemMoveUp", "itemMoveDown"].includes(action)) return;
       switch (action) {
-        case "cursorPrev": controller.moveCursor(-1); break;
-        case "cursorNext": controller.moveCursor(1); break;
+        case "cursorPrev": if (mode === "edit") editor.selectBy(-1); else controller.moveCursor(-1); break;
+        case "cursorNext": if (mode === "edit") editor.selectBy(1); else controller.moveCursor(1); break;
+        case "itemMoveUp": editor.moveSelected(-1); break;
+        case "itemMoveDown": editor.moveSelected(1); break;
+        case "itemRemove": editor.removeSelected(); break;
+        case "itemDuplicate": editor.duplicateSelected(); break;
+        case "undo": editor.undo(); break;
+        case "focusSearch": searchRef.current?.focus(); searchRef.current?.select(); break;
         case "activate": controller.activate(); break;
         case "slideNext": controller.nextSlide(); break;
         case "slidePrev": controller.prevSlide(); break;
@@ -59,7 +69,7 @@ export function ListTab({ controller, connected, output = null }: { controller: 
     };
     window.addEventListener("keydown", onKeyDown);
     return () => { window.removeEventListener("keydown", onKeyDown); };
-  }, [controller]);
+  }, [controller, editor]);
 
   const list = s.list;
   const items = list?.items ?? [];
@@ -100,7 +110,13 @@ export function ListTab({ controller, connected, output = null }: { controller: 
             value={s.openId ?? ""}
             disabled={!connected || s.lists.length === 0}
             aria-label="Lista del culto"
-            onChange={(e) => { const id = Number(e.target.value); if (id > 0) void controller.openList(id); e.currentTarget.blur(); }}
+            onChange={(e) => {
+              const id = Number(e.target.value);
+              const pending = s.mode === "edit" ? editor.pendingReason() : null;
+              if (pending) editor.warn(`No se cambió de lista. ${pending} Termínalo o cancélalo primero.`);
+              else if (id > 0) void controller.openList(id);
+              e.currentTarget.blur();
+            }}
           >
             {s.openId === null && <option value="">{s.lists.length === 0 ? "No hay listas" : "Elige una lista…"}</option>}
             {s.lists.map((l) => (
@@ -138,12 +154,7 @@ export function ListTab({ controller, connected, output = null }: { controller: 
       )}
 
       {s.mode === "edit" ? (
-        <div data-testid="edit-placeholder" className="rounded-md border-2 border-blue-700 bg-blue-50 p-4 text-blue-950">
-          <p className="font-bold">Modo EDITAR</p>
-          <p className="text-sm">Aquí se armará la lista (añadir, mover, quitar, duplicar). Esa edición llega en la siguiente fase; mientras tanto, desde aquí NO se proyecta nada y la lista no se puede modificar. Pulsa Ctrl+E para volver al modo EN VIVO.</p>
-          <Button className="mt-3" variant="outline" onClick={() => { controller.setMode("live"); }}>Volver al modo EN VIVO</Button>
-        </div>
-      ) : (
+        <ListEditorView controller={controller} editor={editor} connected={connected} searchRef={searchRef} />      ) : (
         <>
           {list ? (
             <ol aria-label="Elementos de la lista" role="listbox" className="flex flex-col gap-1" data-testid="items">

@@ -20,6 +20,8 @@ Estado: **diseño APROBADO con decisiones (2026-11-25); backend implementado** (
 
 **Prompt 2 hecho (2026-11-25): pestaña «Lista» en modo EN VIVO** (ver CLAUDE.md, «Pestaña «Lista»»): el activo se deriva del `origin`; `Ctrl+Shift+A` para «Añadir a la lista» sigue pendiente (va con el modo EDITAR, prompt 3). Desviaciones: sin activo, la miniatura «Siguiente» muestra lo que `→` va a proyectar (el elemento del cursor); `Esc` + `→` continúa tras la última diapositiva mostrada; el modo EDITAR es por ahora un aviso.
 
+**Prompt 3 hecho (2026-11-25): modo EDITAR** (ver CLAUDE.md, «Modo EDITAR»): cada edición = un comando con la revisión de lo que se ve, encadenadas; conflicto = aviso + recarga conservando lo escrito; Ctrl+Mayús+A y botón desde la Biblia; arrastrar con `@dnd-kit` y Alt+flechas; faltantes con reemplazar/quitar; aviso al pasar a EN VIVO con una edición pendiente. Desviaciones: **reemplazar un faltante son dos comandos** (añadir en su posición y quitar el faltante; el backend no tiene «cambiar la canción de un elemento»); el aviso del duplicado nombra lo omitido; la notas se añaden **después de la selección** y las canciones al final con Enter o después con Ctrl+Enter; sigue sin implementar el arreglo por servicio.
+
 **No verificado todavía (backend):** nada de la interfaz; el comportamiento de las listas con el proyector físico; el paso real de la salida con un `origin` (la salida lo ignora y el test de la página de salida con un slide con `origin` queda para el prompt 2).
 ---
 

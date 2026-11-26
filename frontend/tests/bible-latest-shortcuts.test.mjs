@@ -76,6 +76,8 @@ test("ningún atajo del mapa lleva Ctrl/Alt y ninguna pulsación de los globales
     for (const k of [letter, letter.toLowerCase()]) assert.equal(matchBibleShortcut(key(k, { ctrlKey: true, altKey: true, shiftKey: true }), null), null, g);
   }
   for (const s of BIBLE_SHORTCUTS) {
+    // La ÚNICA con Ctrl es «Añadir a la lista» (Ctrl+Mayús+A, sin Alt: los globales llevan Ctrl+Alt+Mayús); las demás no llevan ningún modificador.
+    if (s.action === "addToList") { assert.deepEqual([s.ctrl, s.shift, "alt" in s], [true, true, false]); continue; }
     assert.ok(!("ctrl" in s) && !("alt" in s), `${s.action} declara un modificador global`);
     assert.equal(matchBibleShortcut(key(s.key, { ctrlKey: true, shiftKey: s.shift === true }), null), null, `Ctrl+${s.key} no debe activar ${s.action}`);
     assert.equal(matchBibleShortcut(key(s.key, { altKey: true, shiftKey: s.shift === true }), null), null);

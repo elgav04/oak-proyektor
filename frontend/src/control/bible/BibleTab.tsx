@@ -1,8 +1,10 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useStore } from "zustand";
 import { Button } from "@/components/ui/button";
 import { matchBibleShortcut, matchSearchKey, BIBLE_SHORTCUTS } from "../shortcuts";
 import type { OutputStateChangedPayload } from "@/ipc/protocol";
+import type { PlaylistNewItemDto } from "@/ipc/protocol";
+import { passageForList } from "../lists/editModel";
 import type { BibleController } from "./controller";
 import { bibleLiveStatus } from "./liveStatus";
 
@@ -11,8 +13,14 @@ import { bibleLiveStatus } from "./liveStatus";
  * del mapa único (`../shortcuts.ts`). Listas cortas (un capítulo ≤ 176 versículos, ≤ 50 resultados, ≤ 30 citas): no hace falta virtualizar.
  */
 /** `output` es la réplica del estado REAL que confirma el backend: de ahí sale la insignia «EN VIVO» (no de lo que el panel envió). */
-export function BibleTab({ controller, connected, output, onOpenSettings }: { controller: BibleController; connected: boolean; output: OutputStateChangedPayload | null; onOpenSettings: () => void }) {
+/** Añadir el pasaje seleccionado a la lista de culto abierta (la edición real la hace el editor de la lista); devuelve qué pasó para decírselo al operador. */
+export type AddToList = (item: PlaylistNewItemDto, label: string) => Promise<{ ok: boolean; message: string }>;
+
+export function BibleTab({ controller, connected, output, onOpenSettings, onAddToList }: { controller: BibleController; connected: boolean; output: OutputStateChangedPayload | null; onOpenSettings: () => void; onAddToList?: AddToList }) {
   const s = useStore(controller.store);
+  const [addStatus, setAddStatus] = useState<{ ok: boolean; message: string } | null>(null);
+  const addRef = useRef<AddToList | undefined>(onAddToList);
+  addRef.current = onAddToList;
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -23,7 +31,7 @@ export function BibleTab({ controller, connected, output, onOpenSettings }: { co
   // Teclas de la pestaña (mapa único). El foco en un cuadro de texto/lista desplegable las deja pasar; el cuadro de búsqueda maneja las suyas.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.repeat && (event.key === "Enter" || event.key === "Escape")) return;   // una tecla mantenida no repite proyecciones ni borrados
+      if (event.repeat && (event.key === "Enter" || event.key === "Escape" || event.key.toLowerCase() === "a")) return;   // una tecla mantenida no repite proyecciones, borrados ni altas
       const action = matchBibleShortcut(event, event.target as HTMLElement | null);
       if (!action) return;
       event.preventDefault();
@@ -56,6 +64,14 @@ export function BibleTab({ controller, connected, output, onOpenSettings }: { co
         case "pagePrev":
           controller.pageBy(-1);
           break;
+        case "addToList": {
+          const st = controller.store.getState();
+          const shortName = st.settings?.shortNames.find((n) => n.bible === st.passage?.bible)?.shortName ?? st.passage?.bible ?? "";
+          const r = passageForList(st.passage, st.anchor, st.active, shortName);
+          if (!r.ok) setAddStatus({ ok: false, message: r.message });
+          else if (addRef.current) void addRef.current(r.item, r.label).then(setAddStatus);
+          break;
+        }
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -243,6 +259,25 @@ export function BibleTab({ controller, connected, output, onOpenSettings }: { co
             <Button size="lg" className="h-12 flex-1" disabled={!connected || !s.passage} onClick={controller.project}>Proyectar (Enter)</Button>
             <Button size="lg" variant="outline" className="h-12" disabled={!connected} onClick={controller.clearProjection}>Limpiar (Esc)</Button>
           </div>
+          {onAddToList && (
+            <div className="flex flex-col gap-1">
+              <Button
+                variant="outline"
+                data-testid="add-to-list"
+                disabled={!connected || !s.passage}
+                title="Añade la selección al final de la lista de culto abierta (Ctrl+Mayús+A)"
+                onClick={() => {
+                  const shortName = s.settings?.shortNames.find((n) => n.bible === s.passage?.bible)?.shortName ?? s.passage?.bible ?? "";
+                  const r = passageForList(s.passage, s.anchor, s.active, shortName);
+                  if (!r.ok) setAddStatus({ ok: false, message: r.message });
+                  else void onAddToList(r.item, r.label).then(setAddStatus);
+                }}
+              >
+                Añadir a la lista (Ctrl+Mayús+A)
+              </Button>
+              {addStatus && <p role="status" data-testid="add-status" className={`text-sm ${addStatus.ok ? "text-green-800" : "text-red-700"}`}>{addStatus.message}</p>}
+            </div>
+          )}
         </section>
       </div>
 

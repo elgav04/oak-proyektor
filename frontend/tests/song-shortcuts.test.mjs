@@ -109,6 +109,6 @@ test("las teclas con Ctrl o Alt de las canciones no las interpreta la pestaña d
     assert.equal(sc.matchBibleShortcut(event, body), null, `${s.label} no debe activar nada en la Biblia`);
   }
   // Y a la inversa: Ctrl+S, Ctrl+N… no son atajos de la Biblia.
-  for (const b of sc.BIBLE_SHORTCUTS) assert.ok(!(b.key.length === 1 && b.key !== "/"), "la Biblia no usa letras sueltas");
+  for (const b of sc.BIBLE_SHORTCUTS) assert.ok(!(b.key.length === 1 && b.key !== "/" && b.ctrl !== true), "la Biblia no usa letras sueltas (salvo Ctrl+Mayús+A, «Añadir a la lista»)");
   assert.notEqual(sc.SONG_SHORTCUTS.length, 0);
 });

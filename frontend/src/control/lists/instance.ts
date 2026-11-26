@@ -1,6 +1,7 @@
 import { ipc } from "@/ipc/instance";
 import { useControlStore } from "../store";
 import { createListController, type ListController, type ListStorage } from "./controller";
+import { createListEditor, type ListEditor } from "./editor";
 
 let controller: ListController | null = null;
 
@@ -27,4 +28,12 @@ function createLocalStorage(): ListStorage | null {
 export function getListController(): ListController {
   controller ??= createListController({ api: ipc, getOutput: () => useControlStore.getState().output, storage: createLocalStorage() });
   return controller;
+}
+
+let editor: ListEditor | null = null;
+
+/** El editor de la lista (modo EDITAR). También lo usa la pestaña de Biblia para «Añadir a la lista»: por eso vive con la página, no con la pestaña. */
+export function getListEditor(): ListEditor {
+  editor ??= createListEditor({ api: ipc, list: getListController() });
+  return editor;
 }

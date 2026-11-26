@@ -15,12 +15,17 @@ export type BibleAction =
   | "project"
   | "clear"
   | "pageNext"
-  | "pagePrev";
+  | "pagePrev"
+  | "addToList";
 
 export interface Shortcut {
   action: BibleAction;
   /** `KeyboardEvent.key`. */
   key: string;
+  /** true = exige Ctrl (solo «Añadir a la lista»; el resto va sin Ctrl). */
+  ctrl?: boolean;
+  /** true = también vale con el foco en el cuadro de búsqueda (tras escribir «jn 3:16» y Enter el foco sigue ahí). */
+  whileTyping?: boolean;
   /** true = exige Mayús, false/ausente = sin Mayús, "any" = da igual (la «/» es Mayús+7 en el teclado español). */
   shift?: boolean | "any";
   /** Qué se muestra al operador. */
@@ -40,6 +45,8 @@ export const BIBLE_SHORTCUTS: readonly Shortcut[] = [
   { action: "pageNext", key: "PageDown", label: "Av Pág", description: "Página siguiente del pasaje (la proyecta)" },
   { action: "pagePrev", key: "ArrowLeft", label: "←", description: "Página anterior del pasaje (la proyecta)" },
   { action: "pagePrev", key: "PageUp", label: "Re Pág", description: "Página anterior del pasaje (la proyecta)" },
+  // Sin Alt: los globales son Ctrl+Alt+Shift+M/B/C/L/R, así que nunca chocan; verificado con teclado real que Ctrl+Mayús+A llega a la página.
+  { action: "addToList", key: "a", ctrl: true, shift: true, whileTyping: true, label: "Ctrl+Mayús+A", description: "Añadir la selección a la lista de culto abierta (como pasaje)" },
 ];
 
 /** Datos mínimos de un `KeyboardEvent` (así se prueba sin DOM). */
@@ -81,11 +88,12 @@ export function isTypingTarget(target: KeyTarget | null | undefined): boolean {
  * con el foco en un botón, Enter es del botón. Los modificadores deben coincidir exactamente.
  */
 export function matchBibleShortcut(event: KeyInput, target: KeyTarget | null | undefined): BibleAction | null {
-  if (event.ctrlKey || event.altKey || event.metaKey) return null;
-  if (isTypingTarget(target)) return null;
+  if (event.altKey || event.metaKey) return null;   // Ctrl+Alt+Shift+… son los globales del backend
   const tag = (target?.tagName ?? "").toUpperCase();
-  const found = BIBLE_SHORTCUTS.find((s) => s.key === event.key && (s.shift === "any" || (s.shift ?? false) === event.shiftKey));
+  const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+  const found = BIBLE_SHORTCUTS.find((s) => s.key === key && (s.ctrl ?? false) === event.ctrlKey && (s.shift === "any" || (s.shift ?? false) === event.shiftKey));
   if (!found) return null;
+  if (isTypingTarget(target) && found.whileTyping !== true) return null;
   if (found.key === "Enter" && BUTTON_TAGS.has(tag)) return null;
   return found.action;
 }
@@ -219,21 +227,29 @@ export type ListAction =
   | "itemNext"
   | "itemPrev"
   | "clear"
-  | "toggleMode";
+  | "toggleMode"
+  | "itemMoveUp"
+  | "itemMoveDown"
+  | "itemRemove"
+  | "itemDuplicate"
+  | "focusSearch"
+  | "undo";
 
 export interface ListShortcut {
   action: ListAction;
   key: string;
   ctrl?: boolean;
-  /** `live` = solo en modo EN VIVO; `any` = también en modo EDITAR. */
-  scope: "live" | "any";
+  alt?: boolean;
+  shift?: boolean | "any";
+  /** `live` = solo en modo EN VIVO; `edit` = solo en modo EDITAR; `any` = en los dos. */
+  scope: "live" | "edit" | "any";
   label: string;
   description: string;
 }
 
 export const LIST_SHORTCUTS: readonly ListShortcut[] = [
-  { action: "cursorPrev", key: "ArrowUp", scope: "live", label: "↑", description: "Elemento anterior de la lista (mueve el cursor; NO proyecta)" },
-  { action: "cursorNext", key: "ArrowDown", scope: "live", label: "↓", description: "Elemento siguiente de la lista (mueve el cursor; NO proyecta)" },
+  { action: "cursorPrev", key: "ArrowUp", scope: "any", label: "↑", description: "Elemento anterior de la lista (mueve la selección; en EN VIVO NO proyecta)" },
+  { action: "cursorNext", key: "ArrowDown", scope: "any", label: "↓", description: "Elemento siguiente de la lista (mueve la selección; en EN VIVO NO proyecta)" },
   { action: "activate", key: "Enter", scope: "live", label: "Enter", description: "Activar el elemento del cursor (proyecta su primera diapositiva o página)" },
   { action: "slideNext", key: "ArrowRight", scope: "live", label: "→", description: "Diapositiva o página siguiente del elemento (al final: «FIN · siguiente: …», según el ajuste)" },
   { action: "slideNext", key: "PageDown", scope: "live", label: "Av Pág", description: "Diapositiva o página siguiente del elemento" },
@@ -242,7 +258,14 @@ export const LIST_SHORTCUTS: readonly ListShortcut[] = [
   { action: "itemNext", key: "ArrowRight", ctrl: true, scope: "live", label: "Ctrl+→", description: "Saltar al elemento siguiente que se pueda proyectar (salta faltantes y notas) y proyectarlo" },
   { action: "itemPrev", key: "ArrowLeft", ctrl: true, scope: "live", label: "Ctrl+←", description: "Saltar al elemento anterior que se pueda proyectar y proyectarlo" },
   { action: "clear", key: "Escape", scope: "live", label: "Esc", description: "Quitar el texto de la pantalla (output.clearContent); no cambia el elemento activo" },
-  { action: "toggleMode", key: "e", ctrl: true, scope: "any", label: "Ctrl+E", description: "Alternar entre el modo EN VIVO y el modo EDITAR" },
+  { action: "toggleMode", key: "e", ctrl: true, scope: "any", label: "Ctrl+E", description: "Alternar entre el modo EN VIVO y el modo EDITAR (con una edición pendiente avisa antes)" },
+  // Modo EDITAR: reordenar y editar SIN ratón.
+  { action: "itemMoveUp", key: "ArrowUp", alt: true, scope: "edit", label: "Alt+↑", description: "Subir el elemento seleccionado" },
+  { action: "itemMoveDown", key: "ArrowDown", alt: true, scope: "edit", label: "Alt+↓", description: "Bajar el elemento seleccionado" },
+  { action: "itemRemove", key: "Delete", scope: "edit", label: "Supr", description: "Quitar el elemento seleccionado de la lista (Ctrl+Z lo recupera)" },
+  { action: "itemDuplicate", key: "d", ctrl: true, scope: "edit", label: "Ctrl+D", description: "Duplicar el elemento seleccionado justo después" },
+  { action: "focusSearch", key: "/", shift: "any", scope: "edit", label: "/", description: "Ir a la búsqueda de canciones para añadir" },
+  { action: "undo", key: "z", ctrl: true, scope: "edit", label: "Ctrl+Z", description: "Deshacer el último «quitar»" },
 ];
 
 export interface ListKeyContext {
@@ -251,16 +274,31 @@ export interface ListKeyContext {
 
 /** Acción de la pestaña «Lista» para una pulsación, o null. Ctrl+Alt+Shift (los globales) nunca coincide; con el foco en un cuadro de texto nunca coincide nada. */
 export function matchListShortcut(event: KeyInput, target: KeyTarget | null | undefined, context: ListKeyContext): ListAction | null {
-  if (event.metaKey || event.altKey) return null;
+  if (event.metaKey || (event.ctrlKey && event.altKey)) return null;
   if (isTypingTarget(target)) return null;
   const tag = (target?.tagName ?? "").toUpperCase();
   const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
   for (const s of LIST_SHORTCUTS) {
     if (s.key !== key) continue;
-    if ((s.ctrl ?? false) !== event.ctrlKey || event.shiftKey) continue;
-    if (s.scope === "live" && context.mode !== "live") continue;
+    if ((s.ctrl ?? false) !== event.ctrlKey || (s.alt ?? false) !== event.altKey) continue;
+    if (s.shift !== "any" && (s.shift ?? false) !== event.shiftKey) continue;
+    if (s.scope !== "any" && s.scope !== context.mode) continue;
     if (s.key === "Enter" && BUTTON_TAGS.has(tag)) continue;   // Enter sobre un botón es del botón
     return s.action;
   }
   return null;
+}
+
+/** Teclas del cuadro de búsqueda de canciones del modo EDITAR (el único control de texto con atajos propios en la lista). */
+export type ListSearchKey = "moveDown" | "moveUp" | "addEnd" | "addAfter" | "clear";
+
+export function matchListSearchKey(event: KeyInput): ListSearchKey | null {
+  if (event.metaKey || event.altKey || event.shiftKey) return null;
+  switch (event.key) {
+    case "ArrowDown": return event.ctrlKey ? null : "moveDown";
+    case "ArrowUp": return event.ctrlKey ? null : "moveUp";
+    case "Enter": return event.ctrlKey ? "addAfter" : "addEnd";
+    case "Escape": return event.ctrlKey ? null : "clear";
+    default: return null;
+  }
 }

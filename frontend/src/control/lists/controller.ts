@@ -105,11 +105,13 @@ export interface ListViewState {
   notice: string | null;
   contents: Record<number, ContentState>;
   requested: Requested | null;
+  /** Se intentó pasar a EN VIVO con una edición pendiente: el motivo (barra de aviso con «Descartar y pasar» / «Seguir editando»). */
+  leaveWarning: string | null;
 }
 
 const initialState: ListViewState = {
   loaded: false, mode: "live", lists: [], error: null, openId: null, list: null, loadingList: false, settings: null,
-  cursor: 0, atEnd: false, notice: null, contents: {}, requested: null,
+  cursor: 0, atEnd: false, notice: null, contents: {}, requested: null, leaveWarning: null,
 };
 
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : typeof error === "object" && error !== null && "message" in error ? String(error.message) : String(error));
@@ -123,6 +125,13 @@ export interface ListController {
   openList(id: number): Promise<void>;
   setMode(mode: "live" | "edit"): void;
   toggleMode(): void;
+  /** Quien edita (el editor) dice si hay algo pendiente: devuelve el motivo o null. Pasar a EN VIVO con algo pendiente NO cambia de modo y deja un aviso. */
+  setLeaveGuard(guard: (() => string | null) | null, discard?: (() => void) | null): void;
+  /** «Descartar y pasar a EN VIVO»: avisa al editor (`onDiscard`) y cambia de modo. */
+  confirmLeave(): void;
+  dismissLeaveWarning(): void;
+  /** Vuelve a leer las listas y la abierta (tras un conflicto de revisión o un cambio hecho por otra ventana). */
+  reload(): Promise<void>;
   moveCursor(delta: number): void;
   setCursor(index: number): void;
   /** Enter: activa el elemento del cursor. */
@@ -152,6 +161,8 @@ export function createListController(deps: ListControllerDeps): ListController {
   const life = { disposed: false };
   const gone = (): boolean => life.disposed;
   const unsubscribers: (() => void)[] = [];
+  let leaveGuard: (() => string | null) | null = null;
+  let onDiscard: (() => void) | null = null;
 
   let songSettings: SongSettingsPayload = SONG_DEFAULT_SETTINGS;
   let bibleSettings: Pick<BibleSettingsPayload, "theme" | "transitionMs" | "shortNames" | "showAttribution" | "superscriptNumbers"> = {
@@ -281,7 +292,7 @@ export function createListController(deps: ListControllerDeps): ListController {
       prefetchTimer = null;
       void (async () => {
         const list = get().list;
-        if (!list || gone()) return;
+        if (!list || gone() || get().mode !== "live") return;   // en modo EDITAR no se prepara nada para proyectar
         const a = anchor();
         const fromIndex = a ? list.items.findIndex((i) => i.id === a.itemId) : get().cursor - 1;
         const targets: PlaylistItemDto[] = [];
@@ -574,15 +585,41 @@ export function createListController(deps: ListControllerDeps): ListController {
 
     setMode(mode) {
       if (get().mode === mode) return;
-      set({ mode });
+      if (mode === "live") {
+        const pending = leaveGuard?.() ?? null;
+        if (pending) { set({ leaveWarning: pending }); return; }
+      }
+      set({ mode, leaveWarning: null });
+      if (mode === "live") schedulePrefetch();
     },
     toggleMode() {
-      set({ mode: get().mode === "live" ? "edit" : "live" });
+      controller.setMode(get().mode === "live" ? "edit" : "live");
+    },
+    setLeaveGuard(guard, discard = null) {
+      leaveGuard = guard;
+      onDiscard = discard;
+    },
+    confirmLeave() {
+      onDiscard?.();
+      set({ mode: "live", leaveWarning: null });
+      schedulePrefetch();
+    },
+    dismissLeaveWarning() {
+      set({ leaveWarning: null });
+    },
+    async reload() {
+      try {
+        await refreshLists();
+        const id = get().openId;
+        if (id !== null) await loadList(id, false);
+      } catch (error) {
+        if (!gone()) set({ error: errorMessage(error) });
+      }
     },
 
     moveCursor(delta) {
       const list = get().list;
-      if (!list || get().mode !== "live" || list.items.length === 0) return;
+      if (!list || list.items.length === 0) return;
       const cursor = Math.max(0, Math.min(list.items.length - 1, get().cursor + delta));
       if (cursor === get().cursor) return;
       set({ cursor });

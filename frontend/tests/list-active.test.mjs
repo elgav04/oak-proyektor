@@ -4,7 +4,7 @@ import { closeServer, loadTs } from "./helper.mjs";
 
 // Funciones puras de la pestaña «Lista»: elemento activo derivado del origin, insignia, salto entre elementos y lista por defecto. Datos sintéticos.
 const { activeFromOutput, listLiveStatus, badgeText, stepItem, pickDefaultList, localDate, whyNotProjectable } = await loadTs("/src/control/lists/active.ts");
-const { matchListShortcut, LIST_SHORTCUTS, RESERVED_GLOBAL_SHORTCUTS } = await loadTs("/src/control/shortcuts.ts");
+const { matchListShortcut, matchListSearchKey, LIST_SHORTCUTS, RESERVED_GLOBAL_SHORTCUTS } = await loadTs("/src/control/shortcuts.ts");
 after(closeServer);
 
 const output = ({ origin = null, master = "live", isOpen = true, isPaused = false, text = "texto sintético" } = {}) => ({
@@ -125,13 +125,35 @@ test("atajos de la lista: cada tecla del mapa produce su acción, con los modifi
   assert.equal(m(key("ArrowDown", { ctrlKey: true })), null);
 });
 
-test("en modo EDITAR solo Ctrl+E está activo: ninguna tecla proyecta ni mueve nada", () => {
+test("en modo EDITAR las teclas de PROYECCIÓN no hacen nada; sí están ↑/↓ (selección), Alt+↑/↓, Supr, Ctrl+D, Ctrl+Z, / y Ctrl+E", () => {
   const edit = { mode: "edit" };
-  assert.equal(matchListShortcut(key("e", { ctrlKey: true }), null, edit), "toggleMode");
-  for (const k of ["ArrowUp", "ArrowDown", "Enter", "ArrowRight", "ArrowLeft", "PageDown", "PageUp", "Escape"]) assert.equal(matchListShortcut(key(k), null, edit), null, k);
-  assert.equal(matchListShortcut(key("ArrowRight", { ctrlKey: true }), null, edit), null);
+  const m = (e) => matchListShortcut(e, null, edit);
+  for (const k of ["Enter", "ArrowRight", "ArrowLeft", "PageDown", "PageUp", "Escape"]) assert.equal(m(key(k)), null, k);
+  assert.equal(m(key("ArrowRight", { ctrlKey: true })), null);
+  assert.equal(m(key("e", { ctrlKey: true })), "toggleMode");
+  assert.equal(m(key("ArrowUp")), "cursorPrev");
+  assert.equal(m(key("ArrowDown")), "cursorNext");
+  assert.equal(m(key("ArrowUp", { altKey: true })), "itemMoveUp");
+  assert.equal(m(key("ArrowDown", { altKey: true })), "itemMoveDown");
+  assert.equal(m(key("Delete")), "itemRemove");
+  assert.equal(m(key("d", { ctrlKey: true })), "itemDuplicate");
+  assert.equal(m(key("z", { ctrlKey: true })), "undo");
+  assert.equal(m(key("/")), "focusSearch");
+  assert.equal(m(key("/", { shiftKey: true })), "focusSearch", "la «/» del teclado español es Mayús+7");
+  // Y en EN VIVO las de edición no existen.
+  for (const [k, o] of [["Delete", {}], ["d", { ctrlKey: true }], ["z", { ctrlKey: true }], ["/", {}], ["ArrowUp", { altKey: true }], ["ArrowDown", { altKey: true }]]) assert.equal(matchListShortcut(key(k, o), null, live), null, `${k} en EN VIVO`);
 });
 
+test("las teclas del cuadro de búsqueda de canciones: ↑/↓ eligen, Enter añade al final, Ctrl+Enter después de la selección, Esc borra", () => {
+  assert.equal(matchListSearchKey(key("ArrowDown")), "moveDown");
+  assert.equal(matchListSearchKey(key("ArrowUp")), "moveUp");
+  assert.equal(matchListSearchKey(key("Enter")), "addEnd");
+  assert.equal(matchListSearchKey(key("Enter", { ctrlKey: true })), "addAfter");
+  assert.equal(matchListSearchKey(key("Escape")), "clear");
+  assert.equal(matchListSearchKey(key("a")), null);
+  assert.equal(matchListSearchKey(key("Enter", { shiftKey: true })), null);
+  assert.equal(matchListSearchKey(key("Enter", { altKey: true })), null);
+});
 test("con el foco en un cuadro de texto NINGÚN atajo se interpreta: Ctrl+←/→ siguen moviendo el cursor por palabras y Ctrl+E no cambia de modo a medio escribir", () => {
   for (const target of [{ tagName: "INPUT", type: "text" }, { tagName: "TEXTAREA" }, { tagName: "SELECT" }, { tagName: "DIV", isContentEditable: true }]) {
     for (const s of LIST_SHORTCUTS) {
@@ -149,8 +171,8 @@ test("los atajos globales del backend (Ctrl+Alt+Shift+M/B/C/L/R) nunca se interp
     assert.equal(matchListShortcut(key(letter.toUpperCase(), { ctrlKey: true, altKey: true, shiftKey: true }), null, live), null);
   }
   assert.equal(RESERVED_GLOBAL_SHORTCUTS.length, 5);
-  for (const s of LIST_SHORTCUTS) assert.ok(s.ctrl !== true || s.key === "ArrowRight" || s.key === "ArrowLeft" || s.key === "e", `${s.label}: solo Ctrl simple, nunca Alt`);
+  for (const s of LIST_SHORTCUTS) assert.ok(!(s.ctrl === true && s.alt === true), `${s.label}: nunca Ctrl+Alt (los globales llevan Ctrl+Alt+Mayús)`);
   // Sin repeticiones: dos entradas no pueden compartir tecla y modificador.
-  const seen = new Set(LIST_SHORTCUTS.map((s) => `${s.key}|${String(s.ctrl === true)}`));
+  const seen = new Set(LIST_SHORTCUTS.map((s) => `${s.key}|${String(s.ctrl === true)}|${String(s.alt === true)}|${s.scope}`));
   assert.equal(seen.size, LIST_SHORTCUTS.length);
 });

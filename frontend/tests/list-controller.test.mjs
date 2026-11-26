@@ -323,11 +323,13 @@ test("en modo EDITAR nada se proyecta ni se limpia; al volver a EN VIVO todo fun
   const m = await make();
   m.controller.toggleMode();
   assert.equal(m.get().mode, "edit");
-  m.controller.activate(); m.controller.nextSlide(); m.controller.nextItem(); m.controller.clear(); m.controller.moveCursor(1);
+  m.controller.activate(); m.controller.nextSlide(); m.controller.nextItem(); m.controller.clear();
   await m.settle(80);
   assert.equal(m.b.commands.length, 0);
-  assert.equal(m.get().cursor, 0, "tampoco se mueve el cursor");
+  m.controller.moveCursor(1);
+  assert.equal(m.get().cursor, 1, "la selección sí se mueve en modo EDITAR (no proyecta)");
   m.controller.toggleMode();
+  m.controller.setCursor(0);
   m.controller.activate();
   await until(() => m.shows().length === 1);
   m.controller.dispose();
