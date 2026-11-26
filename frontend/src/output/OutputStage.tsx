@@ -30,7 +30,7 @@ function useCanvasTransform(): CanvasTransform {
 
 const BLACK_BACKGROUND: BackgroundState = { kind: "none", color: "#000000", mediaUrl: null, fileName: null, muted: true, transitionMs: 0, warning: null, retry: 0 };
 const NO_CONTENT: ContentState = { slide: null, transitionMs: 0 };
-const NO_OVERLAYS: OverlayState = { items: [] };
+const NO_OVERLAYS: OverlayState = { alert: null };
 
 /** Viewport + lienzo virtual de 1920×1080 escalado a la ventana. Solo geometría: las capas van dentro. */
 export function OutputFrame({ children }: { children: ReactNode }) {

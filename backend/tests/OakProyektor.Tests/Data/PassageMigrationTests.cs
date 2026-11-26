@@ -47,7 +47,7 @@ public sealed class PassageMigrationTests : IDisposable
         var result = await _db.Initializer.InitializeAsync(CancellationToken.None);
 
         Assert.Equal((3, OakProyektor.Data.DatabaseInitializer.LatestSchemaVersion), (result.FromVersion, result.ToVersion));
-        Assert.Equal([4, 5, 6, 7, 8, 9, 10, 11], result.Applied); 
+        Assert.Equal([4, 5, 6, 7, 8, 9, 10, 11, 12], result.Applied); 
         Assert.NotNull(result.BackupPath);
         await using var c = await _db.OpenAsync();
         var rows = (await c.QueryAsync<(long Id, long SequenceIndex, string ItemType, string Title, long? SongId, long? BookNumber, long? Chapter, long? VerseStart, long? VerseEnd, string? Abbr, long IsMissing)>(

@@ -136,8 +136,45 @@ internal sealed class SettingsStore(ApplicationPaths paths, ILogger<SettingsStor
                 CitationHistoryLimit: Block("citationHistoryLimit", d.CitationHistoryLimit, "Límite del historial de citas", v => v is >= 0 and <= 1000 ? null : "debe estar entre 0 y 1000."),
                 BibleDisplay: ReadBibleDisplay(root, warnings),
                 SongDisplay: ReadSongDisplay(root, warnings),
-                PlaylistDisplay: ReadPlaylistDisplay(root, warnings));
+                PlaylistDisplay: ReadPlaylistDisplay(root, warnings),
+                AlertDisplay: ReadAlertDisplay(root, warnings));
         }
+    }
+
+    /// <summary>
+    /// El bloque de las alertas (v15), por partes: un tema, un modo o una duración inválidos vuelven a SU valor por defecto con un aviso (si no, cada alerta se rechazaría con
+    /// <c>alert.invalidContent</c>); un bloque ilegible entero vuelve a los valores por defecto.
+    /// </summary>
+    private static AlertDisplaySettings? ReadAlertDisplay(JsonElement root, List<string> warnings)
+    {
+        if (!TryGet(root, "alertDisplay", out var element) || element.ValueKind == JsonValueKind.Null) return null;
+        AlertDisplaySettings? block;
+        try { block = element.Deserialize<AlertDisplaySettings>(Json); }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException or NotSupportedException) { block = null; }
+        if (block is null)
+        {
+            warnings.Add("La configuración de las alertas (alertDisplay) no es válida en settings.json: se usan los valores por defecto.");
+            return null;
+        }
+        var mode = block.Mode;
+        if (AlertRules.ValidateMode(mode) is not null)
+        {
+            warnings.Add("El modo de las alertas no es válido en settings.json: se usa la cinta estática.");
+            mode = AlertMode.Band;
+        }
+        var duration = block.DurationSec;
+        if (AlertRules.ValidateDuration(duration) is not null)
+        {
+            warnings.Add($"La duración de las alertas no es válida en settings.json ({duration} s): se usan {AlertRules.DefaultDurationSec} s.");
+            duration = AlertRules.DefaultDurationSec;
+        }
+        var theme = block.Theme;
+        if (theme is not null && AlertRules.ValidateTheme(theme) is { } themeProblem)
+        {
+            warnings.Add($"El tema de las alertas no es válido en settings.json ({themeProblem.TrimEnd('.')}): se usa el tema por defecto.");
+            theme = null;
+        }
+        return block with { Mode = mode, DurationSec = duration, Theme = theme };
     }
 
     /// <summary>El bloque de las listas (v13): un valor inválido (o ilegible) vuelve a su valor por defecto («quedarse») con un aviso; no tira el resto de la configuración.</summary>

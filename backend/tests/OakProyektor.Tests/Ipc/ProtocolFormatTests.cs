@@ -55,7 +55,8 @@ public partial class ProtocolFormatTests
         new(typeof(SlideOrigin), "SlideOrigin", Direction.FromBackend),   // v13: viaja en las dos direcciones (showContent y el estado): regla más estricta
         new(typeof(Slide), "Slide", Direction.FromBackend),
         new(typeof(ContentLayer), "ContentLayer", Direction.FromBackend),
-        new(typeof(OverlayItem), "OverlayItem", Direction.FromBackend),
+        new(typeof(AlertTheme), "AlertTheme", Direction.FromBackend),   // v15: viaja en las dos direcciones (alert.setSettings y el estado): regla más estricta
+        new(typeof(AlertOverlay), "AlertOverlay", Direction.FromBackend),
         new(typeof(OverlayLayer), "OverlayLayer", Direction.FromBackend),
         new(typeof(HotkeyStatus), "HotkeyStatus", Direction.FromBackend),
         new(typeof(DisplayInfo), "DisplayInfo", Direction.FromBackend),
@@ -131,6 +132,14 @@ public partial class ProtocolFormatTests
         new(typeof(PlaylistDeletePayload), "PlaylistDeletePayload", Direction.ToBackend),
         new(typeof(PlaylistChangedPayload), "PlaylistChangedPayload", Direction.FromBackend),
         new(typeof(PlaylistSettingsPayload), "PlaylistSettingsPayload", Direction.FromBackend),
+        // Alertas rápidas (v15). AlertSettingsPayload y AlertTheme viajan en las dos direcciones: regla más estricta (la de lo que C# envía).
+        new(typeof(AlertShowPayload), "AlertShowPayload", Direction.ToBackend),
+        new(typeof(SavedAlertDto), "SavedAlertDto", Direction.FromBackend),
+        new(typeof(AlertListPayload), "AlertListPayload", Direction.FromBackend),
+        new(typeof(AlertSavePayload), "AlertSavePayload", Direction.ToBackend),
+        new(typeof(AlertDeletePayload), "AlertDeletePayload", Direction.ToBackend),
+        new(typeof(AlertChangedPayload), "AlertChangedPayload", Direction.FromBackend),
+        new(typeof(AlertSettingsPayload), "AlertSettingsPayload", Direction.FromBackend),
     ];
 
     /// <summary>Alias de tipo de protocol.ts → enum de C# que representa. <c>RecoverReason</c> es un SUBCONJUNTO de <c>OutputPauseReason</c> a propósito.</summary>
@@ -147,9 +156,11 @@ public partial class ProtocolFormatTests
         ["BackgroundFailureReason"] = typeof(BackgroundFailureReason),
         ["SongAtEnd"] = typeof(SongAtEnd),
         ["PlaylistOnItemEnd"] = typeof(PlaylistOnItemEnd),
+        ["AlertMode"] = typeof(AlertMode),
+        ["AlertPosition"] = typeof(AlertPosition),
     };
 
-    private static readonly Type[] WireEnums = [typeof(MasterMode), typeof(DatabaseState), typeof(OutputPauseReason), typeof(DisplayLostPolicy), typeof(BackgroundKind), typeof(TextAlign), typeof(VerticalAlign), typeof(BackgroundFailureReason), typeof(SongAtEnd), typeof(PlaylistOnItemEnd)];
+    private static readonly Type[] WireEnums = [typeof(MasterMode), typeof(DatabaseState), typeof(OutputPauseReason), typeof(DisplayLostPolicy), typeof(BackgroundKind), typeof(TextAlign), typeof(VerticalAlign), typeof(BackgroundFailureReason), typeof(SongAtEnd), typeof(PlaylistOnItemEnd), typeof(AlertMode), typeof(AlertPosition)];
 
     /// <summary>Nombre en protocol.ts de los tipos de C# cuyo nombre difiere.</summary>
     private static string TsNameOf(Type t) => t == typeof(IpcError) ? "IpcErrorPayload" : t.Name;
@@ -172,6 +183,7 @@ public partial class ProtocolFormatTests
         [12] = "ddfbc0343aba0ef5ccf4b884787576c66f8c2dc65b4dd044aff3be464cd50447",
         [13] = "633fccf39206898887154a8a8fd8cd269bc49689810c5afbd3b7eb176fb66aca",
         [14] = "e0768d6ecbc44666b7309de16b19dc0587e45d1bace62727cf3782ed2c05b2bf",
+        [15] = "9a98aaa8e55b263b37488e12c03af0389f1466eafe4218765c2a51771785bd6a",
     };
 
     // ───────────────────────────── lectura de C# ─────────────────────────────

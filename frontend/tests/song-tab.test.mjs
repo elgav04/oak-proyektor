@@ -430,10 +430,10 @@ test("EXTREMO A EXTREMO: una canción sintética elegida en la lista y proyectad
     await until(() => m.backend.sent("output.showContent").length === 2);
     const sent = m.backend.sent("output.showContent")[1].payload;
     const state = {
-      schemaVersion: 2, revision: 0, master: "live",
+      schemaVersion: 3, revision: 0, master: "live",
       background: { kind: "color", color: "#102030", mediaUrl: null, fileName: null, muted: true, transitionMs: 0, warning: null },
       content: { slide: { id: "e2e", blocks: sent.blocks.map((text) => ({ text })), theme: sent.theme }, transitionMs: sent.transitionMs },
-      overlays: { items: [] },
+      overlays: { alert: null },
     };
     const out = win.document.createElement("div");
     win.document.body.appendChild(out);

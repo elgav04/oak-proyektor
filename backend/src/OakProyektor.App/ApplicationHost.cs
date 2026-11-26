@@ -145,6 +145,17 @@ internal sealed class ApplicationHost : IAsyncDisposable
         services.AddSingleton<IIpcHandler, Handlers.PlaylistUpdateItemHandler>();
         services.AddSingleton<IIpcHandler, Handlers.PlaylistDuplicateHandler>();
         services.AddSingleton<IIpcHandler, Handlers.PlaylistDeleteHandler>();
+        // Alertas rápidas (protocolo v15): mostrar y quitar solo tocan memoria (carril de PRIORIDAD); el uso se anota en segundo plano; guardar y borrar van por el carril lento.
+        services.AddSingleton<Data.Alerts.IAlertRepository, Data.Alerts.AlertRepository>();
+        services.AddSingleton<Data.Alerts.BackgroundAlertRecorder>();
+        services.AddSingleton<Data.Alerts.IAlertRecorder>(sp => sp.GetRequiredService<Data.Alerts.BackgroundAlertRecorder>());
+        services.AddSingleton<IIpcHandler, Handlers.AlertShowHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.AlertHideHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.AlertGetSettingsHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.AlertSetSettingsHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.AlertListHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.AlertSaveHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.AlertDeleteHandler>();
         configureServices?.Invoke(services);
         _services = services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
         _logger = _services.GetRequiredService<ILogger<ApplicationHost>>();
@@ -213,6 +224,8 @@ internal sealed class ApplicationHost : IAsyncDisposable
                     new HotkeyBinding("clearText", 0x43, "Ctrl+Alt+Shift+C", () => output.ToggleMaster(OakProyektor.Core.Output.MasterMode.ClearText)),
                     new HotkeyBinding("logo", 0x4C, "Ctrl+Alt+Shift+L", () => output.ToggleMaster(OakProyektor.Core.Output.MasterMode.Logo)),
                     new HotkeyBinding("reloadPanel", 0x52, "Ctrl+Alt+Shift+R", ReloadPanel),
+                    // Solo QUITA la alerta, nunca la muestra (un interruptor podría resucitar un aviso viejo). Actúa en el controlador sin pasar por el panel.
+                    new HotkeyBinding("hideAlert", 0x41, "Ctrl+Alt+Shift+A", () => output.HideAlert()),
                 ]);
                 output.SetEmergencyHotkey(statuses.FirstOrDefault(s => s.Action == "emergency" && s.Registered)?.Keys);   // null = no se pudo registrar; el panel lo avisa
                 output.SetBackupHotkeys([.. statuses.Where(s => s.Action != "emergency")]);

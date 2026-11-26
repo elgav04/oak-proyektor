@@ -23,7 +23,7 @@ const settle = async (m, expectedTexts) => {
   }
 };
 const slide = (id, text = id) => ({ id, blocks: [{ text }], theme: THEME });
-const state = (master, s, background = VIDEO, transitionMs = 20) => ({ schemaVersion: 2, revision: 0, master, background, content: { slide: s, transitionMs }, overlays: { items: [] } });
+const state = (master, s, background = VIDEO, transitionMs = 20) => ({ schemaVersion: 3, revision: 0, master, background, content: { slide: s, transitionMs }, overlays: { alert: null } });
 
 function mount() {
   const container = win.document.createElement("div");

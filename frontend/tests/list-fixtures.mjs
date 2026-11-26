@@ -38,7 +38,7 @@ export function createListBackend(options = {}) {
     window: { isOpen: true, isPaused: false },
   };
 
-  const envelope = (kind, type, payload, id = crypto.randomUUID()) => JSON.stringify({ v: 14, id, kind, type, payload });
+  const envelope = (kind, type, payload, id = crypto.randomUUID()) => JSON.stringify({ v: 15, id, kind, type, payload });
   const reply = (req, result) => deliver(envelope("reply", req.type, { ok: true, result, error: null }, req.id));
   const fail = (req, code, message) => deliver(envelope("reply", req.type, { ok: false, result: null, error: { code, message } }, req.id));
   const event = (type, payload) => deliver(envelope("event", type, payload));
@@ -93,10 +93,10 @@ export function createListBackend(options = {}) {
   const outputPayload = () => ({
     seq: seq++,
     state: {
-      schemaVersion: 2, revision: 0, master: state.master,
+      schemaVersion: 3, revision: 0, master: state.master,
       background: { kind: "color", color: "#102030", mediaUrl: null, fileName: null, muted: true, transitionMs: 0, warning: null, retry: 0 },
       content: state.slide ? { slide: state.slide, transitionMs: state.transitionMs ?? 0 } : { slide: null, transitionMs: 0 },
-      overlays: { items: [] },
+      overlays: { alert: null },
     },
     window: state.window,
   });

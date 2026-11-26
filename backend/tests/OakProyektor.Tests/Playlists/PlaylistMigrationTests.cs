@@ -75,8 +75,8 @@ public sealed class PlaylistMigrationTests : IDisposable
 
         var result = await _db.Initializer.InitializeAsync(CancellationToken.None);
 
-        Assert.Equal((10, 11), (result.FromVersion, result.ToVersion));
-        Assert.Equal([11], result.Applied);
+        Assert.Equal((10, 12), (result.FromVersion, result.ToVersion));
+        Assert.Equal([11, 12], result.Applied);
         Assert.NotNull(result.BackupPath);            // copia previa a migrar
         await using var d = await _db.OpenAsync();
         Assert.Equal(before, await ItemSnapshotAsync(d));      // los 6, idénticos: mismos ids, orden, tipos, títulos, referencias y el flag de faltante
@@ -93,7 +93,7 @@ public sealed class PlaylistMigrationTests : IDisposable
 
         Assert.Empty(await d.QueryAsync("PRAGMA foreign_key_check"));
         Assert.Equal(1L, await d.ExecuteScalarAsync<long>("PRAGMA foreign_keys"));
-        Assert.Equal(11L, await d.ExecuteScalarAsync<long>("PRAGMA user_version"));
+        Assert.Equal(12L, await d.ExecuteScalarAsync<long>("PRAGMA user_version"));
         Assert.Equal("ok", await d.ExecuteScalarAsync<string>("PRAGMA integrity_check"));
     }
 
@@ -167,7 +167,7 @@ public sealed class PlaylistMigrationTests : IDisposable
         var first = await _db.Initializer.InitializeAsync(CancellationToken.None);
         var second = await _db.Initializer.InitializeAsync(CancellationToken.None);
 
-        Assert.Equal([11], first.Applied);
+        Assert.Equal([11, 12], first.Applied);
         Assert.Empty(second.Applied);
         await using var d = await _db.OpenAsync();
         Assert.Equal(0L, await d.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM PlaylistItems"));

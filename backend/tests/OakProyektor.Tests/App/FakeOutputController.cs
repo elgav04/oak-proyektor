@@ -20,6 +20,12 @@ internal sealed class FakeOutputController : IOutputController
     public SlideOrigin? LastOrigin { get; private set; }
     public void ShowContent(IReadOnlyList<string> blocks, TextTheme theme, int transitionMs, SlideOrigin? origin = null) { LastOrigin = origin; Calls.Add($"showContent:{blocks.Count}:{transitionMs}"); }
     public void ClearContent(int transitionMs) => Calls.Add($"clearContent:{transitionMs}");
+    /// <summary>Las alertas recibidas (texto ya normalizado, modo, duración y número de llegada), en orden.</summary>
+    public List<(string Text, AlertMode Mode, int DurationSec, long Order)> Alerts { get; } = [];
+    /// <summary>Si es false, <c>ShowAlert</c> responde «ignorada» (como cuando el operador la quitó después de pedirla).</summary>
+    public bool AlertApplied { get; set; } = true;
+    public bool ShowAlert(string text, AlertMode mode, int durationSec, long order = 0) { Calls.Add($"showAlert:{mode}:{durationSec}"); Alerts.Add((text, mode, durationSec, order)); Orders.Add(order); return AlertApplied; }
+    public void HideAlert(long order = 0) { Calls.Add("hideAlert"); Orders.Add(order); }
     public void ReportBackgroundFailure(string mediaUrl, BackgroundFailureReason reason, string? detail) => Calls.Add($"backgroundFailure:{reason}:{mediaUrl}");
     public void CloseForShutdown() => Calls.Add("shutdown");
     public void EmergencyPause(OutputPauseReason reason, long order = 0) { Calls.Add($"pause:{reason}"); Orders.Add(order); }

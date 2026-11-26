@@ -25,7 +25,7 @@ internal sealed class NoBibles : OakProyektor.Data.Scripture.IBibleQueryService
 public class HandlerTests
 {
     private static string Msg(string kind, string type, string payload = "{}") =>
-        $$"""{"v":14,"id":"q1","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
+        $$"""{"v":15,"id":"q1","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
 
     private static (IpcDispatcher Dispatcher, FakeOutputController Output) Create(params DisplayInfo[] displays)
     {
@@ -77,6 +77,10 @@ public class HandlerTests
             new PlaylistAddItemHandler(playlists, new Outbox(NullLogger<Outbox>.Instance)), new PlaylistMoveItemHandler(playlists, new Outbox(NullLogger<Outbox>.Instance)),
             new PlaylistRemoveItemHandler(playlists, new Outbox(NullLogger<Outbox>.Instance)), new PlaylistUpdateItemHandler(playlists, new Outbox(NullLogger<Outbox>.Instance)),
             new PlaylistDuplicateHandler(playlists, new Outbox(NullLogger<Outbox>.Instance)), new PlaylistDeleteHandler(playlists, new Outbox(NullLogger<Outbox>.Instance)),
+            // Alertas rápidas (v15)
+            new AlertShowHandler(output, new OakProyektor.Tests.Alerts.NoAlertRecorder()), new AlertHideHandler(output), new AlertGetSettingsHandler(new InMemorySettings()),
+            new AlertSetSettingsHandler(new InMemorySettings()), new AlertListHandler(new OakProyektor.Tests.Alerts.NoAlerts()),
+            new AlertSaveHandler(new OakProyektor.Tests.Alerts.NoAlerts(), new Outbox(NullLogger<Outbox>.Instance)), new AlertDeleteHandler(new OakProyektor.Tests.Alerts.NoAlerts(), new Outbox(NullLogger<Outbox>.Instance)),
         ];
         return (new IpcDispatcher(handlers, NullLogger<IpcDispatcher>.Instance), output);
     }
@@ -109,7 +113,7 @@ public class HandlerTests
         }
         Assert.True(unhandled.Count == 0, "Mensajes del catálogo sin handler: " + string.Join(", ", unhandled));
         // Los comandos llegaron a su handler (si faltara uno, el despachador solo lo registraría y no quedaría la llamada).
-        Assert.Equal(["open:auto", "close", "master:Live", "pause:Manual", "background:Color", "showContent:1:400", "clearContent:400", "retryBackground", "backgroundFailure:UnsupportedFormat:file:///x", "settingsChanged", "settingsChanged", "settingsChanged"], output.Calls);
+        Assert.Equal(["open:auto", "close", "master:Live", "pause:Manual", "background:Color", "showContent:1:400", "clearContent:400", "retryBackground", "backgroundFailure:UnsupportedFormat:file:///x", "settingsChanged", "settingsChanged", "settingsChanged", "hideAlert"], output.Calls);
     }
 
     [Fact]

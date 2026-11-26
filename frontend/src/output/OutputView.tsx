@@ -3,7 +3,7 @@ import { ipc } from "@/ipc/instance";
 import type { OutputStateChangedPayload } from "@/ipc/protocol";
 import { createRetrier } from "@/ipc/retry";
 import type { BackgroundFailure } from "./background/engine";
-import { isEmergencyKey } from "./emergency";
+import { isEmergencyKey, isHideAlertKey } from "./emergency";
 import { nextView, type OutputView as View } from "./freeze";
 import { OutputScreen } from "./OutputScreen";
 
@@ -27,6 +27,12 @@ export function OutputView() {
 
     // Respaldo del atajo global: pide a C# minimizar la salida. La salida no decide nada; solo avisa.
     const onKeyDown = (e: KeyboardEvent): void => {
+      if (isHideAlertKey(e)) {
+        // Mismo respaldo para quitar la alerta (solo quita): por si el atajo global no pudo registrarse.
+        e.preventDefault();
+        ipc.send("alert.hide", {});
+        return;
+      }
       if (!isEmergencyKey(e)) return;
       e.preventDefault();
       ipc.send("output.recover", { reason: "emergency" });

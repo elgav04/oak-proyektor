@@ -3,7 +3,9 @@
 /// <summary>Carril de entrada de un mensaje (ver <see cref="IpcPriority.LaneOf"/>).</summary>
 public enum IpcLane
 {
-    /// <summary>Controles maestros y recuperación de emergencia: nunca esperan a nadie.</summary>
+    /// <summary>
+    /// Controles maestros, recuperación de emergencia y las alertas (<c>alert.show</c>, <c>alert.hide</c>: solo tocan memoria, y así «mostrar» y «quitar» comparten FIFO y no se cruzan): nunca esperan a nadie.
+    /// </summary>
     Priority,
     /// <summary>Todo lo que el operador espera ver YA: proyectar/quitar contenido, consultas rápidas (estado, monitores, latido, versículos, ajustes).</summary>
     Live,
@@ -32,7 +34,7 @@ public enum IpcLane
 public static class IpcPriority
 {
     public static bool IsHigh(IpcEnvelope envelope) =>
-        envelope.Kind == IpcKind.Command && envelope.Type is IpcTypes.OutputSetMaster or IpcTypes.OutputRecover;
+        envelope.Kind == IpcKind.Command && envelope.Type is IpcTypes.OutputSetMaster or IpcTypes.OutputRecover or IpcTypes.AlertShow or IpcTypes.AlertHide;
 
     public static IpcLane LaneOf(IpcEnvelope envelope)
     {
@@ -43,7 +45,8 @@ public static class IpcPriority
                 or IpcTypes.BibleImport or IpcTypes.BibleSearch
                 or IpcTypes.SongSearch or IpcTypes.SongSave or IpcTypes.SongRestoreRevision or IpcTypes.SongDelete
                 or IpcTypes.PlaylistCreate or IpcTypes.PlaylistUpdate or IpcTypes.PlaylistAddItem or IpcTypes.PlaylistMoveItem or IpcTypes.PlaylistRemoveItem
-                or IpcTypes.PlaylistUpdateItem or IpcTypes.PlaylistDuplicate or IpcTypes.PlaylistDelete => IpcLane.Slow,
+                or IpcTypes.PlaylistUpdateItem or IpcTypes.PlaylistDuplicate or IpcTypes.PlaylistDelete
+                or IpcTypes.AlertSave or IpcTypes.AlertDelete => IpcLane.Slow,
             _ => IpcLane.Live,
         };
     }

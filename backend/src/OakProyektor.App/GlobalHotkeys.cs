@@ -3,7 +3,7 @@ using OakProyektor.Ipc.Messages;
 
 namespace OakProyektor.App;
 
-/// <param name="Action">Nombre estable de la acción (<c>emergency</c>, <c>black</c>, <c>clearText</c>, <c>logo</c>, <c>reloadPanel</c>).</param>
+/// <param name="Action">Nombre estable de la acción (<c>emergency</c>, <c>black</c>, <c>clearText</c>, <c>logo</c>, <c>reloadPanel</c>, <c>hideAlert</c>).</param>
 /// <param name="Key">Tecla virtual; el modificador es siempre Ctrl+Alt+Shift (una combinación que nadie pulsa sin querer).</param>
 internal sealed record HotkeyBinding(string Action, uint Key, string Keys, Action OnPressed);
 

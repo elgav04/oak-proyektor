@@ -310,10 +310,10 @@ test("EXTREMO A EXTREMO: armar una lista desde cero (crear, buscar canciones, no
     const sent = m.b.shows()[1].payload;
     assert.deepEqual(sent.origin, { playlistId: 1, itemId: m.b.lists.get(1).items[0].id, itemType: "song", position: 1 });
     const state = {
-      schemaVersion: 2, revision: 0, master: "live",
+      schemaVersion: 3, revision: 0, master: "live",
       background: { kind: "color", color: "#102030", mediaUrl: null, fileName: null, muted: true, transitionMs: 0, warning: null, retry: 0 },
       content: { slide: { id: "e2e", blocks: sent.blocks.map((text) => ({ text })), theme: sent.theme, origin: sent.origin }, transitionMs: sent.transitionMs },
-      overlays: { items: [] },
+      overlays: { alert: null },
     };
     const out = win.document.createElement("div");
     win.document.body.appendChild(out);

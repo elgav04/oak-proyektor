@@ -131,7 +131,15 @@ public partial class ProtocolContractTests
         Assert.Equal(JsonKeys(new Slide("s1", [new TextBlock("x")], TextTheme.Default)), TsFields("Slide"));
         Assert.Equal(JsonKeys(new SlideOrigin(1, 2, SlideOrigin.Song, 0)), TsFields("SlideOrigin"));
         Assert.Equal(JsonKeys(new TextBlock("x")), TsFields("TextBlock"));
-        Assert.Equal(JsonKeys(new OverlayItem("i", "k")), TsFields("OverlayItem"));
+        Assert.Equal(JsonKeys(new AlertOverlay("a1", "x", AlertMode.Band, AlertTheme.Default, false, "2026-01-01T00:00:00.000Z")), TsFields("AlertOverlay"));
+        Assert.Equal(JsonKeys(AlertTheme.Default), TsFields("AlertTheme"));
+        Assert.Equal(JsonKeys(new AlertShowPayload("x", AlertMode.Band, 30)), TsFields("AlertShowPayload"));
+        Assert.Equal(JsonKeys(new SavedAlertDto(1, "x", false, 0, null)), TsFields("SavedAlertDto"));
+        Assert.Equal(JsonKeys(new AlertListPayload([], [])), TsFields("AlertListPayload"));
+        Assert.Equal(JsonKeys(new AlertSavePayload(null, "x", false)), TsFields("AlertSavePayload"));
+        Assert.Equal(JsonKeys(new AlertDeletePayload(1)), TsFields("AlertDeletePayload"));
+        Assert.Equal(JsonKeys(new AlertChangedPayload("c", 1, "saved")), TsFields("AlertChangedPayload"));
+        Assert.Equal(JsonKeys(new AlertSettingsPayload(AlertMode.Band, 30, AlertTheme.Default)), TsFields("AlertSettingsPayload"));
         Assert.Equal(JsonKeys(new OutputSetBackgroundPayload(BackgroundKind.Video, "C:\\a.mp4", null, true, 600)), TsFields("OutputSetBackgroundPayload"));
         Assert.Equal(JsonKeys(new OutputShowContentPayload(["x"], TextTheme.Default, 400)), TsFields("OutputShowContentPayload"));
         Assert.Equal(JsonKeys(new OutputShowContentPayload(["x"], TextTheme.Default, 400, new SlideOrigin(1, 2, SlideOrigin.Passage, 3))), TsFields("OutputShowContentPayload"));

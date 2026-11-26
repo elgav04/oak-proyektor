@@ -68,6 +68,14 @@ public static class IpcTypes
     public const string PlaylistDuplicate = "playlist.duplicate";
     public const string PlaylistDelete = "playlist.delete";
     public const string PlaylistChanged = "playlist.changed";
+    public const string AlertShow = "alert.show";
+    public const string AlertHide = "alert.hide";
+    public const string AlertGetSettings = "alert.getSettings";
+    public const string AlertSetSettings = "alert.setSettings";
+    public const string AlertList = "alert.list";
+    public const string AlertSave = "alert.save";
+    public const string AlertDelete = "alert.delete";
+    public const string AlertChanged = "alert.changed";
 }
 
 public sealed record MessageDescriptor(string Type, string Kind);
@@ -100,8 +108,11 @@ public static class IpcCatalog
     /// <c>output.showContent</c> lleva <c>origin</c> (ids de lista y elemento, o nulo), el <c>Slide</c> lo conserva y <c>OutputState.SchemaVersion</c> pasa a 2.
     /// <c>song.get</c> y <c>song.changed</c> llevan <c>usedInLists</c> (las listas por id, nombre y fecha).
     /// v14: <c>playlist.delete</c> lleva <c>expectedRevision</c> (una vista desactualizada no borra una lista que otra ventana acaba de cambiar; falla con <c>playlist.conflict</c>).
+    /// v15: alertas rápidas (capa 3): <c>OutputState.overlays</c> pasa de <c>{ items }</c> a <c>{ alert }</c> (una <c>AlertOverlay</c> o nulo; <c>schemaVersion</c> 3); comandos <c>alert.show</c> y
+    /// <c>alert.hide</c> (carril de PRIORIDAD: solo tocan memoria), <c>alert.setSettings</c>, <c>alert.save</c> y <c>alert.delete</c>; queries <c>alert.getSettings</c> y <c>alert.list</c>;
+    /// evento <c>alert.changed</c> (resultado de guardar o borrar; solo ids). Freeze ya NO congela la alerta.
     /// </summary>
-    public const int ProtocolVersion = 14;
+    public const int ProtocolVersion = 15;
 
     public static IReadOnlyList<MessageDescriptor> Messages { get; } =
     [
@@ -182,6 +193,16 @@ public static class IpcCatalog
         new(IpcTypes.PlaylistDuplicate, IpcKind.Command),
         new(IpcTypes.PlaylistDelete, IpcKind.Command),
         new(IpcTypes.PlaylistChanged, IpcKind.Event),
+        new(IpcTypes.AlertShow, IpcKind.Command),
+        new(IpcTypes.AlertHide, IpcKind.Command),
+        new(IpcTypes.AlertGetSettings, IpcKind.Query),
+        new(IpcTypes.AlertGetSettings, IpcKind.Reply),
+        new(IpcTypes.AlertSetSettings, IpcKind.Command),
+        new(IpcTypes.AlertList, IpcKind.Query),
+        new(IpcTypes.AlertList, IpcKind.Reply),
+        new(IpcTypes.AlertSave, IpcKind.Command),
+        new(IpcTypes.AlertDelete, IpcKind.Command),
+        new(IpcTypes.AlertChanged, IpcKind.Event),
     ];
 }
 

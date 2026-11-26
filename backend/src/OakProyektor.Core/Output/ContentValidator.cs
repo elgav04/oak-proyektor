@@ -21,6 +21,8 @@ public static partial class ContentValidator
 
     public static bool IsColor(string? value) => value is not null && ColorRegex().IsMatch(value);
 
+    public static bool IsFontFamily(string? value) => value is not null && FontFamilyRegex().IsMatch(value);
+
     public static string? ValidateColor(string? value, string what) =>
         IsColor(value) ? null : $"{what}: el color debe tener la forma #RRGGBB o #RRGGBBAA.";
 

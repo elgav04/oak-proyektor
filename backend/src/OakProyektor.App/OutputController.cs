@@ -30,6 +30,14 @@ internal interface IOutputController
     void ShowContent(IReadOnlyList<string> blocks, TextTheme theme, int transitionMs, SlideOrigin? origin = null);
     /// <summary>Quita el slide del estado (queda solo el fondo).</summary>
     void ClearContent(int transitionMs);
+    /// <summary>
+    /// Muestra una alerta (ya validada y normalizada por el handler; <paramref name="durationSec"/> 0 = «hasta quitarla», con tope). Solo toca memoria: nunca espera a la BD ni al disco.
+    /// Devuelve false si se IGNORÓ porque el operador quitó la alerta DESPUÉS de pedir esta (ver <see cref="AlertEngine"/>). Con la salida en pausa lanza <see cref="IpcException"/>
+    /// (una alerta no sobrevive a una pausa). <paramref name="order"/> = número de llegada (0 = ahora).
+    /// </summary>
+    bool ShowAlert(string text, AlertMode mode, int durationSec, long order = 0);
+    /// <summary>Quita la alerta (idempotente). Actúa sin pasar por el panel (atajo global). <paramref name="order"/> = número de llegada (0 = ahora).</summary>
+    void HideAlert(long order = 0);
     /// <summary>La salida informa de que no pudo reproducir su fondo. Si <paramref name="mediaUrl"/> ya no es el fondo actual se ignora; si lo es, se avisa al panel.</summary>
     void ReportBackgroundFailure(string mediaUrl, BackgroundFailureReason reason, string? detail);
     /// <summary>
@@ -63,7 +71,7 @@ internal interface IOutputController
 /// La pausa vive en <see cref="OutputPauseState"/> (máquina de estados pura); aquí solo se llama a sus transiciones BAJO <c>_gate</c>,
 /// de modo que cada comparación-y-escritura es atómica, y se ejecutan los efectos (Win32) fuera del candado.
 /// </summary>
-internal sealed class OutputController : IOutputController
+internal sealed partial class OutputController : IOutputController
 {
     private static readonly Size WindowedSize = new(960, 540);
     private const int MaxRecentDisplays = 8;
@@ -130,7 +138,11 @@ internal sealed class OutputController : IOutputController
     public OutputStateChangedPayload Snapshot() => _publisher.Read(BuildSnapshot, (seq, s) => new OutputStateChangedPayload(seq, s.State, s.Window));
 
     /// <summary>Toma el snapshot y lo encola bajo un mismo candado; no publica nada si no cambió. Nunca llamar con <c>_gate</c> tomado.</summary>
-    private void Publish() => _publisher.Publish(BuildSnapshot);
+    private void Publish()
+    {
+        _publisher.Publish(BuildSnapshot);
+        DropAlertIfPaused();   // solo LEE la pausa que el snapshot acaba de informar (ver OutputController.Alerts.cs); no la modifica
+    }
 
     public void SetMaster(MasterMode master)
     {

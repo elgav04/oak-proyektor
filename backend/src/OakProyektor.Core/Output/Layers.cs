@@ -90,13 +90,13 @@ public sealed record ContentLayer(Slide? Slide, int TransitionMs)
     public static ContentLayer Empty { get; } = new(null, DefaultTransitionMs);
 }
 
-/// <summary>Un elemento de la capa 3. Reservado: todavía no hay alertas ni ticker, así que la lista siempre está vacía.</summary>
-public sealed record OverlayItem(string Id, string Kind);
-
-/// <summary>Capa 3, Superposiciones: solo la estructura (contenedor de elementos). Sin implementar.</summary>
-public sealed record OverlayLayer(IReadOnlyList<OverlayItem> Items)
+/// <summary>
+/// Capa 3, Superposiciones (v15): la ALERTA (cinta estática o con desplazamiento), o nulo si no hay ninguna. Una sola alerta activa: mostrar otra la reemplaza.
+/// Los controles maestros la ocultan igual que al contenido (Texto limpio, Negro y Logo), salvo Freeze: la alerta NO se congela (ver <see cref="OutputState"/>).
+/// </summary>
+public sealed record OverlayLayer(AlertOverlay? Alert)
 {
-    public static OverlayLayer Empty { get; } = new([]);
+    public static OverlayLayer Empty { get; } = new((AlertOverlay?)null);
 }
 
 /// <summary>El lienzo virtual de la salida: el diseño es idéntico en cualquier resolución porque se escala a la ventana.</summary>

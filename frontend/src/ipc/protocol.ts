@@ -22,8 +22,10 @@
  * `playlist.moveItem`, `playlist.removeItem`, `playlist.updateItem`, `playlist.duplicate` y `playlist.delete`; evento `playlist.changed`. `output.showContent` lleva `origin` (ids de lista y
  * elemento, o nulo), el `Slide` lo conserva y `OutputState.schemaVersion` pasa a 2. `song.get` y `song.changed` llevan `usedInLists` (las listas por id, nombre y fecha).
  * v14: `playlist.delete` lleva `expectedRevision` (con una revisión caducada falla con `playlist.conflict` y no borra nada).
+ * v15: alertas rápidas (capa 3): `OutputState.overlays` pasa de `{ items }` a `{ alert }` (`schemaVersion` 3); comandos `alert.show` y `alert.hide` (carril de PRIORIDAD: solo tocan memoria),
+ * `alert.setSettings`, `alert.save` y `alert.delete`; queries `alert.getSettings` y `alert.list`; evento `alert.changed` (solo ids). Freeze ya NO congela la alerta.
  */
-export const PROTOCOL_VERSION = 14;
+export const PROTOCOL_VERSION = 15;
 
 export type MessageKind = "command" | "event" | "query" | "reply";
 
@@ -104,6 +106,16 @@ export const MESSAGE_CATALOG = [
   { type: "playlist.duplicate", kind: "command" },
   { type: "playlist.delete", kind: "command" },
   { type: "playlist.changed", kind: "event" },
+  { type: "alert.show", kind: "command" },
+  { type: "alert.hide", kind: "command" },
+  { type: "alert.getSettings", kind: "query" },
+  { type: "alert.getSettings", kind: "reply" },
+  { type: "alert.setSettings", kind: "command" },
+  { type: "alert.list", kind: "query" },
+  { type: "alert.list", kind: "reply" },
+  { type: "alert.save", kind: "command" },
+  { type: "alert.delete", kind: "command" },
+  { type: "alert.changed", kind: "event" },
   { type: "bible.setSettings", kind: "command" },
 ] as const;
 
@@ -203,14 +215,46 @@ export interface ContentLayer {
   transitionMs: number;
 }
 
-export interface OverlayItem {
-  id: string;
-  kind: string;
+/** Cómo se muestra una alerta: cinta estática (por defecto) o con desplazamiento (para textos largos). */
+export type AlertMode = "band" | "ticker";
+export type AlertPosition = "bottom" | "top";
+
+/** Tema de la alerta (medidas en píxeles del lienzo de 1920×1080), independiente del de la Biblia y las canciones. */
+export interface AlertTheme {
+  fontFamily: string;
+  fontSize: number;
+  color: string;
+  outlineWidth: number;
+  outlineColor: string;
+  /** Fondo de la cinta, `#RRGGBB[AA]`. */
+  bandColor: string;
+  align: TextAlign;
+  position: AlertPosition;
+  paddingY: number;
+  /** Renglones que admite la cinta estática antes de reducir la letra (1 a 3). */
+  maxLines: number;
+  autoFit: boolean;
+  minFontSize: number;
+  /** Velocidad del desplazamiento en píxeles del lienzo por segundo (solo `ticker`). */
+  tickerSpeed: number;
 }
 
-/** Capa 3: solo la estructura; todavía no hay alertas ni ticker. */
+/**
+ * La alerta de la capa 3. `id` identifica la alerta: la salida solo anima al aparecer, desaparecer o cambiar de id. `sticky` = «hasta quitarla» (con tope de 30 min).
+ * `expiresAt` (ISO-8601 UTC) es SOLO informativo para la cuenta atrás del panel: quien la quita es el reloj del backend; la salida lo ignora.
+ */
+export interface AlertOverlay {
+  id: string;
+  text: string;
+  mode: AlertMode;
+  theme: AlertTheme;
+  sticky: boolean;
+  expiresAt: string;
+}
+
+/** Capa 3: la alerta, o nulo si no hay ninguna. */
 export interface OverlayLayer {
-  items: OverlayItem[];
+  alert: AlertOverlay | null;
 }
 
 export interface OutputState {
@@ -866,6 +910,53 @@ export interface PlaylistSettingsPayload {
   onItemEnd: PlaylistOnItemEnd;
 }
 
+/** `durationSec`: 0 = «hasta quitarla» (tope de 30 min); si no, de 5 a 1800 s (el panel ofrece 15, 30, 60, 120 y 300). Mostrar REEMPLAZA a la alerta que hubiera. */
+export interface AlertShowPayload {
+  text: string;
+  mode: AlertMode;
+  durationSec: number;
+}
+
+/** Una alerta guardada. `lastUsedAt` (ISO-8601 UTC) nulo = nunca se mostró. */
+export interface SavedAlertDto {
+  id: number;
+  text: string;
+  pinned: boolean;
+  useCount: number;
+  lastUsedAt: string | null;
+}
+
+/** Reply de `alert.list`: las fijadas (orden alfabético) y las recientes (como mucho 10 de los últimos 14 días, la más nueva primero). */
+export interface AlertListPayload {
+  pinned: SavedAlertDto[];
+  recent: SavedAlertDto[];
+}
+
+/** Crea (sin `id`) o edita una alerta guardada y la fija o desfija (máximo 30 fijadas: `alert.full`). */
+export interface AlertSavePayload {
+  id: number | null;
+  text: string;
+  pinned: boolean;
+}
+
+export interface AlertDeletePayload {
+  id: number;
+}
+
+/** Resultado de `alert.save` / `alert.delete`, correlacionado por el id del comando. `kind`: "saved" | "deleted". Solo ids. */
+export interface AlertChangedPayload {
+  commandId: string;
+  alertId: number;
+  kind: string;
+}
+
+/** Reply de `alert.getSettings` y cuerpo de `alert.setSettings`. */
+export interface AlertSettingsPayload {
+  mode: AlertMode;
+  durationSec: number;
+  theme: AlertTheme;
+}
+
 /** Payload de cada comando (UI → C#). */
 export interface CommandPayloads {
   "output.open": OutputOpenPayload;
@@ -896,6 +987,11 @@ export interface CommandPayloads {
   "playlist.updateItem": PlaylistUpdateItemPayload;
   "playlist.duplicate": PlaylistDuplicatePayload;
   "playlist.delete": PlaylistDeletePayload;
+  "alert.show": AlertShowPayload;
+  "alert.hide": EmptyPayload;
+  "alert.setSettings": AlertSettingsPayload;
+  "alert.save": AlertSavePayload;
+  "alert.delete": AlertDeletePayload;
 }
 
 /** Payload de cada evento (C# → UI). */
@@ -909,6 +1005,7 @@ export interface EventPayloads {
   "bible.importFinished": BibleImportFinishedPayload;
   "song.changed": SongChangedPayload;
   "playlist.changed": PlaylistChangedPayload;
+  "alert.changed": AlertChangedPayload;
 }
 
 /** Payload de cada query y de su reply. */
@@ -933,6 +1030,8 @@ export interface QueryPayloads {
   "playlist.list": { request: EmptyPayload; reply: PlaylistListPayload };
   "playlist.get": { request: PlaylistGetRequest; reply: PlaylistPayload };
   "playlist.getSettings": { request: EmptyPayload; reply: PlaylistSettingsPayload };
+  "alert.getSettings": { request: EmptyPayload; reply: AlertSettingsPayload };
+  "alert.list": { request: EmptyPayload; reply: AlertListPayload };
 }
 
 export type CommandType = keyof CommandPayloads;

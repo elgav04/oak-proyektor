@@ -153,13 +153,13 @@ public sealed class PlaylistRulesTests
     }
 
     [Fact]
-    public void The_origin_serializes_with_only_ids_and_numbers_and_the_state_schema_is_2()
+    public void The_origin_serializes_with_only_ids_and_numbers_and_the_state_schema_is_3()
     {
         var slide = new Slide("s1", [new TextBlock("texto sintético de prueba")], TextTheme.Default, new SlideOrigin(3, 9, SlideOrigin.Song, 2));
         var state = OutputState.Initial.WithSlide(slide, 400);
 
         using var doc = JsonDocument.Parse(JsonSerializer.Serialize(state, IpcSerializer.Options));
-        Assert.Equal(2, doc.RootElement.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(3, doc.RootElement.GetProperty("schemaVersion").GetInt32());   // v15: overlays = { alert }
         var origin = doc.RootElement.GetProperty("content").GetProperty("slide").GetProperty("origin");
         Assert.Equal(["playlistId", "itemId", "itemType", "position"], origin.EnumerateObject().Select(p => p.Name));
         Assert.Equal(JsonValueKind.Number, origin.GetProperty("playlistId").ValueKind);

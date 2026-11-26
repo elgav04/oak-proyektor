@@ -14,7 +14,7 @@ after(closeServer);
 const THEME = THEME_PRESETS.white.theme;
 const slide = (id) => ({ id, blocks: [{ text: id }], theme: THEME });
 const bg = { kind: "none", color: "#000000", mediaUrl: null, fileName: null, muted: true, transitionMs: 0, warning: null };
-const state = (master, slideId = null, background = bg) => ({ schemaVersion: 2, revision: 0, master, background, content: { slide: slideId ? slide(slideId) : null, transitionMs: 400 }, overlays: { items: [] } });
+const state = (master, slideId = null, background = bg) => ({ schemaVersion: 3, revision: 0, master, background, content: { slide: slideId ? slide(slideId) : null, transitionMs: 400 }, overlays: { alert: null } });
 const win = (over = {}) => ({ panelUnresponsive: false, panelAlertOnOutput: false, ...over });
 const snap = (seq, st, w = {}) => ({ seq, state: st, window: win(w) });
 

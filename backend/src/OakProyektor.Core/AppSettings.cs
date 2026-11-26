@@ -25,9 +25,14 @@ public sealed record AppSettings(
     int CitationHistoryLimit = AppSettings.DefaultCitationHistoryLimit,
     BibleDisplaySettings? BibleDisplay = null,
     SongDisplaySettings? SongDisplay = null,
-    PlaylistDisplaySettings? PlaylistDisplay = null)
+    PlaylistDisplaySettings? PlaylistDisplay = null,
+    AlertDisplaySettings? AlertDisplay = null)
 {
     public const int DefaultCitationHistoryLimit = 100;
+
+    /// <summary>Modo, duración y tema de las alertas (v15); un <c>settings.json</c> anterior sin este bloque usa los valores por defecto.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public AlertDisplaySettings Alerts => AlertDisplay ?? new AlertDisplaySettings();
 
     /// <summary>Cómo se opera una lista en vivo (v13); un <c>settings.json</c> anterior sin este bloque usa los valores por defecto.</summary>
     [System.Text.Json.Serialization.JsonIgnore]

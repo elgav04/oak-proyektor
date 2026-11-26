@@ -6,4 +6,7 @@
 .layer-background { overflow: hidden; }
 .curtain { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
 .curtain-black { background: #000; }
+/* Alerta, modo desplazamiento: el texto entra por la derecha del lienzo (1920 px) y sale por la izquierda (-100 % de su propio ancho). Solo `transform`: compositor, sin layout por fotograma.
+   La duración (ancho + 1920 px a la velocidad del tema) la pone el componente en el estilo en línea. */
+@keyframes alert-marquee { from { transform: translateX(1920px); } to { transform: translateX(-100%); } }
 .curtain-logo { background: #111827; color: #fff; font: 700 160px/1 system-ui, sans-serif; align-items: center; justify-content: center; }
