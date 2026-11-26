@@ -203,3 +203,64 @@ export function matchSongShortcut(event: KeyInput, target: KeyTarget | null | un
   }
   return null;
 }
+
+// ───────────────────────── Pestaña «Lista» (modo EN VIVO) ─────────────────────────
+// Misma regla que las demás: nunca Ctrl+Alt+Shift (los globales M/B/C/L/R) y los modificadores deben coincidir EXACTAMENTE. Con el foco en un cuadro de texto no se
+// interpreta NADA (Ctrl+←/→ mueven el cursor por palabras y Ctrl+E no debe cambiar de modo a medio escribir: verificado con teclado real que llegan a la página sin
+// que WebView2 se las quede). Solo una pestaña está montada a la vez, así que sus teclas simples no chocan con las de la Biblia ni las de Canciones.
+// Ctrl+E es la MISMA tecla que «editar» en Canciones (otra pestaña): aquí alterna EN VIVO / EDITAR. En modo EDITAR solo Ctrl+E está activo (el resto no proyecta nada).
+
+export type ListAction =
+  | "cursorPrev"
+  | "cursorNext"
+  | "activate"
+  | "slideNext"
+  | "slidePrev"
+  | "itemNext"
+  | "itemPrev"
+  | "clear"
+  | "toggleMode";
+
+export interface ListShortcut {
+  action: ListAction;
+  key: string;
+  ctrl?: boolean;
+  /** `live` = solo en modo EN VIVO; `any` = también en modo EDITAR. */
+  scope: "live" | "any";
+  label: string;
+  description: string;
+}
+
+export const LIST_SHORTCUTS: readonly ListShortcut[] = [
+  { action: "cursorPrev", key: "ArrowUp", scope: "live", label: "↑", description: "Elemento anterior de la lista (mueve el cursor; NO proyecta)" },
+  { action: "cursorNext", key: "ArrowDown", scope: "live", label: "↓", description: "Elemento siguiente de la lista (mueve el cursor; NO proyecta)" },
+  { action: "activate", key: "Enter", scope: "live", label: "Enter", description: "Activar el elemento del cursor (proyecta su primera diapositiva o página)" },
+  { action: "slideNext", key: "ArrowRight", scope: "live", label: "→", description: "Diapositiva o página siguiente del elemento (al final: «FIN · siguiente: …», según el ajuste)" },
+  { action: "slideNext", key: "PageDown", scope: "live", label: "Av Pág", description: "Diapositiva o página siguiente del elemento" },
+  { action: "slidePrev", key: "ArrowLeft", scope: "live", label: "←", description: "Diapositiva o página anterior del elemento" },
+  { action: "slidePrev", key: "PageUp", scope: "live", label: "Re Pág", description: "Diapositiva o página anterior del elemento" },
+  { action: "itemNext", key: "ArrowRight", ctrl: true, scope: "live", label: "Ctrl+→", description: "Saltar al elemento siguiente que se pueda proyectar (salta faltantes y notas) y proyectarlo" },
+  { action: "itemPrev", key: "ArrowLeft", ctrl: true, scope: "live", label: "Ctrl+←", description: "Saltar al elemento anterior que se pueda proyectar y proyectarlo" },
+  { action: "clear", key: "Escape", scope: "live", label: "Esc", description: "Quitar el texto de la pantalla (output.clearContent); no cambia el elemento activo" },
+  { action: "toggleMode", key: "e", ctrl: true, scope: "any", label: "Ctrl+E", description: "Alternar entre el modo EN VIVO y el modo EDITAR" },
+];
+
+export interface ListKeyContext {
+  mode: "live" | "edit";
+}
+
+/** Acción de la pestaña «Lista» para una pulsación, o null. Ctrl+Alt+Shift (los globales) nunca coincide; con el foco en un cuadro de texto nunca coincide nada. */
+export function matchListShortcut(event: KeyInput, target: KeyTarget | null | undefined, context: ListKeyContext): ListAction | null {
+  if (event.metaKey || event.altKey) return null;
+  if (isTypingTarget(target)) return null;
+  const tag = (target?.tagName ?? "").toUpperCase();
+  const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+  for (const s of LIST_SHORTCUTS) {
+    if (s.key !== key) continue;
+    if ((s.ctrl ?? false) !== event.ctrlKey || event.shiftKey) continue;
+    if (s.scope === "live" && context.mode !== "live") continue;
+    if (s.key === "Enter" && BUTTON_TAGS.has(tag)) continue;   // Enter sobre un botón es del botón
+    return s.action;
+  }
+  return null;
+}

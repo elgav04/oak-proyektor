@@ -8,6 +8,8 @@ import { BibleTab } from "./bible/BibleTab";
 import { getBibleController, getImportController } from "./bible/instance";
 import { Diagnostics } from "./Diagnostics";
 import { isDirty } from "./songs/controller";
+import { ListTab } from "./lists/ListTab";
+import { getListController } from "./lists/instance";
 import { getSongController } from "./songs/instance";
 import { SongsTab } from "./songs/SongsTab";
 import { describeOutput, type OutputNotice } from "./outputNotice";
@@ -74,10 +76,11 @@ export function App() {
   // Elección del operador antes de abrir: ID del monitor, o null = automático. Es estado de la vista, no de negocio.
   const [selected, setSelected] = useState<string | null>(null);
   // Pestaña activa y si se ve la configuración de la Biblia: estado de la vista, no de negocio.
-  const [tab, setTab] = useState<"bible" | "songs" | "output" | "diagnostics">("bible");
+  const [tab, setTab] = useState<"bible" | "songs" | "lists" | "output" | "diagnostics">("bible");
   const [bibleSettingsOpen, setBibleSettingsOpen] = useState(false);
   const bibleController = getBibleController();
   const songController = getSongController();
+  const listController = getListController();
   // Cambios sin guardar en el editor de canciones: se ven en la pestaña aunque estés en otra (el controlador vive con la página y no los pierde).
   const songsDirty = useStore(songController.store, (s) => isDirty(s.editor));
 
@@ -269,7 +272,7 @@ export function App() {
       </section>
 
       <nav aria-label="Secciones" className="flex gap-2 border-b">
-        {([["bible", "Biblia"], ["songs", "Canciones"], ["output", "Salida"], ["diagnostics", "Diagnóstico"]] as const).map(([key, label]) => (
+        {([["bible", "Biblia"], ["songs", "Canciones"], ["lists", "Lista"], ["output", "Salida"], ["diagnostics", "Diagnóstico"]] as const).map(([key, label]) => (
           <button
             key={key}
             type="button"
@@ -291,6 +294,8 @@ export function App() {
         ))}
 
       {tab === "songs" && <SongsTab controller={songController} connected={connected} output={output} />}
+
+      {tab === "lists" && <ListTab controller={listController} connected={connected} output={output} />}
 
       {tab === "diagnostics" && <Diagnostics />}
 

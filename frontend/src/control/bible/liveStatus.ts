@@ -20,6 +20,14 @@ export function bibleLiveStatus(output: OutputStateChangedPayload | null, page: 
   if (!output || !page) return { kind: "ready" };
   const slide = output.state.content.slide;
   if (!slide || slide.blocks.length !== page.length || !slide.blocks.every((b, i) => b.text === page[i])) return { kind: "ready" };
+  return visibilityStatus(output);
+}
+
+/**
+ * ¿Se VE lo que hay en la salida? (ventana abierta, sin pausa y en modo Live). Para quien ya sabe que el slide es el suyo (por texto o por `origin`): `live` si se ve,
+ * `hidden` con el motivo si no.
+ */
+export function visibilityStatus(output: OutputStateChangedPayload): LiveStatus {
   const win = output.window;
   if (!win.isOpen) return { kind: "hidden", why: "Salida cerrada" };
   if (win.isPaused) return { kind: "hidden", why: "Salida en pausa" };

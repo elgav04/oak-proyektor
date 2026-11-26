@@ -18,7 +18,9 @@ Estado: **diseño APROBADO con decisiones (2026-11-25); backend implementado** (
 
 **Atajos verificados con teclado REAL (2026-11-25):** Ctrl+E, Ctrl+Shift+A, Ctrl+←/→ y Ctrl+L llegan al panel (WebView2 no se los queda); en un cuadro de texto Ctrl+←/→ siguen moviendo el cursor por palabras (19 → 13 → 8 → 13 en «uno dos tres cuatro»). La pestaña de listas debe IGNORARLOS con el foco en un cuadro de texto (regla ya vigente). **Ctrl+Shift+A** se propone para «Añadir a la lista» porque no usa Alt (los globales son Ctrl+Alt+Shift+M/B/C/L/R) y no repite la «L» del logo; no se probó dentro de la pestaña Biblia porque esa UI aún no existe.
 
-**No verificado todavía:** nada de la interfaz; el comportamiento de las listas con el proyector físico; el paso real de la salida con un `origin` (la salida lo ignora y el test de la página de salida con un slide con `origin` queda para el prompt 2).
+**Prompt 2 hecho (2026-11-25): pestaña «Lista» en modo EN VIVO** (ver CLAUDE.md, «Pestaña «Lista»»): el activo se deriva del `origin`; `Ctrl+Shift+A` para «Añadir a la lista» sigue pendiente (va con el modo EDITAR, prompt 3). Desviaciones: sin activo, la miniatura «Siguiente» muestra lo que `→` va a proyectar (el elemento del cursor); `Esc` + `→` continúa tras la última diapositiva mostrada; el modo EDITAR es por ahora un aviso.
+
+**No verificado todavía (backend):** nada de la interfaz; el comportamiento de las listas con el proyector físico; el paso real de la salida con un `origin` (la salida lo ignora y el test de la página de salida con un slide con `origin` queda para el prompt 2).
 ---
 
 ## 1. Qué existe y qué falta de verdad
