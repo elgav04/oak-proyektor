@@ -84,7 +84,7 @@ $probeJs = @'
   const log = [];
   window.__ipcProbe = {
     log,
-    send(type, kind, payload) { const id = crypto.randomUUID(); window.external.sendMessage(JSON.stringify({ v: 15, id, kind, type, payload })); return id; },
+    send(type, kind, payload) { const id = crypto.randomUUID(); window.external.sendMessage(JSON.stringify({ v: 16, id, kind, type, payload })); return id; },
   };
   window.external.receiveMessage((raw) => { try { log.push(JSON.parse(raw)); } catch { /* ignorar */ } });
   window.__longTasks = [];
@@ -116,7 +116,7 @@ function Invoke-Write($cws, [string]$type, $payload) {
 }
 function Send-FromPanel($cws, [string]$type, $payload) {
     $b64 = ConvertTo-B64Json $payload
-    [void](Eval $cws ("(() => { const p = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob('" + $b64 + "'), c => c.charCodeAt(0)))); window.external.sendMessage(JSON.stringify({v:15,id:crypto.randomUUID(),kind:'command',type:'$type',payload:p})); return true; })()"))
+    [void](Eval $cws ("(() => { const p = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob('" + $b64 + "'), c => c.charCodeAt(0)))); window.external.sendMessage(JSON.stringify({v:16,id:crypto.randomUUID(),kind:'command',type:'$type',payload:p})); return true; })()"))
 }
 
 # Teclas de CONFIANZA del navegador (no eventos sinteticos de la pagina): pasan por la misma tuberia que el teclado real dentro de la pagina.

@@ -1,3 +1,4 @@
+import { V } from "./protocol-version.mjs";
 import assert from "node:assert/strict";
 import test, { after } from "node:test";
 import { createFakeBackend, tick, until, verseText } from "./bible-fixtures.mjs";
@@ -25,7 +26,7 @@ test("init carga Biblias, ajustes e historial; el crossfade por defecto es corto
   assert.equal(s().settings.transitionMs, 280);
   assert.ok(s().settings.transitionMs >= 250 && s().settings.transitionMs <= 300);
   assert.deepEqual(backend.queries.map((q) => q.type).sort(), ["bible.getSettings", "bible.history", "bible.list"]);
-  assert.ok(backend.queries.every((q) => q.v === 15));   // la versión vigente del protocolo (v15)
+  assert.ok(backend.queries.every((q) => q.v === V));   // la versión vigente del protocolo (v15)
 });
 
 test("una referencia con rango navega al capítulo, selecciona el rango y NO proyecta nada hasta Enter", async () => {

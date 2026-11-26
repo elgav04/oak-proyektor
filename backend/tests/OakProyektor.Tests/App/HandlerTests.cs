@@ -25,7 +25,7 @@ internal sealed class NoBibles : OakProyektor.Data.Scripture.IBibleQueryService
 public class HandlerTests
 {
     private static string Msg(string kind, string type, string payload = "{}") =>
-        $$"""{"v":15,"id":"q1","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
+        $$"""{"v":16,"id":"q1","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
 
     private static (IpcDispatcher Dispatcher, FakeOutputController Output) Create(params DisplayInfo[] displays)
     {
@@ -78,7 +78,7 @@ public class HandlerTests
             new PlaylistRemoveItemHandler(playlists, new Outbox(NullLogger<Outbox>.Instance)), new PlaylistUpdateItemHandler(playlists, new Outbox(NullLogger<Outbox>.Instance)),
             new PlaylistDuplicateHandler(playlists, new Outbox(NullLogger<Outbox>.Instance)), new PlaylistDeleteHandler(playlists, new Outbox(NullLogger<Outbox>.Instance)),
             // Alertas rápidas (v15)
-            new AlertShowHandler(output, new OakProyektor.Tests.Alerts.NoAlertRecorder()), new AlertHideHandler(output), new AlertGetSettingsHandler(new InMemorySettings()),
+            new AlertShowHandler(output, new OakProyektor.Tests.Alerts.NoAlertRecorder(), new InMemorySettings()), new AlertHideHandler(output), new AlertGetSettingsHandler(new InMemorySettings()),
             new AlertSetSettingsHandler(new InMemorySettings()), new AlertListHandler(new OakProyektor.Tests.Alerts.NoAlerts()),
             new AlertSaveHandler(new OakProyektor.Tests.Alerts.NoAlerts(), new Outbox(NullLogger<Outbox>.Instance)), new AlertDeleteHandler(new OakProyektor.Tests.Alerts.NoAlerts(), new Outbox(NullLogger<Outbox>.Instance)),
         ];

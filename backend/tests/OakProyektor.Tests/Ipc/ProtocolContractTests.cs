@@ -139,7 +139,7 @@ public partial class ProtocolContractTests
         Assert.Equal(JsonKeys(new AlertSavePayload(null, "x", false)), TsFields("AlertSavePayload"));
         Assert.Equal(JsonKeys(new AlertDeletePayload(1)), TsFields("AlertDeletePayload"));
         Assert.Equal(JsonKeys(new AlertChangedPayload("c", 1, "saved")), TsFields("AlertChangedPayload"));
-        Assert.Equal(JsonKeys(new AlertSettingsPayload(AlertMode.Band, 30, AlertTheme.Default)), TsFields("AlertSettingsPayload"));
+        Assert.Equal(JsonKeys(new AlertSettingsPayload(AlertMode.Band, 30, AlertTheme.Default, true)), TsFields("AlertSettingsPayload"));
         Assert.Equal(JsonKeys(new OutputSetBackgroundPayload(BackgroundKind.Video, "C:\\a.mp4", null, true, 600)), TsFields("OutputSetBackgroundPayload"));
         Assert.Equal(JsonKeys(new OutputShowContentPayload(["x"], TextTheme.Default, 400)), TsFields("OutputShowContentPayload"));
         Assert.Equal(JsonKeys(new OutputShowContentPayload(["x"], TextTheme.Default, 400, new SlideOrigin(1, 2, SlideOrigin.Passage, 3))), TsFields("OutputShowContentPayload"));

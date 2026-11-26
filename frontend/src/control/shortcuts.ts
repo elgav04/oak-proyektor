@@ -4,7 +4,7 @@
 // `matchBibleShortcut` exige que los modificadores coincidan exactamente (Ctrl+Alt+Shift+B nunca se interpreta como nada de este mapa).
 // Un test (`bible-shortcuts.test.mjs`) lo comprueba.
 
-export const RESERVED_GLOBAL_SHORTCUTS = ["Ctrl+Alt+Shift+M", "Ctrl+Alt+Shift+B", "Ctrl+Alt+Shift+C", "Ctrl+Alt+Shift+L", "Ctrl+Alt+Shift+R"] as const;
+export const RESERVED_GLOBAL_SHORTCUTS = ["Ctrl+Alt+Shift+M", "Ctrl+Alt+Shift+B", "Ctrl+Alt+Shift+C", "Ctrl+Alt+Shift+L", "Ctrl+Alt+Shift+R", "Ctrl+Alt+Shift+A"] as const;
 
 export type BibleAction =
   | "focusSearch"

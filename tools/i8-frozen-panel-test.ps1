@@ -2,12 +2,16 @@
 # prueba, abre la salida en una VENTANA NORMAL (en el monitor del panel; no toca el proyector), congela el panel con `while(true){}` y mide si la salida
 # sigue animandose. Repetir tras actualizar Photino.NET, Photino.Native o el runtime de WebView2 (ver CLAUDE.md).
 # -Full: ademas comprueba (con el panel congelado) el latido perdido en el log, el aviso opcional en la salida, los atajos globales de respaldo
-#        (con pulsaciones REALES de teclado: Ctrl+Alt+Shift+B/C/L) y la recarga del panel (Ctrl+Alt+Shift+R).
+#        (con pulsaciones REALES de teclado: Ctrl+Alt+Shift+B/C/L) y la recarga del panel (Ctrl+Alt+Shift+R), y la ALERTA: se muestra con el panel congelado y se quita con la
+#        pulsacion REAL de Ctrl+Alt+Shift+A (atajo global; la salida sigue animandose).
 # Uso: powershell -File tools\i8-frozen-panel-test.ps1 [-AfterFreeze <ruta de un script a ejecutar con el panel congelado>]
 param([string]$AfterFreeze = "", [switch]$Full)
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
+# Este script lleva la version del protocolo escrita a mano en varios mensajes (v:16): si el protocolo sube, hay que actualizarlos (si no, el backend ignora sus comandos en silencio).
+$protoGuard = [regex]::Match((Get-Content (Join-Path $root "frontend\src\ipc\protocol.ts") -Raw), 'PROTOCOL_VERSION\s*=\s*(\d+)').Groups[1].Value
+if ($protoGuard -ne "16") { throw "Este script lleva v:16 escrito a mano y el protocolo es v${protoGuard}: actualizalo." }
 $exe = Get-ChildItem (Join-Path $root "backend\src\OakProyektor.App\bin\Debug") -Recurse -Filter OakProyektor.App.exe | Select-Object -First 1
 if (-not $exe) { throw "Compila en Debug primero (dotnet build)." }
 
@@ -88,7 +92,7 @@ try {
       const m = JSON.parse(raw);
       if (m.id === id) resolve(JSON.stringify(m.payload));
     });
-    send({ v:15, id, kind: "query", type: "display.list", payload: {} });
+    send({ v:16, id, kind: "query", type: "display.list", payload: {} });
   });
 })()
 '@
@@ -96,7 +100,7 @@ try {
     $result.displayList = $list
     $panelId = ((($list | ConvertFrom-Json).result.displays) | Where-Object { $_.hostsPanel } | Select-Object -First 1).id
     if (-not $panelId) { throw "No se pudo leer el monitor del panel: $list" }
-    $cmd = "window.external.sendMessage(JSON.stringify({v:15,id:crypto.randomUUID(),kind:'command',type:'output.open',payload:{displayId:" + ($panelId | ConvertTo-Json -Compress) + "}}));true"
+    $cmd = "window.external.sendMessage(JSON.stringify({v:16,id:crypto.randomUUID(),kind:'command',type:'output.open',payload:{displayId:" + ($panelId | ConvertTo-Json -Compress) + "}}));true"
     [void](Eval $cws $cmd)
 
     $output = $null
@@ -195,13 +199,13 @@ new Promise((resolve) => {
         $result.watchdogLogged = ((Log-Text) -match "El panel dej.+ de responder")
         # b) Por defecto la proyeccion NO muestra nada; con el ajuste activado (enviado desde la pagina de salida, porque el panel esta congelado) aparece el aviso
         $result.alertShownByDefault = [bool]((Eval $ows 'document.body.innerText.includes("PANEL SIN RESPUESTA")'))
-        [void](Eval $ows "window.external.sendMessage(JSON.stringify({v:15,id:crypto.randomUUID(),kind:'command',type:'settings.setPanelAlertOnOutput',payload:{enabled:true}}));true")
+        [void](Eval $ows "window.external.sendMessage(JSON.stringify({v:16,id:crypto.randomUUID(),kind:'command',type:'settings.setPanelAlertOnOutput',payload:{enabled:true}}));true")
         Start-Sleep -Seconds 1
         $result.alertShownWhenEnabled = [bool]((Eval $ows 'document.body.innerText.includes("PANEL SIN RESPUESTA")'))
         $result.outputStillAnimating = (Eval $ows $measure)
         # c) Atajos globales de respaldo con el panel congelado: Negro (estado inicial = negro -> Live -> Negro), Logo, Limpiar texto
         # Para que haya algo que ocultar: Live y un slide (la salida los manda como cualquier ventana; el panel esta congelado).
-        [void](Eval $ows "window.external.sendMessage(JSON.stringify({v:15,id:crypto.randomUUID(),kind:'command',type:'output.showContent',payload:{blocks:['Texto de prueba'],theme:{fontFamily:'Arial',fontSize:72,color:'#FFFFFF',outlineWidth:0,outlineColor:'#000000',shadowBlur:0,shadowOffset:0,shadowColor:'#000000',align:'center',verticalAlign:'middle',lineHeight:1.2,marginTop:50,marginRight:50,marginBottom:50,marginLeft:50,autoFit:true,minFontSize:24},transitionMs:0}}));window.external.sendMessage(JSON.stringify({v:15,id:crypto.randomUUID(),kind:'command',type:'output.setMaster',payload:{master:'live'}}));true")
+        [void](Eval $ows "window.external.sendMessage(JSON.stringify({v:16,id:crypto.randomUUID(),kind:'command',type:'output.showContent',payload:{blocks:['Texto de prueba'],theme:{fontFamily:'Arial',fontSize:72,color:'#FFFFFF',outlineWidth:0,outlineColor:'#000000',shadowBlur:0,shadowOffset:0,shadowColor:'#000000',align:'center',verticalAlign:'middle',lineHeight:1.2,marginTop:50,marginRight:50,marginBottom:50,marginLeft:50,autoFit:true,minFontSize:24},transitionMs:0}}));window.external.sendMessage(JSON.stringify({v:16,id:crypto.randomUUID(),kind:'command',type:'output.setMaster',payload:{master:'live'}}));true")
         Start-Sleep -Seconds 1
         $seq = @()
         $seq += "inicial=" + (Eval $ows $readOutput)
@@ -211,6 +215,19 @@ new Promise((resolve) => {
         Press-Hotkey 0x4C; Start-Sleep -Milliseconds 800; $seq += "tras L,L=" + (Eval $ows $readOutput)
         Press-Hotkey 0x43; Start-Sleep -Milliseconds 800; $seq += "tras C=" + (Eval $ows $readOutput)
         $result.hotkeys = ($seq -join " | ")
+
+        # d) ALERTA con el panel congelado (v15/v16): se muestra desde la pagina de salida (el panel no responde) y se quita con el atajo GLOBAL Ctrl+Alt+Shift+A (pulsacion REAL).
+        #    El atajo no pasa por el JavaScript del panel: tiene que funcionar igual con el panel atascado. La salida no debe verse afectada (la animacion sigue).
+        $protoV = [regex]::Match((Get-Content (Join-Path $root "frontend\src\ipc\protocol.ts") -Raw), 'PROTOCOL_VERSION\s*=\s*(\d+)').Groups[1].Value
+        $bandPresent = 'document.querySelector(".alert-band") !== null && getComputedStyle(document.querySelector(".alert-band")).opacity !== "0"'
+        [void](Eval $ows ("window.external.sendMessage(JSON.stringify({v:$protoV,id:crypto.randomUUID(),kind:'command',type:'alert.show',payload:{text:'AVISO DE PRUEBA CON EL PANEL CONGELADO',mode:'band',durationSec:60}}));true"))
+        $shown = $false; for ($i = 0; $i -lt 20 -and -not $shown; $i++) { Start-Sleep -Milliseconds 250; $shown = [bool](Eval $ows $bandPresent) }
+        $result.alertShownWithFrozenPanel = $shown
+        Press-Hotkey 0x41   # Ctrl+Alt+Shift+A
+        $hidden = $false; for ($i = 0; $i -lt 20 -and -not $hidden; $i++) { Start-Sleep -Milliseconds 250; $hidden = -not [bool](Eval $ows 'document.querySelector(".alert-band") !== null')  }
+        $result.alertHiddenByGlobalHotkeyWithFrozenPanel = $hidden
+        $result.hideAlertHotkeyLogged = ((Log-Text) -match "Atajo global registrado: hideAlert")
+        $result.alertWithFrozenPanelOutputStillAnimating = (Eval $ows $measure)
     }
 
     if ($AfterFreeze) { $result.afterFreeze = (& $AfterFreeze $proc $Port $data | Out-String).Trim() }

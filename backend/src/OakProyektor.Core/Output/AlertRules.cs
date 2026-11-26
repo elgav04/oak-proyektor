@@ -66,6 +66,12 @@ public static class AlertRules
         return null;
     }
 
+    public const string TickerDisabledMessage = "El desplazamiento está desactivado en los ajustes de las alertas: usa la cinta estática.";
+
+    /// <summary>El modo pedido debe estar permitido: con el desplazamiento desactivado solo vale la cinta.</summary>
+    public static string? ValidateModeAllowed(AlertMode mode, bool tickerEnabled) =>
+        ValidateMode(mode) ?? (mode == AlertMode.Ticker && !tickerEnabled ? TickerDisabledMessage : null);
+
     public static string? ValidateSettings(AlertDisplaySettings s) =>
-        ValidateMode(s.Mode) ?? ValidateDuration(s.DurationSec) ?? ValidateTheme(s.EffectiveTheme);
+        ValidateModeAllowed(s.Mode, s.TickerEnabled) ?? ValidateDuration(s.DurationSec) ?? ValidateTheme(s.EffectiveTheme);
 }

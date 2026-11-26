@@ -89,7 +89,7 @@ test("los atajos GLOBALES del backend (Ctrl+Alt+Shift+M/B/C/L/R) no activan nada
       }
     }
   }
-  assert.deepEqual(sc.RESERVED_GLOBAL_SHORTCUTS, ["Ctrl+Alt+Shift+M", "Ctrl+Alt+Shift+B", "Ctrl+Alt+Shift+C", "Ctrl+Alt+Shift+L", "Ctrl+Alt+Shift+R"]);
+  assert.deepEqual(sc.RESERVED_GLOBAL_SHORTCUTS, ["Ctrl+Alt+Shift+M", "Ctrl+Alt+Shift+B", "Ctrl+Alt+Shift+C", "Ctrl+Alt+Shift+L", "Ctrl+Alt+Shift+R", "Ctrl+Alt+Shift+A"]);
 });
 
 test("ningún atajo del mapa usa Ctrl+Alt a la vez y no hay dos con la misma pulsación en el mismo ámbito", () => {

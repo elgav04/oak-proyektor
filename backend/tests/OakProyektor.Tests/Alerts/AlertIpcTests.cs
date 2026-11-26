@@ -37,7 +37,7 @@ public sealed class AlertIpcTests : IAsyncLifetime
     {
         await _db.InitializeAsync();
         var alerts = new AlertRepository(_db.Connections, new AlwaysReady(), null, new AlertRepositoryOptions { WriteTimeoutSeconds = 1 });
-        _show = new AlertShowHandler(_output, _recorder);
+        _show = new AlertShowHandler(_output, _recorder, _settings);
         _hide = new AlertHideHandler(_output);
         _dispatcher = new IpcDispatcher(
             [_show, _hide, new AlertGetSettingsHandler(_settings), new AlertSetSettingsHandler(_settings), new AlertListHandler(alerts), new AlertSaveHandler(alerts, _outbox), new AlertDeleteHandler(alerts, _outbox)],
@@ -135,9 +135,34 @@ public sealed class AlertIpcTests : IAsyncLifetime
         Assert.Equal(0, _output.Alerts.Single().DurationSec);
 
         // Un modo desconocido ni siquiera deserializa: el despachador lo rechaza sin que llegue nada a la salida.
-        var raw = await _dispatcher.DispatchAsync("""{"v":15,"id":"c9","kind":"command","type":"alert.show","payload":{"text":"AVISO DE PRUEBA 1","mode":"volando","durationSec":30}}""", CancellationToken.None);
+        var raw = await _dispatcher.DispatchAsync("""{"v":16,"id":"c9","kind":"command","type":"alert.show","payload":{"text":"AVISO DE PRUEBA 1","mode":"volando","durationSec":30}}""", CancellationToken.None);
         Assert.Equal(IpcTypes.CommandFailed, raw!.Type);
         Assert.Single(_output.Alerts);   // solo la de duración 0
+    }
+
+    [Fact]
+    public async Task With_the_ticker_disabled_in_the_settings_a_ticker_alert_is_rejected_but_the_band_still_works()
+    {
+        await _settings.UpdateAsync(s => s with { AlertDisplay = new AlertDisplaySettings(AlertMode.Band, 30, null, TickerEnabled: false) }, CancellationToken.None);
+
+        var failed = (await CommandAsync(IpcTypes.AlertShow, new AlertShowPayload("AVISO DE PRUEBA 1", AlertMode.Ticker, 30)))!.GetPayload<CommandFailedPayload>();
+        Assert.Equal(AlertErrorCodes.InvalidContent, failed.Error.Code);
+        Assert.Contains("desactivado", failed.Error.Message);
+        Assert.Empty(_output.Alerts);
+
+        Assert.Null(await CommandAsync(IpcTypes.AlertShow, new AlertShowPayload("AVISO DE PRUEBA 1", AlertMode.Band, 30)));
+        Assert.Single(_output.Alerts);
+    }
+
+    [Fact]
+    public async Task Settings_that_make_the_ticker_the_default_while_disabling_it_are_rejected_and_the_flag_round_trips()
+    {
+        var bad = (await CommandAsync(IpcTypes.AlertSetSettings, new AlertSettingsPayload(AlertMode.Ticker, 30, AlertTheme.Default, false)))!.GetPayload<CommandFailedPayload>();
+        Assert.Equal(AlertErrorCodes.InvalidSettings, bad.Error.Code);
+
+        Assert.Null(await CommandAsync(IpcTypes.AlertSetSettings, new AlertSettingsPayload(AlertMode.Band, 30, AlertTheme.Default, false)));
+        var reply = ((JsonElement)(await QueryAsync(IpcTypes.AlertGetSettings, new { })).GetPayload<IpcReply>().Result!).Deserialize<AlertSettingsPayload>(IpcSerializer.Options)!;
+        Assert.False(reply.TickerEnabled);
     }
 
     [Fact]
@@ -195,14 +220,14 @@ public sealed class AlertIpcTests : IAsyncLifetime
         Assert.Equal((AlertMode.Band, 30, AlertTheme.Default), (initial.Mode, initial.DurationSec, initial.Theme));
 
         var theme = AlertTheme.Default with { FontSize = 64, BandColor = "#102030F0", Position = AlertPosition.Top };
-        Assert.Null(await CommandAsync(IpcTypes.AlertSetSettings, new AlertSettingsPayload(AlertMode.Ticker, 60, theme)));
+        Assert.Null(await CommandAsync(IpcTypes.AlertSetSettings, new AlertSettingsPayload(AlertMode.Ticker, 60, theme, true)));
         Assert.Equal((AlertMode.Ticker, 60, theme), ((await read()).Mode, (await read()).DurationSec, (await read()).Theme));
 
         foreach (var bad in new[]
         {
-            new AlertSettingsPayload(AlertMode.Band, 30, AlertTheme.Default with { BandColor = "negro" }),
-            new AlertSettingsPayload(AlertMode.Band, 3, AlertTheme.Default),
-            new AlertSettingsPayload(AlertMode.Band, 30, AlertTheme.Default with { MinFontSize = 999 }),
+            new AlertSettingsPayload(AlertMode.Band, 30, AlertTheme.Default with { BandColor = "negro" }, true),
+            new AlertSettingsPayload(AlertMode.Band, 3, AlertTheme.Default, true),
+            new AlertSettingsPayload(AlertMode.Band, 30, AlertTheme.Default with { MinFontSize = 999 }, true),
         })
         {
             var failed = (await CommandAsync(IpcTypes.AlertSetSettings, bad))!.GetPayload<CommandFailedPayload>();

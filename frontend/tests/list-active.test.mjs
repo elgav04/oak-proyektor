@@ -170,7 +170,7 @@ test("los atajos globales del backend (Ctrl+Alt+Shift+M/B/C/L/R) nunca se interp
     assert.equal(matchListShortcut(key(letter, { ctrlKey: true, altKey: true, shiftKey: true }), null, live), null);
     assert.equal(matchListShortcut(key(letter.toUpperCase(), { ctrlKey: true, altKey: true, shiftKey: true }), null, live), null);
   }
-  assert.equal(RESERVED_GLOBAL_SHORTCUTS.length, 5);
+  assert.equal(RESERVED_GLOBAL_SHORTCUTS.length, 6);   // M, B, C, L, R y A (quitar la alerta)
   for (const s of LIST_SHORTCUTS) assert.ok(!(s.ctrl === true && s.alt === true), `${s.label}: nunca Ctrl+Alt (los globales llevan Ctrl+Alt+Mayús)`);
   // Sin repeticiones: dos entradas no pueden compartir tecla y modificador.
   const seen = new Set(LIST_SHORTCUTS.map((s) => `${s.key}|${String(s.ctrl === true)}|${String(s.alt === true)}|${s.scope}`));

@@ -26,4 +26,4 @@ public sealed record AlertDeletePayload(long Id);
 public sealed record AlertChangedPayload(string CommandId, long AlertId, string Kind);
 
 /// <summary>Reply de <c>alert.getSettings</c> y cuerpo de <c>alert.setSettings</c> (que sustituye el conjunto y lo valida ANTES de guardar).</summary>
-public sealed record AlertSettingsPayload(AlertMode Mode, int DurationSec, AlertTheme Theme);
+public sealed record AlertSettingsPayload(AlertMode Mode, int DurationSec, AlertTheme Theme, bool TickerEnabled);

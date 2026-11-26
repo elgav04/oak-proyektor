@@ -86,7 +86,7 @@ function Check([bool]$ok, [string]$what) { if (-not $ok) { $failures.Add($what);
 function Send-FromPanel($cws, [string]$type, $payload) {
     $json = ($payload | ConvertTo-Json -Depth 10 -Compress)
     $b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($json))
-    [void](Eval $cws ("(() => { const p = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob('" + $b64 + "'), c => c.charCodeAt(0)))); window.external.sendMessage(JSON.stringify({v:15,id:crypto.randomUUID(),kind:'command',type:'$type',payload:p})); return true; })()"))
+    [void](Eval $cws ("(() => { const p = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob('" + $b64 + "'), c => c.charCodeAt(0)))); window.external.sendMessage(JSON.stringify({v:16,id:crypto.randomUUID(),kind:'command',type:'$type',payload:p})); return true; })()"))
 }
 
 # Sonda IPC en la pagina del panel: registra TODOS los mensajes que llegan (se anade un receptor; el de la aplicacion sigue funcionando: se comprueba en el paso 4).
@@ -96,7 +96,7 @@ $probeJs = @'
   const log = [];
   window.__ipcProbe = {
     log,
-    send(type, kind, payload) { const id = crypto.randomUUID(); window.external.sendMessage(JSON.stringify({ v: 15, id, kind, type, payload })); return id; },
+    send(type, kind, payload) { const id = crypto.randomUUID(); window.external.sendMessage(JSON.stringify({ v: 16, id, kind, type, payload })); return id; },
   };
   window.external.receiveMessage((raw) => { try { log.push(JSON.parse(raw)); } catch { /* ignorar */ } });
   return true;

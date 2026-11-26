@@ -1,6 +1,7 @@
 // «Backend» SINTÉTICO de las listas de culto para los tests del panel: habla el protocolo REAL (sobres v13) con el cliente IPC real. TODA la letra y el texto bíblico
 // están inventados aquí (palabras sueltas): nada real. Responde las lecturas que usa la pestaña «Lista» (playlist.*, song.get/getSettings, bible.chapter/getSettings) y
 // REGISTRA los comandos; cada `output.showContent` se «confirma» como lo haría el backend real (evento `output.stateChanged` con el `origin` en el slide).
+import { V } from "./protocol-version.mjs";
 import { loadTs } from "./helper.mjs";
 import { body } from "./song-fixtures.mjs";
 
@@ -38,7 +39,7 @@ export function createListBackend(options = {}) {
     window: { isOpen: true, isPaused: false },
   };
 
-  const envelope = (kind, type, payload, id = crypto.randomUUID()) => JSON.stringify({ v: 15, id, kind, type, payload });
+  const envelope = (kind, type, payload, id = crypto.randomUUID()) => JSON.stringify({ v: V, id, kind, type, payload });
   const reply = (req, result) => deliver(envelope("reply", req.type, { ok: true, result, error: null }, req.id));
   const fail = (req, code, message) => deliver(envelope("reply", req.type, { ok: false, result: null, error: { code, message } }, req.id));
   const event = (type, payload) => deliver(envelope("event", type, payload));

@@ -21,7 +21,7 @@ internal static class AlertIpc
         catch (DatabaseUnavailableException ex) { throw new IpcException("database.unavailable", ex.Message, ex); }
     }
 
-    public static AlertSettingsPayload ToPayload(AppSettings s) => new(s.Alerts.Mode, s.Alerts.DurationSec, s.Alerts.EffectiveTheme);
+    public static AlertSettingsPayload ToPayload(AppSettings s) => new(s.Alerts.Mode, s.Alerts.DurationSec, s.Alerts.EffectiveTheme, s.Alerts.TickerEnabled);
 
     public static SavedAlertDto Map(SavedAlert a) =>
         new(a.Id, a.Text, a.Pinned, a.UseCount, a.LastUsedAt is { } t ? AlertStore.Stamp(t) : null);
@@ -30,14 +30,15 @@ internal static class AlertIpc
         outbox.Publish(IpcEnvelope.Create(IpcKind.Event, IpcTypes.AlertChanged, new AlertChangedPayload(commandId, alertId, kind)), Targets.Control);
 }
 
-internal sealed class AlertShowHandler(IOutputController output, IAlertRecorder recorder) : IIpcHandler
+internal sealed class AlertShowHandler(IOutputController output, IAlertRecorder recorder, ISettingsStore settings) : IIpcHandler
 {
     public string Kind => IpcKind.Command;
     public string Type => IpcTypes.AlertShow;
     public Task<object?> HandleAsync(IpcEnvelope request, CancellationToken cancellationToken)
     {
         var p = request.GetPayload<AlertShowPayload>();
-        var problem = AlertRules.TryNormalizeText(p.Text, out var text) ?? AlertRules.ValidateMode(p.Mode) ?? AlertRules.ValidateDuration(p.DurationSec);
+        // Lee los ajustes en memoria (settings.json ya cargado): no toca el disco ni la BD. Con el desplazamiento desactivado en los ajustes, un «ticker» se rechaza.
+        var problem = AlertRules.TryNormalizeText(p.Text, out var text) ?? AlertRules.ValidateModeAllowed(p.Mode, settings.Current.Alerts.TickerEnabled) ?? AlertRules.ValidateDuration(p.DurationSec);
         if (problem is not null) throw new IpcException(AlertErrorCodes.InvalidContent, problem);
         // El número de llegada permite ignorar este «mostrar» si el operador quitó la alerta (atajo global) DESPUÉS de pedirlo.
         if (output.ShowAlert(text, p.Mode, p.DurationSec, request.Order)) recorder.Record(text);   // anotar solo ENCOLA: no espera a la base de datos
@@ -73,7 +74,7 @@ internal sealed class AlertSetSettingsHandler(ISettingsStore settings) : IIpcHan
     public async Task<object?> HandleAsync(IpcEnvelope request, CancellationToken cancellationToken)
     {
         var r = request.GetPayload<AlertSettingsPayload>();
-        var display = new AlertDisplaySettings(r.Mode, r.DurationSec, r.Theme);
+        var display = new AlertDisplaySettings(r.Mode, r.DurationSec, r.Theme, r.TickerEnabled);
         if (r.Theme is null) throw new IpcException(AlertErrorCodes.InvalidSettings, "Alertas: falta el tema.");
         if (AlertRules.ValidateSettings(display) is { } problem) throw new IpcException(AlertErrorCodes.InvalidSettings, problem);
         await settings.UpdateAsync(s => s with { AlertDisplay = display }, cancellationToken).ConfigureAwait(false);

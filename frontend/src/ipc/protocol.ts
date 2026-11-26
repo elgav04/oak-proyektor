@@ -22,10 +22,11 @@
  * `playlist.moveItem`, `playlist.removeItem`, `playlist.updateItem`, `playlist.duplicate` y `playlist.delete`; evento `playlist.changed`. `output.showContent` lleva `origin` (ids de lista y
  * elemento, o nulo), el `Slide` lo conserva y `OutputState.schemaVersion` pasa a 2. `song.get` y `song.changed` llevan `usedInLists` (las listas por id, nombre y fecha).
  * v14: `playlist.delete` lleva `expectedRevision` (con una revisión caducada falla con `playlist.conflict` y no borra nada).
+ * v16: `AlertSettingsPayload` lleva `tickerEnabled` (interruptor de seguridad del desplazamiento; apagado, `alert.show` en modo `ticker` se rechaza).
  * v15: alertas rápidas (capa 3): `OutputState.overlays` pasa de `{ items }` a `{ alert }` (`schemaVersion` 3); comandos `alert.show` y `alert.hide` (carril de PRIORIDAD: solo tocan memoria),
  * `alert.setSettings`, `alert.save` y `alert.delete`; queries `alert.getSettings` y `alert.list`; evento `alert.changed` (solo ids). Freeze ya NO congela la alerta.
  */
-export const PROTOCOL_VERSION = 15;
+export const PROTOCOL_VERSION = 16;
 
 export type MessageKind = "command" | "event" | "query" | "reply";
 
@@ -955,6 +956,8 @@ export interface AlertSettingsPayload {
   mode: AlertMode;
   durationSec: number;
   theme: AlertTheme;
+  /** Interruptor de seguridad del desplazamiento (v16): apagado, solo vale la cinta estática. */
+  tickerEnabled: boolean;
 }
 
 /** Payload de cada comando (UI → C#). */

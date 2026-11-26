@@ -43,7 +43,8 @@ public sealed record AlertOverlay(string Id, string Text, AlertMode Mode, AlertT
 
 /// <summary>Ajustes de las alertas (<c>settings.json</c> → <c>alertDisplay</c>): modo y duración por defecto del panel y tema.</summary>
 /// <param name="DurationSec">0 = «hasta quitarla»; si no, de <see cref="AlertRules.MinDurationSec"/> a <see cref="AlertRules.MaxStickySeconds"/> segundos.</param>
-public sealed record AlertDisplaySettings(AlertMode Mode = AlertMode.Band, int DurationSec = AlertRules.DefaultDurationSec, AlertTheme? Theme = null)
+/// <param name="TickerEnabled">Si el desplazamiento está permitido (v16). Es un interruptor de SEGURIDAD: si en el proyector real el desplazamiento baja la fluidez del video se desactiva aquí y solo queda la cinta estática; con él apagado, mostrar una alerta en modo <c>ticker</c> se rechaza y un <c>settings.json</c> con modo <c>ticker</c> vuelve a <c>band</c>.</param>
+public sealed record AlertDisplaySettings(AlertMode Mode = AlertMode.Band, int DurationSec = AlertRules.DefaultDurationSec, AlertTheme? Theme = null, bool TickerEnabled = true)
 {
     [System.Text.Json.Serialization.JsonIgnore]
     public AlertTheme EffectiveTheme => Theme ?? AlertTheme.Default;

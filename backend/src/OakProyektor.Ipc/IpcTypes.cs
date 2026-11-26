@@ -108,11 +108,12 @@ public static class IpcCatalog
     /// <c>output.showContent</c> lleva <c>origin</c> (ids de lista y elemento, o nulo), el <c>Slide</c> lo conserva y <c>OutputState.SchemaVersion</c> pasa a 2.
     /// <c>song.get</c> y <c>song.changed</c> llevan <c>usedInLists</c> (las listas por id, nombre y fecha).
     /// v14: <c>playlist.delete</c> lleva <c>expectedRevision</c> (una vista desactualizada no borra una lista que otra ventana acaba de cambiar; falla con <c>playlist.conflict</c>).
+    /// v16: `AlertSettingsPayload` y `AlertDisplaySettings` llevan `tickerEnabled` (interruptor de seguridad del desplazamiento; apagado, `alert.show` en modo `ticker` se rechaza).
     /// v15: alertas rápidas (capa 3): <c>OutputState.overlays</c> pasa de <c>{ items }</c> a <c>{ alert }</c> (una <c>AlertOverlay</c> o nulo; <c>schemaVersion</c> 3); comandos <c>alert.show</c> y
     /// <c>alert.hide</c> (carril de PRIORIDAD: solo tocan memoria), <c>alert.setSettings</c>, <c>alert.save</c> y <c>alert.delete</c>; queries <c>alert.getSettings</c> y <c>alert.list</c>;
     /// evento <c>alert.changed</c> (resultado de guardar o borrar; solo ids). Freeze ya NO congela la alerta.
     /// </summary>
-    public const int ProtocolVersion = 15;
+    public const int ProtocolVersion = 16;
 
     public static IReadOnlyList<MessageDescriptor> Messages { get; } =
     [

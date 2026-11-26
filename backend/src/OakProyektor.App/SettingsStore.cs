@@ -162,6 +162,11 @@ internal sealed class SettingsStore(ApplicationPaths paths, ILogger<SettingsStor
             warnings.Add("El modo de las alertas no es válido en settings.json: se usa la cinta estática.");
             mode = AlertMode.Band;
         }
+        else if (mode == AlertMode.Ticker && !block.TickerEnabled)
+        {
+            warnings.Add("El desplazamiento de las alertas está desactivado en settings.json y a la vez es el modo por defecto: se usa la cinta estática.");
+            mode = AlertMode.Band;
+        }
         var duration = block.DurationSec;
         if (AlertRules.ValidateDuration(duration) is not null)
         {

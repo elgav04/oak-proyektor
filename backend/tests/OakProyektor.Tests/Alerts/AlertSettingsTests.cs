@@ -52,6 +52,19 @@ public class AlertSettingsTests
     }
 
     [Fact]
+    public void The_ticker_flag_defaults_to_enabled_loads_as_written_and_a_ticker_default_with_the_ticker_disabled_falls_back_to_the_band_with_a_warning()
+    {
+        Assert.True(Parse("{}").Settings!.Alerts.TickerEnabled);
+        var (off, w0) = Parse("""{ "alertDisplay": { "mode": "band", "tickerEnabled": false } }""");
+        Assert.Empty(w0);
+        Assert.False(off!.Alerts.TickerEnabled);
+
+        var (s, w) = Parse("""{ "alertDisplay": { "mode": "ticker", "tickerEnabled": false } }""");
+        Assert.Contains(w, m => m.Contains("desplazamiento"));
+        Assert.Equal((AlertMode.Band, false), (s!.Alerts.Mode, s.Alerts.TickerEnabled));
+    }
+
+    [Fact]
     public void An_unreadable_block_goes_back_to_the_defaults_with_a_warning_and_the_other_blocks_survive()
     {
         var (s, w) = Parse("""{ "autoRestoreOutput": false, "alertDisplay": { "mode": "volando" } }""");

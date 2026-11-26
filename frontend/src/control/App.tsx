@@ -3,6 +3,8 @@ import { useStore } from "zustand";
 import { Button } from "@/components/ui/button";
 import { ipc } from "@/ipc/instance";
 import { MASTER_MODES, type DisplayInfo, type MasterMode, type OutputPauseReason } from "@/ipc/protocol";
+import { AlertBar } from "./alerts/AlertBar";
+import { getAlertController } from "./alerts/instance";
 import { BibleSettingsView } from "./bible/BibleSettings";
 import { BibleTab } from "./bible/BibleTab";
 import { getBibleController, getImportController } from "./bible/instance";
@@ -28,6 +30,7 @@ const HOTKEY_LABELS: Record<string, string> = {
   clearText: "Limpiar texto",
   logo: "Logo",
   reloadPanel: "Recargar el panel",
+  hideAlert: "Quitar la alerta (nunca la muestra)",
 };
 
 const PAUSE_MESSAGES: Record<OutputPauseReason, string> = {
@@ -271,6 +274,9 @@ export function App() {
           ))}
         </div>
       </section>
+
+      {/* Barra de alertas: FIJA, visible en todas las pestañas. */}
+      <AlertBar controller={getAlertController()} connected={connected} output={output} />
 
       <nav aria-label="Secciones" className="flex gap-2 border-b">
         {([["bible", "Biblia"], ["songs", "Canciones"], ["lists", "Lista"], ["output", "Salida"], ["diagnostics", "Diagnóstico"]] as const).map(([key, label]) => (

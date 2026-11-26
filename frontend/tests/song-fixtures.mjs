@@ -1,5 +1,6 @@
 // «Backend» SINTÉTICO de canciones para los tests del panel: habla el protocolo REAL (sobre v12) con el cliente IPC real, así que los tests también comprueban los
 // mensajes tal como salen hacia C#. TODA la letra está inventada aquí (palabras sueltas): ninguna canción real.
+import { V } from "./protocol-version.mjs";
 import { loadTs } from "./helper.mjs";
 
 const { IpcClient } = await loadTs("/src/ipc/client.ts");
@@ -76,7 +77,7 @@ export function createSongBackend(options = {}) {
   let holdNext = false;
   const held = [];
 
-  const envelope = (kind, type, payload, id = crypto.randomUUID()) => JSON.stringify({ v: 15, id, kind, type, payload });
+  const envelope = (kind, type, payload, id = crypto.randomUUID()) => JSON.stringify({ v: V, id, kind, type, payload });
   const reply = (req, result) => deliver(envelope("reply", req.type, { ok: true, result, error: null }, req.id));
   const fail = (req, code, message) => deliver(envelope("reply", req.type, { ok: false, result: null, error: { code, message } }, req.id));
   const emitFailed = (cmd, code, message) => deliver(envelope("event", "command.failed", { commandId: cmd.id, commandType: cmd.type, error: { code, message } }));

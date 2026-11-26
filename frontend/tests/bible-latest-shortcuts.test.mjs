@@ -70,7 +70,7 @@ test("now() (Enter) envía ya y descarta lo pendiente; cancel() lo descarta sin 
 const key = (k, over = {}) => ({ key: k, ctrlKey: false, altKey: false, metaKey: false, shiftKey: false, ...over });
 
 test("ningún atajo del mapa lleva Ctrl/Alt y ninguna pulsación de los globales (Ctrl+Alt+Shift+M/B/C/L/R) activa una acción", () => {
-  assert.deepEqual([...RESERVED_GLOBAL_SHORTCUTS].sort(), ["Ctrl+Alt+Shift+B", "Ctrl+Alt+Shift+C", "Ctrl+Alt+Shift+L", "Ctrl+Alt+Shift+M", "Ctrl+Alt+Shift+R"]);
+  assert.deepEqual([...RESERVED_GLOBAL_SHORTCUTS].sort(), ["Ctrl+Alt+Shift+A", "Ctrl+Alt+Shift+B", "Ctrl+Alt+Shift+C", "Ctrl+Alt+Shift+L", "Ctrl+Alt+Shift+M", "Ctrl+Alt+Shift+R"]);
   for (const g of RESERVED_GLOBAL_SHORTCUTS) {
     const letter = g.split("+").at(-1);
     for (const k of [letter, letter.toLowerCase()]) assert.equal(matchBibleShortcut(key(k, { ctrlKey: true, altKey: true, shiftKey: true }), null), null, g);
