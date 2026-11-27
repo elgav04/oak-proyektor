@@ -1,4 +1,4 @@
-namespace OakProyektor.Ipc;
+﻿namespace OakProyektor.Ipc;
 
 public static class IpcKind
 {
@@ -93,6 +93,22 @@ public static class IpcTypes
     public const string MediaImportProgress = "media.importProgress";
     public const string MediaImportFinished = "media.importFinished";
     public const string MediaChanged = "media.changed";
+    public const string MediaPlay = "media.play";
+    public const string MediaPause = "media.pause";
+    public const string MediaResume = "media.resume";
+    public const string MediaSeek = "media.seek";
+    public const string MediaSetVolume = "media.setVolume";
+    public const string MediaStop = "media.stop";
+    public const string MediaStopAll = "media.stopAll";
+    public const string MediaReportProgress = "media.reportProgress";
+    public const string MediaProgress = "media.progress";
+    public const string MediaPlaybackFailed = "media.playbackFailed";
+    public const string AudioGetState = "audio.getState";
+    public const string AudioSetDevice = "audio.setDevice";
+    public const string AudioSetMasterVolume = "audio.setMasterVolume";
+    public const string AudioSetSettings = "audio.setSettings";
+    public const string AudioTest = "audio.test";
+    public const string AudioStateChanged = "audio.stateChanged";
 }
 
 public sealed record MessageDescriptor(string Type, string Kind);
@@ -128,12 +144,15 @@ public static class IpcCatalog
     /// v17: biblioteca local de medios (docs/DISENO_MEDIOS.md, prompt 1): queries `media.list` y `media.get`; comandos `media.import`, `media.cancelImport`, `media.rename`, `media.move`, `media.delete`,
     /// `media.createFolder`, `media.renameFolder`, `media.deleteFolder`, `media.reportProbe` y `media.setThumbnail` (los manda el panel tras verificar el archivo en su reproductor), `media.verifyLibrary` y
     /// `media.setBackground { mediaId }`; eventos `media.importProgress`, `media.importFinished` y `media.changed` (sin nombres ni rutas, solo ids y bytes). Migración 13.
+    /// v18: reproducción y audio (docs/DISENO_MEDIOS.md, prompt 2): `OutputState.foreground` (video en primer plano; `schemaVersion` 4); comandos `media.play`, `media.pause`, `media.resume`, `media.seek`,
+    /// `media.setVolume`, `media.stop`, `media.stopAll` («Silencio»: solo calla) y `media.reportProgress` (lo manda la SALIDA); eventos `media.progress` (avance cosmético, fuera del snapshot) y
+    /// `media.playbackFailed`; audio: query `audio.getState`, comandos `audio.setDevice`, `audio.setMasterVolume`, `audio.setSettings` y `audio.test` («Probar sonido»), evento `audio.stateChanged`.
     /// v16: `AlertSettingsPayload` y `AlertDisplaySettings` llevan `tickerEnabled` (interruptor de seguridad del desplazamiento; apagado, `alert.show` en modo `ticker` se rechaza).
     /// v15: alertas rápidas (capa 3): <c>OutputState.overlays</c> pasa de <c>{ items }</c> a <c>{ alert }</c> (una <c>AlertOverlay</c> o nulo; <c>schemaVersion</c> 3); comandos <c>alert.show</c> y
     /// <c>alert.hide</c> (carril de PRIORIDAD: solo tocan memoria), <c>alert.setSettings</c>, <c>alert.save</c> y <c>alert.delete</c>; queries <c>alert.getSettings</c> y <c>alert.list</c>;
     /// evento <c>alert.changed</c> (resultado de guardar o borrar; solo ids). Freeze ya NO congela la alerta.
     /// </summary>
-    public const int ProtocolVersion = 17;
+    public const int ProtocolVersion = 18;
 
     public static IReadOnlyList<MessageDescriptor> Messages { get; } =
     [
@@ -243,6 +262,23 @@ public static class IpcCatalog
         new(IpcTypes.MediaImportProgress, IpcKind.Event),
         new(IpcTypes.MediaImportFinished, IpcKind.Event),
         new(IpcTypes.MediaChanged, IpcKind.Event),
+        new(IpcTypes.MediaPlay, IpcKind.Command),
+        new(IpcTypes.MediaPause, IpcKind.Command),
+        new(IpcTypes.MediaResume, IpcKind.Command),
+        new(IpcTypes.MediaSeek, IpcKind.Command),
+        new(IpcTypes.MediaSetVolume, IpcKind.Command),
+        new(IpcTypes.MediaStop, IpcKind.Command),
+        new(IpcTypes.MediaStopAll, IpcKind.Command),
+        new(IpcTypes.MediaReportProgress, IpcKind.Command),
+        new(IpcTypes.MediaProgress, IpcKind.Event),
+        new(IpcTypes.MediaPlaybackFailed, IpcKind.Event),
+        new(IpcTypes.AudioGetState, IpcKind.Query),
+        new(IpcTypes.AudioGetState, IpcKind.Reply),
+        new(IpcTypes.AudioSetDevice, IpcKind.Command),
+        new(IpcTypes.AudioSetMasterVolume, IpcKind.Command),
+        new(IpcTypes.AudioSetSettings, IpcKind.Command),
+        new(IpcTypes.AudioTest, IpcKind.Command),
+        new(IpcTypes.AudioStateChanged, IpcKind.Event),
     ];
 }
 

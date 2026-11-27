@@ -1,4 +1,4 @@
-﻿import type { OutputState, OutputStateChangedPayload } from "@/ipc/protocol";
+import type { OutputState, OutputStateChangedPayload } from "@/ipc/protocol";
 import { isNewer } from "@/ipc/sequence";
 
 /**
@@ -9,6 +9,8 @@ import { isNewer } from "@/ipc/sequence";
  * El video de fondo que ya estaba en pantalla SIGUE reproduciéndose (no se toca el elemento; el motor de fondo no recibe ningún cambio), y también
  * se retienen los CAMBIOS de fondo hasta descongelar. Limitación: si la página se recarga con la salida congelada no hay nada «pintado» que conservar y se
  * pinta el último estado (ver CLAUDE.md).
+ *
+ * EXCEPCIÓN (v18): el VIDEO EN PRIMER PLANO (`foreground`) tampoco se congela, por la misma razón: poder pausarlo, silenciarlo o detenerlo siempre (con Freeze, `shown` toma `foreground` del snapshot más reciente).
  *
  * EXCEPCIÓN (v15): la ALERTA (`overlays`) NO se congela. Mostrarla y, sobre todo, QUITARLA (botón, caducidad del reloj del backend o el atajo global) debe funcionar siempre: si Freeze la
  * retuviera, un aviso quedaría clavado en pantalla sin forma de quitarlo. Con Freeze, `shown` conserva texto y fondo pero toma `overlays` del snapshot más reciente.
@@ -31,12 +33,24 @@ function sameAlert(a: OutputState["overlays"], b: OutputState["overlays"]): bool
   return JSON.stringify(a.alert) === JSON.stringify(b.alert);
 }
 
+/** ¿Es el mismo video en primer plano (o ninguno)? Por contenido, igual que la alerta. */
+function sameForeground(a: OutputState["foreground"], b: OutputState["foreground"]): boolean {
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 /** Aplica un snapshot. Devuelve `prev` sin cambios si no es más nuevo que el último aplicado. */
 export function nextView(prev: OutputView | null, snap: OutputStateChangedPayload): OutputView | null {
   if (!isNewer(prev?.seq ?? null, snap.seq)) return prev;
   const panelAlert = snap.window.panelUnresponsive && snap.window.panelAlertOnOutput;
   const freezing = snap.state.master === "freeze";
-  // Congelado: texto y fondo se retienen; la alerta sigue al snapshot más reciente (misma instancia si no cambió: no se re-renderiza de más).
-  const shown = freezing && prev !== null ? (sameAlert(prev.shown.overlays, snap.state.overlays) ? prev.shown : { ...prev.shown, overlays: snap.state.overlays }) : snap.state;
+  // Congelado: texto y fondo se retienen; la alerta y el video en primer plano siguen al snapshot más reciente (misma instancia si no cambiaron: no se re-renderiza de más).
+  const shown =
+    freezing && prev !== null
+      ? sameAlert(prev.shown.overlays, snap.state.overlays) && sameForeground(prev.shown.foreground, snap.state.foreground)
+        ? prev.shown
+        : { ...prev.shown, overlays: snap.state.overlays, foreground: snap.state.foreground }
+      : snap.state;
   return { seq: snap.seq, shown, latest: snap.state, frozen: freezing && prev !== null, panelAlert };
 }

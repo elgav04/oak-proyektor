@@ -1,9 +1,10 @@
-﻿import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ipc } from "@/ipc/instance";
 import type { OutputStateChangedPayload } from "@/ipc/protocol";
 import { createRetrier } from "@/ipc/retry";
 import type { BackgroundFailure } from "./background/engine";
-import { isEmergencyKey, isHideAlertKey } from "./emergency";
+import { isEmergencyKey, isHideAlertKey, isSilenceKey } from "./emergency";
+import type { ForegroundReport } from "./foreground/player";
 import { nextView, type OutputView as View } from "./freeze";
 import { OutputScreen } from "./OutputScreen";
 
@@ -27,6 +28,12 @@ export function OutputView() {
 
     // Respaldo del atajo global: pide a C# minimizar la salida. La salida no decide nada; solo avisa.
     const onKeyDown = (e: KeyboardEvent): void => {
+      if (isSilenceKey(e)) {
+        // Respaldo del atajo global «Silencio»: solo calla (las pistas y el video en primer plano); nunca reanuda.
+        e.preventDefault();
+        ipc.send("media.stopAll", {});
+        return;
+      }
       if (isHideAlertKey(e)) {
         // Mismo respaldo para quitar la alerta (solo quita): por si el atajo global no pudo registrarse.
         e.preventDefault();
@@ -50,9 +57,14 @@ export function OutputView() {
     ipc.send("output.reportBackgroundFailure", { mediaUrl: failure.mediaUrl, reason: failure.reason, detail: failure.detail });
   }, []);
 
+  // El video en primer plano informa su posición y estado REALES (≈ 4 por segundo mientras suena, y al instante en cada cambio): el backend decide qué hacer al terminar o fallar.
+  const reportForeground = useCallback((report: ForegroundReport): void => {
+    ipc.send("media.reportProgress", { id: report.id, positionMs: report.positionMs, durationMs: report.durationMs, state: report.state, errorCode: report.errorCode });
+  }, []);
+
   return (
     <>
-      <OutputScreen state={view?.shown ?? null} seq={view?.seq ?? null} onBackgroundFailure={reportFailure} />
+      <OutputScreen state={view?.shown ?? null} seq={view?.seq ?? null} onBackgroundFailure={reportFailure} onForegroundReport={reportForeground} />
       {view?.panelAlert === true && (
         // Aviso discreto, solo si el operador lo configuró: el panel está atascado pero la salida sigue proyectando.
         <div

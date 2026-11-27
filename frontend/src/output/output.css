@@ -1,9 +1,14 @@
-﻿html, body, #root { margin: 0; width: 100%; height: 100%; background: #000; overflow: hidden; cursor: none; }
+html, body, #root { margin: 0; width: 100%; height: 100%; background: #000; overflow: hidden; cursor: none; }
 .viewport { position: fixed; inset: 0; overflow: hidden; background: #000; }
 /* Lienzo virtual de 1920×1080: se escala a la ventana con transform (ver canvas.ts). */
 .canvas { position: absolute; left: 0; top: 0; transform-origin: 0 0; overflow: hidden; background: #000; }
 .layer { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
 .layer-background { overflow: hidden; }
+/* Orden de las capas (v18): fondo y contenido en el orden del DOM; el VIDEO EN PRIMER PLANO cubre el contenido; las alertas van SIEMPRE encima del video (un aviso urgente se ve sobre un testimonio);
+   las cortinas de Negro y Logo, por encima de todo. */
+.layer-foreground { overflow: hidden; z-index: 2; }
+.layer-overlays { z-index: 3; }
+.curtain { z-index: 4; }
 .curtain { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
 .curtain-black { background: #000; }
 /* Alerta, modo desplazamiento: el texto entra por la derecha del lienzo (1920 px) y sale por la izquierda (-100 % de su propio ancho). Solo `transform`: compositor, sin layout por fotograma.

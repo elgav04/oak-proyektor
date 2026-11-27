@@ -38,6 +38,23 @@ internal interface IOutputController
     bool ShowAlert(string text, AlertMode mode, int durationSec, long order = 0);
     /// <summary>Quita la alerta (idempotente). Actúa sin pasar por el panel (atajo global). <paramref name="order"/> = número de llegada (0 = ahora).</summary>
     void HideAlert(long order = 0);
+    /// <summary>
+    /// Video en primer plano (v18). Carga y, si procede, arranca (<see cref="ForegroundRequest"/>, ya validado por el handler; con la salida oculta o en pausa se carga en PAUSA). Las órdenes de
+    /// reproducción se ordenan por su número de llegada (<paramref name="order"/>; 0 = ahora): la última intención del operador gana aunque viajen por carriles distintos.
+    /// </summary>
+    void PlayForeground(ForegroundRequest request, long order = 0);
+    void PauseForeground(long order = 0);
+    /// <summary>Reanuda. Lanza <see cref="IpcException"/> (<c>media.outputHidden</c>) si la salida no lo mostraría (Negro, Texto limpio, Logo, en pausa o cerrada) y <c>media.nothingPlaying</c> si no hay video.</summary>
+    void ResumeForeground(long order = 0);
+    void SeekForeground(long positionMs);
+    void SetForegroundVolume(int? clipVolumePct, bool? muted);
+    /// <summary>El volumen maestro cambió: recalcula el volumen efectivo del video actual.</summary>
+    void ApplyMasterVolume();
+    void StopForeground(long order = 0);
+    /// <summary>«Silencio»: pausa el video en primer plano al instante (atajo global; no pasa por el panel). Nunca reanuda.</summary>
+    void SilenceForeground(long order = 0);
+    /// <summary>La SALIDA informa de la posición y el estado reales del video (≈ 4 por segundo).</summary>
+    void ReportForegroundProgress(MediaReportProgressPayload report);
     /// <summary>La salida informa de que no pudo reproducir su fondo. Si <paramref name="mediaUrl"/> ya no es el fondo actual se ignora; si lo es, se avisa al panel.</summary>
     void ReportBackgroundFailure(string mediaUrl, BackgroundFailureReason reason, string? detail);
     /// <summary>
@@ -142,6 +159,7 @@ internal sealed partial class OutputController : IOutputController
     {
         _publisher.Publish(BuildSnapshot);
         DropAlertIfPaused();   // solo LEE la pausa que el snapshot acaba de informar (ver OutputController.Alerts.cs); no la modifica
+        PauseForegroundIfHidden();   // idem para el video en primer plano (ver OutputController.Foreground.cs)
     }
 
     public void SetMaster(MasterMode master)

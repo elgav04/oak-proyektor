@@ -51,6 +51,11 @@ export function canBeBackground(item: Pick<MediaItemDto, "kind" | "status">): bo
   return item.kind !== "audio" && (item.status === "ok" || item.status === "pending");
 }
 
+/** ¿Se puede reproducir? Video (primer plano) o audio (pista) con archivo y que el equipo reproduce (o aún sin verificar). Las imágenes no se reproducen: se usan de fondo. */
+export function canPlay(item: Pick<MediaItemDto, "kind" | "status">): boolean {
+  return item.kind !== "image" && (item.status === "ok" || item.status === "pending");
+}
+
 /** ¿Hay algo que comprobar en el reproductor del panel? (aún sin verificar, o sin miniatura y con archivo). */
 export function needsVerification(item: Pick<MediaItemDto, "status" | "fileUrl">): boolean {
   return item.status === "pending" && item.fileUrl !== null;

@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+import { useState } from "react";
 import type { BackgroundLayer, OutputState, Slide, TextTheme } from "@/ipc/protocol";
 import "../output.css";
 import { OutputScreen } from "../OutputScreen";
@@ -18,7 +18,7 @@ const bg = (color: string): BackgroundLayer => ({ kind: "color", color, mediaUrl
 const slide = (id: string, text: unknown): Slide => ({ id, blocks: [{ text: text as string }], theme: THEME, origin: null });
 
 function state(master: OutputState["master"], color: string, s: Slide | null, revision: number): OutputState {
-  return { schemaVersion: 3, revision, master, background: bg(color), content: { slide: s, transitionMs: 400 }, overlays: { alert: null } };
+  return { schemaVersion: 4, revision, master, background: bg(color), content: { slide: s, transitionMs: 400 }, overlays: { alert: null }, foreground: null };
 }
 
 export function OutputProbe() {

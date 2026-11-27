@@ -4,12 +4,12 @@ import { Button } from "@/components/ui/button";
 import type { MediaItemDto, MediaItemKind } from "@/ipc/protocol";
 import { windowRange } from "../songs/windowRange";
 import type { FolderFilter, MediaController } from "./controller";
-import { KIND_LABELS, MEDIA_ROW_HEIGHT, canBeBackground, formatBytes, formatDuration, statusBadge, techLine } from "./model";
+import { KIND_LABELS, MEDIA_ROW_HEIGHT, canBeBackground, canPlay, formatBytes, formatDuration, statusBadge, techLine } from "./model";
 
 const TONE: Record<string, string> = { ok: "bg-green-100 text-green-900", warn: "bg-amber-100 text-amber-900", bad: "bg-red-100 text-red-900", idle: "bg-neutral-200 text-neutral-700" };
 const VIEWPORT = 440;
 
-function Row({ item, controller, folders, connected, muted }: { item: MediaItemDto; controller: MediaController; folders: { id: number; name: string }[]; connected: boolean; muted: boolean }) {
+function Row({ item, controller, folders, connected, muted, onPlay }: { item: MediaItemDto; controller: MediaController; folders: { id: number; name: string }[]; connected: boolean; muted: boolean; onPlay?: (item: MediaItemDto, startNow: boolean) => void }) {
   const [renaming, setRenaming] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const badge = statusBadge(item);
@@ -48,6 +48,15 @@ function Row({ item, controller, folders, connected, muted }: { item: MediaItemD
         </div>
       ) : (
         <div className="flex shrink-0 items-center gap-2">
+          {onPlay && canPlay(item) && item.kind === "video" && (
+            <Button size="sm" disabled={!connected} title="Pasar este video a primer plano (con su audio); el fondo en bucle sigue debajo" onClick={() => { onPlay(item, true); }}>▶ En pantalla</Button>
+          )}
+          {onPlay && canPlay(item) && item.kind === "audio" && (
+            <>
+              <Button size="sm" variant="outline" disabled={!connected} title="Cargar la pista lista, en pausa (no suena hasta que pulses ▶ en el reproductor)" onClick={() => { onPlay(item, false); }}>Cargar</Button>
+              <Button size="sm" disabled={!connected} title="Reproducir la pista ahora por el dispositivo de la iglesia" onClick={() => { onPlay(item, true); }}>▶ Pista</Button>
+            </>
+          )}
           {canBeBackground(item) && <Button size="sm" disabled={!connected} title="Usar como fondo de la salida" onClick={() => { controller.useAsBackground(item, muted); }}>Fondo</Button>}
           <select
             className="h-8 w-28 rounded border-2 px-1 text-sm" aria-label={`Carpeta de ${item.name}`} value={item.folderId ?? ""} disabled={!connected}
@@ -68,7 +77,7 @@ function Row({ item, controller, folders, connected, muted }: { item: MediaItemD
  * Biblioteca de medios: importar (se COPIA a la carpeta de la aplicación: reproducir nunca lee de un USB ni de la red), carpetas, búsqueda y la lista (virtualizada, ≤ 500 por consulta).
  * Sin estado de negocio: todo sale de `media.list` y los eventos `media.*`. Nada de `alert/confirm/prompt`: las confirmaciones son barras en línea.
  */
-export function MediaTab({ controller, connected }: { controller: MediaController; connected: boolean }) {
+export function MediaTab({ controller, connected, onPlay }: { controller: MediaController; connected: boolean; onPlay?: (item: MediaItemDto, startNow: boolean) => void }) {
   const s = useStore(controller.store);
   const [path, setPath] = useState("");
   const [name, setName] = useState("");
@@ -189,7 +198,7 @@ export function MediaTab({ controller, connected }: { controller: MediaControlle
         <div ref={boxRef} className="overflow-y-auto rounded-md border" style={{ height: VIEWPORT }} data-testid="media-list" onScroll={(e) => { setScrollTop(e.currentTarget.scrollTop); }}>
           <ul style={{ height: s.items.length * MEDIA_ROW_HEIGHT, position: "relative" }}>
             <div style={{ position: "absolute", top: range.start * MEDIA_ROW_HEIGHT, left: 0, right: 0 }}>
-              {visible.map((item) => <Row key={item.id} item={item} controller={controller} folders={s.folders} connected={connected} muted={muted} />)}
+              {visible.map((item) => <Row key={item.id} item={item} controller={controller} folders={s.folders} connected={connected} muted={muted} onPlay={onPlay} />)}
             </div>
           </ul>
         </div>

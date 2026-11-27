@@ -2,7 +2,9 @@ import { useEffect, useState, type ReactNode } from "react";
 import type { BackgroundLayer as BackgroundState, ContentLayer as ContentState, OutputState, OverlayLayer as OverlayState } from "@/ipc/protocol";
 import type { BackgroundFailure } from "./background/engine";
 import { CANVAS_HEIGHT, CANVAS_WIDTH, computeCanvasTransform, type CanvasTransform } from "./canvas";
+import type { ForegroundReport } from "./foreground/player";
 import { BackgroundLayer } from "./layers/BackgroundLayer";
+import { ForegroundLayer } from "./layers/ForegroundLayer";
 import { ContentLayer } from "./layers/ContentLayer";
 import { OverlayLayer } from "./layers/OverlayLayer";
 import { visibilityFor } from "./visibility";
@@ -12,6 +14,7 @@ interface Props {
   /** Se llama DESPUÉS de que el snapshot se pintó sin errores (efecto posterior al commit). */
   onPainted?: (state: OutputState | null) => void;
   onBackgroundFailure?: (failure: BackgroundFailure) => void;
+  onForegroundReport?: (report: ForegroundReport) => void;
 }
 
 function useCanvasTransform(): CanvasTransform {
@@ -52,6 +55,12 @@ export function OutputBackground({ state, onBackgroundFailure }: { state: Output
   return <BackgroundLayer key="background" background={state?.background ?? BLACK_BACKGROUND} onFailure={onBackgroundFailure} />;
 }
 
+/** Capa de primer plano (v18): el video con audio. Se pinta FUERA del `OutputErrorBoundary`; su orden entre el contenido y las superposiciones lo fija el CSS. */
+export function OutputVideo({ state, onReport }: { state: OutputState | null; onReport?: (report: ForegroundReport) => void }) {
+  const visible = visibilityFor(state?.master ?? "black").foreground;
+  return <ForegroundLayer key="foreground" foreground={state?.foreground ?? null} visible={visible} onReport={onReport} />;
+}
+
 /** Capas 2 y 3 y las cortinas de Black y Logo: lo que SÍ puede fallar al pintar un snapshot y por eso va dentro del boundary. */
 export function OutputForeground({ state, onPainted }: { state: OutputState | null; onPainted?: (state: OutputState | null) => void }) {
   useEffect(() => {
@@ -77,10 +86,11 @@ export function OutputForeground({ state, onPainted }: { state: OutputState | nu
  * 1 fondo, 2 contenido, 3 superposiciones; encima, las cortinas de Black y Logo. Los contenedores tienen clave estable: ninguno se remonta al cambiar el texto.
  * Versión SIN boundary (sondeo y tests); la salida real usa `OutputScreen`, que deja el fondo fuera del boundary.
  */
-export function OutputStage({ state, onPainted, onBackgroundFailure }: Props) {
+export function OutputStage({ state, onPainted, onBackgroundFailure, onForegroundReport }: Props) {
   return (
     <OutputFrame>
       <OutputBackground state={state} onBackgroundFailure={onBackgroundFailure} />
+      <OutputVideo state={state} onReport={onForegroundReport} />
       <OutputForeground state={state} onPainted={onPainted} />
     </OutputFrame>
   );

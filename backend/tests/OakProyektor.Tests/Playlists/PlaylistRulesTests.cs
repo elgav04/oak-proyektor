@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using OakProyektor.Core;
 using OakProyektor.Core.Library;
 using OakProyektor.Core.Output;
@@ -159,7 +159,7 @@ public sealed class PlaylistRulesTests
         var state = OutputState.Initial.WithSlide(slide, 400);
 
         using var doc = JsonDocument.Parse(JsonSerializer.Serialize(state, IpcSerializer.Options));
-        Assert.Equal(3, doc.RootElement.GetProperty("schemaVersion").GetInt32());   // v15: overlays = { alert }
+        Assert.Equal(OutputState.CurrentSchemaVersion, doc.RootElement.GetProperty("schemaVersion").GetInt32());   // 3 desde la v15 (overlays = { alert }); 4 desde la v18 (foreground)
         var origin = doc.RootElement.GetProperty("content").GetProperty("slide").GetProperty("origin");
         Assert.Equal(["playlistId", "itemId", "itemType", "position"], origin.EnumerateObject().Select(p => p.Name));
         Assert.Equal(JsonValueKind.Number, origin.GetProperty("playlistId").ValueKind);

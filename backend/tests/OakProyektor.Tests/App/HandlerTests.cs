@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging.Abstractions;
+﻿using Microsoft.Extensions.Logging.Abstractions;
 using OakProyektor.App;
 using OakProyektor.App.Handlers;
 using OakProyektor.App.Media;
@@ -26,7 +26,7 @@ internal sealed class NoBibles : OakProyektor.Data.Scripture.IBibleQueryService
 public class HandlerTests
 {
     private static string Msg(string kind, string type, string payload = "{}") =>
-        $$"""{"v":17,"id":"q1","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
+        $$"""{"v":{{IpcCatalog.ProtocolVersion}},"id":"q1","kind":"{{kind}}","type":"{{type}}","payload":{{payload}}}""";
 
     private static (IpcDispatcher Dispatcher, FakeOutputController Output) Create(params DisplayInfo[] displays)
     {
@@ -34,6 +34,7 @@ public class HandlerTests
         var songs = new OakProyektor.Tests.Songs.NoSongs();
         var playlists = new OakProyektor.Tests.Playlists.NoPlaylists();
         var media = new OakProyektor.Tests.Media.NoMedia();
+        var audio = new OakProyektor.Tests.Playback.FakeAudioService();
         var mediaStorage = new MediaStorage(Path.Combine(Path.GetTempPath(), "oak-handler-test-media-" + Guid.NewGuid().ToString("N")));
         var importer = new MediaImportService(media, mediaStorage, new PhysicalMediaFileSystem(), new DriveFreeSpaceProvider(), new FileSourceOpener(), new Outbox(NullLogger<Outbox>.Instance), NullLogger<MediaImportService>.Instance);
         IIpcHandler[] handlers =
@@ -93,6 +94,11 @@ public class HandlerTests
             new MediaReportProbeHandler(media, new Outbox(NullLogger<Outbox>.Instance)), new MediaSetThumbnailHandler(media, mediaStorage, new Outbox(NullLogger<Outbox>.Instance)),
             new MediaVerifyLibraryHandler(new MediaLibraryMaintenance(media, mediaStorage, NullLogger<MediaLibraryMaintenance>.Instance), new Outbox(NullLogger<Outbox>.Instance)),
             new MediaSetBackgroundHandler(media, mediaStorage, new PhysicalMediaFileSystem(), output),
+            // Reproducción y audio (v18): un servicio de audio de mentira y un enumerador simulado.
+            new MediaPlayHandler(media, mediaStorage, new PhysicalMediaFileSystem(), output, audio, new InMemorySettings()), new MediaPauseHandler(output, audio), new MediaResumeHandler(output, audio),
+            new MediaSeekHandler(output, audio), new MediaSetVolumeHandler(output, audio), new MediaStopHandler(output, audio), new MediaStopAllHandler(output, audio), new MediaReportProgressHandler(output),
+            new AudioGetStateHandler(audio), new AudioSetDeviceHandler(new InMemorySettings(), audio, new OakProyektor.Tests.Playback.FakeDeviceEnumerator()),
+            new AudioSetMasterVolumeHandler(new InMemorySettings(), audio, output), new AudioSetSettingsHandler(new InMemorySettings(), audio, output), new AudioTestHandler(audio),
         ];
         return (new IpcDispatcher(handlers, NullLogger<IpcDispatcher>.Instance), output);
     }
@@ -125,7 +131,9 @@ public class HandlerTests
         }
         Assert.True(unhandled.Count == 0, "Mensajes del catálogo sin handler: " + string.Join(", ", unhandled));
         // Los comandos llegaron a su handler (si faltara uno, el despachador solo lo registraría y no quedaría la llamada).
-        Assert.Equal(["open:auto", "close", "master:Live", "pause:Manual", "background:Color", "showContent:1:400", "clearContent:400", "retryBackground", "backgroundFailure:UnsupportedFormat:file:///x", "settingsChanged", "settingsChanged", "settingsChanged", "hideAlert"], output.Calls);
+        Assert.Equal(["open:auto", "close", "master:Live", "pause:Manual", "background:Color", "showContent:1:400", "clearContent:400", "retryBackground", "backgroundFailure:UnsupportedFormat:file:///x", "settingsChanged", "settingsChanged", "settingsChanged", "hideAlert",
+            // v18: pausar, reanudar, buscar, volumen, detener, «Silencio» y el informe de avance llegan al controlador; ajustar el volumen maestro o los ajustes también lo avisa.
+            "fg.pause", "fg.resume", "fg.seek:0", "fg.volume::", "fg.stop", "fg.silence", "fg.progress:Playing", "fg.master", "fg.master"], output.Calls);
     }
 
     [Fact]

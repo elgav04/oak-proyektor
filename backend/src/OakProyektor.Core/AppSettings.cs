@@ -1,3 +1,4 @@
+using OakProyektor.Core.Audio;
 using OakProyektor.Core.Output;
 using OakProyektor.Core.Playlists;
 using OakProyektor.Core.Scripture;
@@ -26,9 +27,14 @@ public sealed record AppSettings(
     BibleDisplaySettings? BibleDisplay = null,
     SongDisplaySettings? SongDisplay = null,
     PlaylistDisplaySettings? PlaylistDisplay = null,
-    AlertDisplaySettings? AlertDisplay = null)
+    AlertDisplaySettings? AlertDisplay = null,
+    AudioSettings? Audio = null)
 {
     public const int DefaultCitationHistoryLimit = 100;
+
+    /// <summary>Dispositivo de audio de la iglesia, volumen maestro y fundidos (v18); un <c>settings.json</c> anterior sin este bloque usa los valores por defecto.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public AudioSettings AudioConfig => Audio ?? new AudioSettings();
 
     /// <summary>Modo, duración y tema de las alertas (v15); un <c>settings.json</c> anterior sin este bloque usa los valores por defecto.</summary>
     [System.Text.Json.Serialization.JsonIgnore]

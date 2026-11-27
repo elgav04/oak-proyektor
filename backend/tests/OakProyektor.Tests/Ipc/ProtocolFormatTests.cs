@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -159,6 +159,24 @@ public partial class ProtocolFormatTests
         new(typeof(MediaImportProgressPayload), "MediaImportProgressPayload", Direction.FromBackend),
         new(typeof(MediaImportFinishedPayload), "MediaImportFinishedPayload", Direction.FromBackend),
         new(typeof(MediaChangedPayload), "MediaChangedPayload", Direction.FromBackend),
+        // Reproducción y audio (v18). ForegroundMedia y AudioSettingsPayload: regla más estricta (la de lo que C# envía).
+        new(typeof(ForegroundMedia), "ForegroundMedia", Direction.FromBackend),
+        new(typeof(MediaPlayPayload), "MediaPlayPayload", Direction.ToBackend),
+        new(typeof(MediaTransportPayload), "MediaTransportPayload", Direction.ToBackend),
+        new(typeof(MediaSeekPayload), "MediaSeekPayload", Direction.ToBackend),
+        new(typeof(MediaSetVolumePayload), "MediaSetVolumePayload", Direction.ToBackend),
+        new(typeof(MediaReportProgressPayload), "MediaReportProgressPayload", Direction.ToBackend),
+        new(typeof(MediaProgressPayload), "MediaProgressPayload", Direction.FromBackend),
+        new(typeof(MediaPlaybackFailedPayload), "MediaPlaybackFailedPayload", Direction.FromBackend),
+        new(typeof(AudioDeviceDto), "AudioDeviceDto", Direction.FromBackend),
+        new(typeof(AudioRouteDto), "AudioRouteDto", Direction.FromBackend),
+        new(typeof(AudioTrackDto), "AudioTrackDto", Direction.FromBackend),
+        new(typeof(AudioDefaultChangeDto), "AudioDefaultChangeDto", Direction.FromBackend),
+        new(typeof(AudioSettingsPayload), "AudioSettingsPayload", Direction.FromBackend),
+        new(typeof(AudioStatePayload), "AudioStatePayload", Direction.FromBackend),
+        new(typeof(AudioSetDevicePayload), "AudioSetDevicePayload", Direction.ToBackend),
+        new(typeof(AudioSetMasterVolumePayload), "AudioSetMasterVolumePayload", Direction.ToBackend),
+        new(typeof(AudioTestPayload), "AudioTestPayload", Direction.ToBackend),
     ];
 
     /// <summary>Alias de tipo de protocol.ts → enum de C# que representa. <c>RecoverReason</c> es un SUBCONJUNTO de <c>OutputPauseReason</c> a propósito.</summary>
@@ -179,9 +197,16 @@ public partial class ProtocolFormatTests
         ["AlertPosition"] = typeof(AlertPosition),
         ["MediaItemKind"] = typeof(OakProyektor.Core.Media.MediaItemKind),
         ["MediaStatus"] = typeof(OakProyektor.Core.Media.MediaStatus),
+        ["ForegroundPhase"] = typeof(ForegroundPhase),
+        ["ForegroundBackdrop"] = typeof(ForegroundBackdrop),
+        ["ForegroundEndAction"] = typeof(ForegroundEndAction),
+        ["PlaybackTarget"] = typeof(PlaybackTarget),
+        ["ReportedPlayback"] = typeof(ReportedPlayback),
+        ["AudioTestTarget"] = typeof(AudioTestTarget),
+        ["AudioTrackPhase"] = typeof(AudioTrackPhase),
     };
 
-    private static readonly Type[] WireEnums = [typeof(MasterMode), typeof(DatabaseState), typeof(OutputPauseReason), typeof(DisplayLostPolicy), typeof(BackgroundKind), typeof(TextAlign), typeof(VerticalAlign), typeof(BackgroundFailureReason), typeof(SongAtEnd), typeof(PlaylistOnItemEnd), typeof(AlertMode), typeof(AlertPosition), typeof(OakProyektor.Core.Media.MediaItemKind), typeof(OakProyektor.Core.Media.MediaStatus)];
+    private static readonly Type[] WireEnums = [typeof(MasterMode), typeof(DatabaseState), typeof(OutputPauseReason), typeof(DisplayLostPolicy), typeof(BackgroundKind), typeof(TextAlign), typeof(VerticalAlign), typeof(BackgroundFailureReason), typeof(SongAtEnd), typeof(PlaylistOnItemEnd), typeof(AlertMode), typeof(AlertPosition), typeof(OakProyektor.Core.Media.MediaItemKind), typeof(OakProyektor.Core.Media.MediaStatus), typeof(ForegroundPhase), typeof(ForegroundBackdrop), typeof(ForegroundEndAction), typeof(PlaybackTarget), typeof(ReportedPlayback), typeof(AudioTestTarget), typeof(AudioTrackPhase)];
 
     /// <summary>Nombre en protocol.ts de los tipos de C# cuyo nombre difiere.</summary>
     private static string TsNameOf(Type t) => t == typeof(IpcError) ? "IpcErrorPayload" : t.Name;
@@ -192,6 +217,7 @@ public partial class ProtocolFormatTests
     /// </summary>
     private static readonly Dictionary<int, string> PinnedFormat = new()
     {
+        [18] = "31b03b84b856fb7d47e5e495fcba46a5f108b4b0ccd3ca83b6a4b5d33fcbd5da",
         [3] = "efee82b9a3b116fe10d0d29f9bc49cc8e4b5c70be8636fbe26a5986846b94d0b",
         [4] = "2acd299b86c38d491db90fe708f4ab670a8a583ba376229ceda88a8440ae8318",
         [5] = "23f336405eb149dc5492da3c76522deab42c4c39bc1db04863c4096c6201998e",
@@ -378,7 +404,7 @@ public partial class ProtocolFormatTests
     {
         var compared = Pairs.Select(p => p.Cs).ToHashSet();
         var forgotten = typeof(OutputOpenPayload).Assembly.GetTypes()
-            .Where(t => t.Namespace == "OakProyektor.Ipc.Messages" && t.IsPublic && !t.IsAbstract && t != typeof(EmptyPayload)
+            .Where(t => t.Namespace == "OakProyektor.Ipc.Messages" && t.IsPublic && !t.IsAbstract && !t.IsEnum && t != typeof(EmptyPayload)
                         && t.GetCustomAttribute<System.Runtime.CompilerServices.CompilerGeneratedAttribute>() is null)
             .Where(t => !compared.Contains(t))
             .Select(t => t.Name)

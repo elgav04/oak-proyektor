@@ -2,6 +2,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using OakProyektor.Core;
+using OakProyektor.Core.Audio;
 using OakProyektor.Core.Output;
 using OakProyektor.Core.Playlists;
 using OakProyektor.Core.Scripture;
@@ -137,8 +138,39 @@ internal sealed class SettingsStore(ApplicationPaths paths, ILogger<SettingsStor
                 BibleDisplay: ReadBibleDisplay(root, warnings),
                 SongDisplay: ReadSongDisplay(root, warnings),
                 PlaylistDisplay: ReadPlaylistDisplay(root, warnings),
-                AlertDisplay: ReadAlertDisplay(root, warnings));
+                AlertDisplay: ReadAlertDisplay(root, warnings),
+                Audio: ReadAudio(root, warnings));
         }
+    }
+
+    /// <summary>
+    /// El bloque de audio (v18), por partes: un volumen o un fundido fuera de rango vuelven a SU valor por defecto y un id de dispositivo inválido a «usar el predeterminado de Windows»,
+    /// siempre con aviso; un bloque ilegible entero vuelve a los valores por defecto. Un dispositivo que ya no existe NO es un valor inválido (se conserva su id: puede volver).
+    /// </summary>
+    private static AudioSettings? ReadAudio(JsonElement root, List<string> warnings)
+    {
+        if (!TryGet(root, "audio", out var element) || element.ValueKind == JsonValueKind.Null) return null;
+        AudioSettings? block;
+        try { block = element.Deserialize<AudioSettings>(Json); }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException or NotSupportedException) { block = null; }
+        if (block is null)
+        {
+            warnings.Add("La configuración de audio (audio) no es válida en settings.json: se usan los valores por defecto.");
+            return null;
+        }
+        var d = new AudioSettings();
+        var fixedBlock = block;
+        if (block.MasterVolumePct is < 0 or > 100) { warnings.Add("El volumen maestro no es válido en settings.json: se usa el valor por defecto."); fixedBlock = fixedBlock with { MasterVolumePct = d.MasterVolumePct }; }
+        if (block.TrackFadeInMs is < 0 or > AudioRules.MaxFadeMs) { warnings.Add("El fundido de entrada de las pistas no es válido en settings.json: se usa el valor por defecto."); fixedBlock = fixedBlock with { TrackFadeInMs = d.TrackFadeInMs }; }
+        if (block.TrackFadeOutMs is < 0 or > AudioRules.MaxFadeMs) { warnings.Add("El fundido de salida de las pistas no es válido en settings.json: se usa el valor por defecto."); fixedBlock = fixedBlock with { TrackFadeOutMs = d.TrackFadeOutMs }; }
+        if (block.VideoFadeInMs is < 0 or > AudioRules.MaxFadeMs) { warnings.Add("El fundido de entrada del video no es válido en settings.json: se usa el valor por defecto."); fixedBlock = fixedBlock with { VideoFadeInMs = d.VideoFadeInMs }; }
+        if (block.VideoFadeOutMs is < 0 or > AudioRules.MaxFadeMs) { warnings.Add("El fundido de salida del video no es válido en settings.json: se usa el valor por defecto."); fixedBlock = fixedBlock with { VideoFadeOutMs = d.VideoFadeOutMs }; }
+        if (AudioRules.Validate(new AudioSettings(ChurchDeviceId: block.ChurchDeviceId, ChurchDeviceName: block.ChurchDeviceName)) is not null)
+        {
+            warnings.Add("El dispositivo de audio de la iglesia no es válido en settings.json: se usa el predeterminado de Windows.");
+            fixedBlock = fixedBlock with { ChurchDeviceId = null, ChurchDeviceName = null };
+        }
+        return fixedBlock;
     }
 
     /// <summary>

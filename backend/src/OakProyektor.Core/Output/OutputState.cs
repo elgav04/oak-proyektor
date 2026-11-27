@@ -20,14 +20,24 @@
 /// solo viaja el modo y el estado sigue acumulando los cambios.</para>
 /// <see cref="Revision"/> solo cuenta cambios de los controles maestros; el orden de los snapshots lo da la secuencia global (<c>seq</c>) del protocolo.
 /// <see cref="SchemaVersion"/> versiona la forma del modelo (sube si cambia el significado de un campo; la forma la fija además el test de protocolo).
+/// <para><b>Video en primer plano (v18)</b>: <see cref="Foreground"/> es una capa entre el contenido y las superposiciones. Texto limpio, Negro y Logo lo OCULTAN y lo PAUSAN y silencian
+/// (conservando la posición: el elemento de la salida sigue montado), y la pausa de la salida también; <b>Freeze NO lo congela</b> (como a la alerta: poder pausar o detener siempre). Reanudar
+/// es siempre una acción del operador. El fondo en bucle de debajo no se toca.</para>
 /// </summary>
-public sealed record OutputState(int SchemaVersion, long Revision, MasterMode Master, BackgroundLayer Background, ContentLayer Content, OverlayLayer Overlays)
+public sealed record OutputState(int SchemaVersion, long Revision, MasterMode Master, BackgroundLayer Background, ContentLayer Content, OverlayLayer Overlays, ForegroundMedia? Foreground = null)
 {
     /// <summary>
     /// 2 (protocolo v13): el <see cref="Slide"/> lleva <c>origin</c> (de qué elemento de una lista viene, o nulo).
     /// 3 (protocolo v15): <c>overlays</c> pasa a <c>{ alert }</c> (antes <c>{ items }</c>, siempre vacío).
+    /// 4 (protocolo v18): <c>foreground</c> (video en primer plano o nulo).
     /// </summary>
-    public const int CurrentSchemaVersion = 3;
+    public const int CurrentSchemaVersion = 4;
+
+    /// <summary>¿Este control maestro oculta (y por tanto pausa) el video en primer plano? Freeze no.</summary>
+    public static bool MasterHidesForeground(MasterMode master) => master is MasterMode.ClearText or MasterMode.Black or MasterMode.Logo;
+
+    /// <summary>Pone o quita el video en primer plano. Solo toca esa capa: ni el fondo (el video de debajo no se reinicia) ni el contenido ni el modo maestro.</summary>
+    public OutputState WithForeground(ForegroundMedia? foreground) => foreground == Foreground ? this : this with { Foreground = foreground };
 
     /// <summary>Estado inicial: salida en negro, sin contenido.</summary>
     public static OutputState Initial { get; } = new(CurrentSchemaVersion, 0, MasterMode.Black, BackgroundLayer.Empty, ContentLayer.Empty, OverlayLayer.Empty);
@@ -36,7 +46,10 @@ public sealed record OutputState(int SchemaVersion, long Revision, MasterMode Ma
     public OutputState WithMaster(MasterMode master)
     {
         if (!Enum.IsDefined(master)) throw new ArgumentOutOfRangeException(nameof(master), master, "Modo maestro desconocido");
-        return master == Master ? this : this with { Revision = Revision + 1, Master = master };
+        if (master == Master) return this;
+        var next = this with { Revision = Revision + 1, Master = master };
+        // Texto limpio, Negro y Logo ocultan el video en primer plano: además de ocultarlo se PAUSA (un video oculto que sigue sonando es peor que uno pausado). Volver a Live NO lo reanuda.
+        return MasterHidesForeground(master) && next.Foreground is { Phase: ForegroundPhase.Playing } fg ? next with { Foreground = fg with { Phase = ForegroundPhase.Paused } } : next;
     }
 
     /// <summary>

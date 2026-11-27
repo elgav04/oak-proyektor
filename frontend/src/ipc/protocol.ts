@@ -25,11 +25,14 @@
  * v17: biblioteca local de medios (docs/DISENO_MEDIOS.md): queries `media.list` y `media.get`; comandos `media.import`, `media.cancelImport`, `media.rename`, `media.move`, `media.delete`,
  * `media.createFolder`, `media.renameFolder`, `media.deleteFolder`, `media.reportProbe`, `media.setThumbnail`, `media.verifyLibrary` y `media.setBackground`; eventos `media.importProgress`,
  * `media.importFinished` y `media.changed` (sin nombres ni rutas en eventos de progreso; ids y bytes).
+ * v18: reproducción y audio (docs/DISENO_MEDIOS.md, prompt 2): `OutputState.foreground` (video en primer plano; `schemaVersion` 4); comandos `media.play`, `media.pause`, `media.resume`, `media.seek`,
+ * `media.setVolume`, `media.stop`, `media.stopAll` («Silencio»: solo calla) y `media.reportProgress` (lo manda la SALIDA); eventos `media.progress` (avance cosmético, fuera del snapshot) y
+ * `media.playbackFailed`; audio: query `audio.getState`, comandos `audio.setDevice`, `audio.setMasterVolume`, `audio.setSettings` y `audio.test` («Probar sonido»), evento `audio.stateChanged`.
  * v16: `AlertSettingsPayload` lleva `tickerEnabled` (interruptor de seguridad del desplazamiento; apagado, `alert.show` en modo `ticker` se rechaza).
  * v15: alertas rápidas (capa 3): `OutputState.overlays` pasa de `{ items }` a `{ alert }` (`schemaVersion` 3); comandos `alert.show` y `alert.hide` (carril de PRIORIDAD: solo tocan memoria),
  * `alert.setSettings`, `alert.save` y `alert.delete`; queries `alert.getSettings` y `alert.list`; evento `alert.changed` (solo ids). Freeze ya NO congela la alerta.
  */
-export const PROTOCOL_VERSION = 17;
+export const PROTOCOL_VERSION = 18;
 
 export type MessageKind = "command" | "event" | "query" | "reply";
 
@@ -139,6 +142,23 @@ export const MESSAGE_CATALOG = [
   { type: "media.importProgress", kind: "event" },
   { type: "media.importFinished", kind: "event" },
   { type: "media.changed", kind: "event" },
+  { type: "media.play", kind: "command" },
+  { type: "media.pause", kind: "command" },
+  { type: "media.resume", kind: "command" },
+  { type: "media.seek", kind: "command" },
+  { type: "media.setVolume", kind: "command" },
+  { type: "media.stop", kind: "command" },
+  { type: "media.stopAll", kind: "command" },
+  { type: "media.reportProgress", kind: "command" },
+  { type: "media.progress", kind: "event" },
+  { type: "media.playbackFailed", kind: "event" },
+  { type: "audio.getState", kind: "query" },
+  { type: "audio.getState", kind: "reply" },
+  { type: "audio.setDevice", kind: "command" },
+  { type: "audio.setMasterVolume", kind: "command" },
+  { type: "audio.setSettings", kind: "command" },
+  { type: "audio.test", kind: "command" },
+  { type: "audio.stateChanged", kind: "event" },
   { type: "bible.setSettings", kind: "command" },
 ] as const;
 
@@ -280,6 +300,41 @@ export interface OverlayLayer {
   alert: AlertOverlay | null;
 }
 
+/** Fase del video en primer plano que ORDENA el backend. `ended` = terminó con «quedarse»: pausado en su último fotograma. */
+export const FOREGROUND_PHASES = ["playing", "paused", "ended"] as const;
+export type ForegroundPhase = (typeof FOREGROUND_PHASES)[number];
+
+/** Qué se ve detrás de las franjas de un video que no es 16:9. */
+export const FOREGROUND_BACKDROPS = ["black", "background"] as const;
+export type ForegroundBackdrop = (typeof FOREGROUND_BACKDROPS)[number];
+
+/** Qué hace la salida al terminar el video: `back` = sale con fundido y se descubre lo de debajo; `stay` = queda en pausa en su último fotograma. */
+export const FOREGROUND_END_ACTIONS = ["back", "stay"] as const;
+export type ForegroundEndAction = (typeof FOREGROUND_END_ACTIONS)[number];
+
+/**
+ * Capa de primer plano (v18): un video con audio entre el contenido y las superposiciones. El fondo en bucle NO se toca. `url` = copia local ya validada (`file:///`).
+ * `volumePct` es el volumen EFECTIVO (clip × maestro): la salida solo lo aplica. «Ir a esta posición» se aplica cuando `seekSeq` cambia (0 = ninguno).
+ * La posición real, la duración y el fin los reporta la salida (`media.reportProgress`); no viajan en el snapshot.
+ */
+export interface ForegroundMedia {
+  id: string;
+  mediaId: number;
+  url: string;
+  fileName: string;
+  phase: ForegroundPhase;
+  clipVolumePct: number;
+  volumePct: number;
+  muted: boolean;
+  loop: boolean;
+  seekMs: number;
+  seekSeq: number;
+  fadeInMs: number;
+  fadeOutMs: number;
+  backdrop: ForegroundBackdrop;
+  onEnd: ForegroundEndAction;
+}
+
 export interface OutputState {
   schemaVersion: number;
   revision: number;
@@ -287,6 +342,8 @@ export interface OutputState {
   background: BackgroundLayer;
   content: ContentLayer;
   overlays: OverlayLayer;
+  /** Video en primer plano (v18), o nulo. Freeze NO lo congela; Texto limpio, Negro, Logo y la pausa de la salida lo pausan. */
+  foreground: ForegroundMedia | null;
 }
 
 export interface OutputSetBackgroundPayload {
@@ -1130,6 +1187,149 @@ export interface MediaChangedPayload {
   mediaId: number | null;
   count: number;
 }
+// ───────────── reproducción y audio (v18) ─────────────
+
+/** A qué se refiere una orden de transporte: al video en primer plano (lo reproduce la salida) o a la pista de audio (la reproduce el motor de C#). */
+export const PLAYBACK_TARGETS = ["foreground", "track"] as const;
+export type PlaybackTarget = (typeof PLAYBACK_TARGETS)[number];
+
+/**
+ * `media.play`: un VIDEO pasa a primer plano; un AUDIO lo toma el motor de pistas; una imagen se rechaza. `startPlaying` nulo = el valor por defecto del tipo (video: arrancar; audio: listo
+ * en pausa). `volumePct` nulo = 100. `fadeInMs`/`fadeOutMs` nulos = los ajustes. `backdrop` y `onEnd` solo valen para el video.
+ */
+export interface MediaPlayPayload {
+  mediaId: number;
+  startPlaying: boolean | null;
+  volumePct: number | null;
+  muted: boolean;
+  loop: boolean;
+  fadeInMs: number | null;
+  fadeOutMs: number | null;
+  backdrop: ForegroundBackdrop;
+  onEnd: ForegroundEndAction;
+}
+
+/** `media.pause`, `media.resume` y `media.stop`. */
+export interface MediaTransportPayload {
+  target: PlaybackTarget;
+}
+
+export interface MediaSeekPayload {
+  target: PlaybackTarget;
+  positionMs: number;
+}
+
+/** El volumen del CLIP (0–100; el maestro se aplica aparte) y, para el video, silenciarlo. Un campo nulo no cambia. */
+export interface MediaSetVolumePayload {
+  target: PlaybackTarget;
+  volumePct: number | null;
+  muted: boolean | null;
+}
+
+export const REPORTED_PLAYBACK = ["playing", "paused", "ended", "error"] as const;
+export type ReportedPlayback = (typeof REPORTED_PLAYBACK)[number];
+
+/** Lo manda la SALIDA (≈ 4 por segundo): posición y duración reales del video `id`. `errorCode`: unsupportedFormat | decodeError | readError | stalled. */
+export interface MediaReportProgressPayload {
+  id: string;
+  positionMs: number;
+  durationMs: number;
+  state: ReportedPlayback;
+  errorCode: string | null;
+}
+
+/** Evento `media.progress` (no forma parte del snapshot ni cambia `seq`): avance cosmético. `id` = el video (`foreground`) o nulo (`track`). */
+export interface MediaProgressPayload {
+  target: PlaybackTarget;
+  id: string | null;
+  positionMs: number;
+  durationMs: number;
+  playing: boolean;
+}
+
+/** Evento `media.playbackFailed`: el video en primer plano no pudo reproducirse y se quitó. El texto lo pone el backend. */
+export interface MediaPlaybackFailedPayload {
+  id: string;
+  code: string;
+  message: string;
+}
+
+export const AUDIO_TEST_TARGETS = ["church", "default"] as const;
+export type AudioTestTarget = (typeof AUDIO_TEST_TARGETS)[number];
+
+export const AUDIO_TRACK_PHASES = ["playing", "paused", "ended", "deviceLost", "error"] as const;
+export type AudioTrackPhase = (typeof AUDIO_TRACK_PHASES)[number];
+
+/** Un dispositivo de salida activo. `isDefault` = el predeterminado de Windows; `isChurch` = el elegido como «dispositivo de la iglesia». */
+export interface AudioDeviceDto {
+  id: string;
+  name: string;
+  isDefault: boolean;
+  isChurch: boolean;
+}
+
+/** Cómo está el cableado AHORA. `mismatch` = las pistas y el video NO salen por el mismo dispositivo (el panel lo avisa de forma visible). */
+export interface AudioRouteDto {
+  usesWindowsDefault: boolean;
+  churchDeviceId: string | null;
+  churchDeviceName: string | null;
+  churchConnected: boolean;
+  defaultDeviceId: string | null;
+  defaultDeviceName: string | null;
+  mismatch: boolean;
+}
+
+export interface AudioTrackDto {
+  mediaId: number;
+  phase: AudioTrackPhase;
+  positionMs: number;
+  durationMs: number;
+  loop: boolean;
+  volumePct: number;
+  errorCode: string | null;
+  errorMessage: string | null;
+}
+
+/** Último cambio del dispositivo predeterminado de Windows desde que arrancó la aplicación; `at` = ISO 8601 UTC. */
+export interface AudioDefaultChangeDto {
+  fromName: string | null;
+  toName: string | null;
+  at: string;
+}
+
+/** Ajustes de audio (`audio.setSettings` los sustituye todos). `churchDeviceId` nulo = «usar el predeterminado de Windows». */
+export interface AudioSettingsPayload {
+  churchDeviceId: string | null;
+  churchDeviceName: string | null;
+  masterVolumePct: number;
+  trackFadeInMs: number;
+  trackFadeOutMs: number;
+  videoFadeInMs: number;
+  videoFadeOutMs: number;
+  resumeOnDeviceReturn: boolean;
+}
+
+/** Reply de `audio.getState` y evento `audio.stateChanged`. `seq` creciente: las réplicas descartan menor o igual. */
+export interface AudioStatePayload {
+  seq: number;
+  route: AudioRouteDto;
+  devices: AudioDeviceDto[];
+  track: AudioTrackDto | null;
+  settings: AudioSettingsPayload;
+  defaultChange: AudioDefaultChangeDto | null;
+}
+
+export interface AudioSetDevicePayload {
+  deviceId: string | null;
+}
+
+export interface AudioSetMasterVolumePayload {
+  volumePct: number;
+}
+
+export interface AudioTestPayload {
+  target: AudioTestTarget;
+}
 /** Payload de cada comando (UI → C#). */
 export interface CommandPayloads {
   "output.open": OutputOpenPayload;
@@ -1177,6 +1377,18 @@ export interface CommandPayloads {
   "media.setThumbnail": MediaSetThumbnailPayload;
   "media.verifyLibrary": EmptyPayload;
   "media.setBackground": MediaSetBackgroundPayload;
+  "media.play": MediaPlayPayload;
+  "media.pause": MediaTransportPayload;
+  "media.resume": MediaTransportPayload;
+  "media.seek": MediaSeekPayload;
+  "media.setVolume": MediaSetVolumePayload;
+  "media.stop": MediaTransportPayload;
+  "media.stopAll": EmptyPayload;
+  "media.reportProgress": MediaReportProgressPayload;
+  "audio.setDevice": AudioSetDevicePayload;
+  "audio.setMasterVolume": AudioSetMasterVolumePayload;
+  "audio.setSettings": AudioSettingsPayload;
+  "audio.test": AudioTestPayload;
 }
 
 /** Payload de cada evento (C# → UI). */
@@ -1194,6 +1406,9 @@ export interface EventPayloads {
   "media.importProgress": MediaImportProgressPayload;
   "media.importFinished": MediaImportFinishedPayload;
   "media.changed": MediaChangedPayload;
+  "media.progress": MediaProgressPayload;
+  "media.playbackFailed": MediaPlaybackFailedPayload;
+  "audio.stateChanged": AudioStatePayload;
 }
 
 /** Payload de cada query y de su reply. */
@@ -1222,6 +1437,7 @@ export interface QueryPayloads {
   "alert.list": { request: EmptyPayload; reply: AlertListPayload };
   "media.list": { request: MediaListRequest; reply: MediaListPayload };
   "media.get": { request: MediaGetRequest; reply: MediaItemDto };
+  "audio.getState": { request: EmptyPayload; reply: AudioStatePayload };
 }
 
 export type CommandType = keyof CommandPayloads;

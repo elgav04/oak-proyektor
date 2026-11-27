@@ -5,6 +5,8 @@ import { ipc } from "@/ipc/instance";
 import { MASTER_MODES, type DisplayInfo, type MasterMode, type OutputPauseReason } from "@/ipc/protocol";
 import { AlertBar } from "./alerts/AlertBar";
 import { getAlertController } from "./alerts/instance";
+import { PlayerBar } from "./playback/PlayerBar";
+import { getPlaybackController } from "./playback/instance";
 import { BibleSettingsView } from "./bible/BibleSettings";
 import { BibleTab } from "./bible/BibleTab";
 import { getBibleController, getImportController } from "./bible/instance";
@@ -33,6 +35,7 @@ const HOTKEY_LABELS: Record<string, string> = {
   logo: "Logo",
   reloadPanel: "Recargar el panel",
   hideAlert: "Quitar la alerta (nunca la muestra)",
+  silence: "Silencio (calla las pistas y pausa el video; nunca reanuda)",
 };
 
 const PAUSE_MESSAGES: Record<OutputPauseReason, string> = {
@@ -280,6 +283,9 @@ export function App() {
       {/* Barra de alertas: FIJA, visible en todas las pestañas. */}
       <AlertBar controller={getAlertController()} connected={connected} output={output} />
 
+      {/* Reproductor FIJO (v18): el video en primer plano y la pista de audio, con «Silencio» siempre a la mano. */}
+      <PlayerBar controller={getPlaybackController()} connected={connected} output={output} />
+
       <nav aria-label="Secciones" className="flex gap-2 border-b">
         {([["bible", "Biblia"], ["songs", "Canciones"], ["lists", "Lista"], ["media", "Biblioteca"], ["output", "Salida"], ["diagnostics", "Diagnóstico"]] as const).map(([key, label]) => (
           <button
@@ -306,7 +312,7 @@ export function App() {
 
       {tab === "lists" && <ListTab controller={listController} editor={listEditor} connected={connected} output={output} />}
 
-      {tab === "media" && <MediaTab controller={getMediaController()} connected={connected} />}
+      {tab === "media" && <MediaTab controller={getMediaController()} connected={connected} onPlay={(item, startNow) => { getPlaybackController().playItem(item, { startNow }); }} />}
 
       {tab === "diagnostics" && <Diagnostics />}
 

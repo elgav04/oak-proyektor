@@ -1,4 +1,4 @@
-﻿import assert from "node:assert/strict";
+import assert from "node:assert/strict";
 import test, { after } from "node:test";
 import { closeServer, loadTs } from "./helper.mjs";
 
@@ -21,10 +21,10 @@ const snap = (seq, st, w = {}) => ({ seq, state: st, window: win(w) });
 // ───── controles maestros ─────
 
 test("cada control maestro muestra lo que debe, al instante", () => {
-  assert.deepEqual(visibilityFor("live"), { background: true, content: true, overlays: true, black: false, logo: false });
-  assert.deepEqual(visibilityFor("clearText"), { background: true, content: false, overlays: false, black: false, logo: false });
-  assert.deepEqual(visibilityFor("black"), { background: false, content: false, overlays: false, black: true, logo: false });
-  assert.deepEqual(visibilityFor("logo"), { background: false, content: false, overlays: false, black: false, logo: true });
+  assert.deepEqual(visibilityFor("live"), { background: true, content: true, overlays: true, foreground: true, black: false, logo: false });
+  assert.deepEqual(visibilityFor("clearText"), { background: true, content: false, overlays: false, foreground: false, black: false, logo: false });
+  assert.deepEqual(visibilityFor("black"), { background: false, content: false, overlays: false, foreground: false, black: true, logo: false });
+  assert.deepEqual(visibilityFor("logo"), { background: false, content: false, overlays: false, foreground: false, black: false, logo: true });
 });
 
 // ───── Freeze ─────

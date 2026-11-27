@@ -28,6 +28,17 @@ internal sealed class FakeOutputController : IOutputController
     public bool AlertApplied { get; set; } = true;
     public bool ShowAlert(string text, AlertMode mode, int durationSec, long order = 0) { Calls.Add($"showAlert:{mode}:{durationSec}"); Alerts.Add((text, mode, durationSec, order)); Orders.Add(order); return AlertApplied; }
     public void HideAlert(long order = 0) { Calls.Add("hideAlert"); Orders.Add(order); }
+    /// <summary>Lo recibido por el video en primer plano (v18): peticiones de <c>PlayForeground</c> y órdenes de transporte, con su número de llegada.</summary>
+    public List<ForegroundRequest> ForegroundRequests { get; } = [];
+    public void PlayForeground(ForegroundRequest request, long order = 0) { Calls.Add("fg.play"); ForegroundRequests.Add(request); Orders.Add(order); }
+    public void PauseForeground(long order = 0) { Calls.Add("fg.pause"); Orders.Add(order); }
+    public void ResumeForeground(long order = 0) { Calls.Add("fg.resume"); Orders.Add(order); }
+    public void SeekForeground(long positionMs) => Calls.Add($"fg.seek:{positionMs}");
+    public void SetForegroundVolume(int? clipVolumePct, bool? muted) => Calls.Add($"fg.volume:{clipVolumePct}:{muted}");
+    public void ApplyMasterVolume() => Calls.Add("fg.master");
+    public void StopForeground(long order = 0) { Calls.Add("fg.stop"); Orders.Add(order); }
+    public void SilenceForeground(long order = 0) { Calls.Add("fg.silence"); Orders.Add(order); }
+    public void ReportForegroundProgress(MediaReportProgressPayload report) => Calls.Add($"fg.progress:{report.State}");
     public void ReportBackgroundFailure(string mediaUrl, BackgroundFailureReason reason, string? detail) => Calls.Add($"backgroundFailure:{reason}:{mediaUrl}");
     public void CloseForShutdown() => Calls.Add("shutdown");
     public void EmergencyPause(OutputPauseReason reason, long order = 0) { Calls.Add($"pause:{reason}"); Orders.Add(order); }

@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using OakProyektor.Core.Display;
 using OakProyektor.Core.Output;
 using OakProyektor.Ipc;
@@ -8,9 +8,12 @@ namespace OakProyektor.Tests.Ipc;
 
 public class IpcSerializerTests
 {
+    /// <summary>La versión vigente del protocolo sustituye al marcador `@@V@@`: ningún número escrito a mano que se quede atrás al subir <c>ProtocolVersion</c>.</summary>
+    private static string? WithVersion(string? json) => json?.Replace("@@V@@", IpcCatalog.ProtocolVersion.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal);
+
     private static IpcEnvelope Parse(string json)
     {
-        Assert.True(IpcSerializer.TryParse(json, out var envelope, out var error), error);
+        Assert.True(IpcSerializer.TryParse(WithVersion(json), out var envelope, out var error), error);
         return envelope!;
     }
 
@@ -44,10 +47,10 @@ public class IpcSerializerTests
     [Fact]
     public void Numeric_or_unknown_enum_values_are_rejected()
     {
-        var env = Parse("""{"v":17,"id":"1","kind":"command","type":"output.setMaster","payload":{"master":2}}""");
+        var env = Parse("""{"v":@@V@@,"id":"1","kind":"command","type":"output.setMaster","payload":{"master":2}}""");
         Assert.Throws<JsonException>(() => env.GetPayload<OutputSetMasterPayload>());
 
-        var env2 = Parse("""{"v":17,"id":"1","kind":"command","type":"output.setMaster","payload":{"master":"bogus"}}""");
+        var env2 = Parse("""{"v":@@V@@,"id":"1","kind":"command","type":"output.setMaster","payload":{"master":"bogus"}}""");
         Assert.Throws<JsonException>(() => env2.GetPayload<OutputSetMasterPayload>());
     }
 
@@ -84,7 +87,7 @@ public class IpcSerializerTests
     [Fact]
     public void Missing_payload_becomes_an_empty_object()
     {
-        var env = Parse("""{"v":17,"id":"1","kind":"command","type":"output.close"}""");
+        var env = Parse("""{"v":@@V@@,"id":"1","kind":"command","type":"output.close"}""");
         Assert.Equal(JsonValueKind.Object, env.Payload.ValueKind);
         Assert.Empty(env.Payload.EnumerateObject());
     }
@@ -92,7 +95,7 @@ public class IpcSerializerTests
     [Fact]
     public void Unknown_extra_fields_are_tolerated_for_forward_compatibility()
     {
-        var env = Parse("""{"v":17,"id":"1","kind":"command","type":"output.open","payload":{"displayId":"1920,0,1920x1080","future":true},"extra":5}""");
+        var env = Parse("""{"v":@@V@@,"id":"1","kind":"command","type":"output.open","payload":{"displayId":"1920,0,1920x1080","future":true},"extra":5}""");
         Assert.Equal("1920,0,1920x1080", env.GetPayload<OutputOpenPayload>().DisplayId);
     }
 
@@ -105,9 +108,9 @@ public class IpcSerializerTests
     [InlineData("[]")]
     [InlineData("42")]
     [InlineData("null")]
-    [InlineData("""{"v":17,"kind":"command","type":"x"}""")]                       // sin id
-    [InlineData("""{"v":17,"id":"1","type":"x"}""")]                               // sin kind
-    [InlineData("""{"v":17,"id":"1","kind":"command"}""")]                         // sin type
+    [InlineData("""{"v":@@V@@,"kind":"command","type":"x"}""")]                       // sin id
+    [InlineData("""{"v":@@V@@,"id":"1","type":"x"}""")]                               // sin kind
+    [InlineData("""{"v":@@V@@,"id":"1","kind":"command"}""")]                         // sin type
     [InlineData("""{"v":119,"id":"1","kind":"command","type":"x","payload":{}}""")] // versión futura
     [InlineData("""{"v":2,"id":"1","kind":"command","type":"x","payload":{}}""")] // versión anterior (v2)
     [InlineData("""{"v":1,"id":"1","kind":"command","type":"x","payload":{}}""")] // versión anterior (v1)
@@ -115,7 +118,7 @@ public class IpcSerializerTests
     [InlineData("""{"v":"1","id":"1","kind":"command","type":"x"}""")]            // versión con tipo equivocado
     public void Invalid_messages_are_rejected_without_throwing(string? raw)
     {
-        Assert.False(IpcSerializer.TryParse(raw, out var envelope, out var error));
+        Assert.False(IpcSerializer.TryParse(WithVersion(raw), out var envelope, out var error));
         Assert.Null(envelope);
         Assert.False(string.IsNullOrEmpty(error));
     }

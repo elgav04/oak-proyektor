@@ -1,4 +1,4 @@
-namespace OakProyektor.Ipc;
+﻿namespace OakProyektor.Ipc;
 
 /// <summary>Carril de entrada de un mensaje (ver <see cref="IpcPriority.LaneOf"/>).</summary>
 public enum IpcLane
@@ -34,7 +34,9 @@ public enum IpcLane
 public static class IpcPriority
 {
     public static bool IsHigh(IpcEnvelope envelope) =>
-        envelope.Kind == IpcKind.Command && envelope.Type is IpcTypes.OutputSetMaster or IpcTypes.OutputRecover or IpcTypes.AlertShow or IpcTypes.AlertHide;
+        envelope.Kind == IpcKind.Command && envelope.Type is IpcTypes.OutputSetMaster or IpcTypes.OutputRecover or IpcTypes.AlertShow or IpcTypes.AlertHide
+            // Pausar, detener y «Silencio» nunca esperan (solo tocan memoria). Las órdenes de reproducción que viajan por otros carriles se ordenan por su número de llegada (TransportOrder).
+            or IpcTypes.MediaPause or IpcTypes.MediaStop or IpcTypes.MediaStopAll;
 
     public static IpcLane LaneOf(IpcEnvelope envelope)
     {
@@ -49,7 +51,9 @@ public static class IpcPriority
                 or IpcTypes.AlertSave or IpcTypes.AlertDelete
                 // Biblioteca de medios: TODO lo que toca disco o la BD (importar, renombrar, mover, borrar, carpetas, miniaturas, verificar, servir un fondo) va por el carril lento.
                 or IpcTypes.MediaImport or IpcTypes.MediaRename or IpcTypes.MediaMove or IpcTypes.MediaDelete or IpcTypes.MediaCreateFolder or IpcTypes.MediaRenameFolder
-                or IpcTypes.MediaDeleteFolder or IpcTypes.MediaReportProbe or IpcTypes.MediaSetThumbnail or IpcTypes.MediaVerifyLibrary or IpcTypes.MediaSetBackground => IpcLane.Slow,
+                or IpcTypes.MediaDeleteFolder or IpcTypes.MediaReportProbe or IpcTypes.MediaSetThumbnail or IpcTypes.MediaVerifyLibrary or IpcTypes.MediaSetBackground
+                // Reproducir resuelve la copia local en la BD y comprueba el archivo en disco; «Probar sonido» abre un dispositivo de audio (puede tardar). Pausar/detener/Silencio van por Prioridad.
+                or IpcTypes.MediaPlay or IpcTypes.AudioTest => IpcLane.Slow,
             _ => IpcLane.Live,
         };
     }

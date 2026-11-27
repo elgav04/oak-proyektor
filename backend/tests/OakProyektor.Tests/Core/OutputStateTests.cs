@@ -12,7 +12,8 @@ public class OutputStateTests
     {
         var s = OutputState.Initial;
         Assert.Equal((OutputState.CurrentSchemaVersion, 0L, MasterMode.Black), (s.SchemaVersion, s.Revision, s.Master));
-        Assert.Equal(3, s.SchemaVersion);   // v13: el slide lleva origin; v15: overlays = { alert }
+        Assert.Equal(4, s.SchemaVersion);   // v13: el slide lleva origin; v15: overlays = { alert }; v18: foreground
+        Assert.Null(s.Foreground);
         Assert.Equal(BackgroundKind.None, s.Background.Kind);
         Assert.Null(s.Content.Slide);
         Assert.Null(s.Overlays.Alert);
@@ -151,6 +152,6 @@ public class OutputStateTests
         var json = System.Text.Json.JsonSerializer.Serialize(OutputState.Initial.WithBackground(Video()).WithSlide(SlideOf("s1"), 400), OakProyektor.Ipc.IpcSerializer.Options);
         using var doc = System.Text.Json.JsonDocument.Parse(json);
         var names = doc.RootElement.EnumerateObject().Select(p => p.Name).ToArray();
-        Assert.Equal(["schemaVersion", "revision", "master", "background", "content", "overlays"], names);
+        Assert.Equal(["schemaVersion", "revision", "master", "background", "content", "overlays", "foreground"], names);
     }
 }

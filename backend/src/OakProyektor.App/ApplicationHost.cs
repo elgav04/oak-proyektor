@@ -1,4 +1,4 @@
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using OakProyektor.Data;
 using OakProyektor.Ipc;
@@ -177,6 +177,24 @@ internal sealed class ApplicationHost : IAsyncDisposable
         services.AddSingleton<IIpcHandler, Handlers.MediaSetThumbnailHandler>();
         services.AddSingleton<IIpcHandler, Handlers.MediaVerifyLibraryHandler>();
         services.AddSingleton<IIpcHandler, Handlers.MediaSetBackgroundHandler>();
+        // Reproducción y audio (protocolo v18): motor de pistas (NAudio) detrás de IAudioBackend, enumerador de dispositivos y los handlers del transporte.
+        services.AddSingleton<Audio.IAudioBackend, Audio.NAudioBackend>();
+        services.AddSingleton<Core.Audio.IAudioDeviceEnumerator, Audio.NAudioDeviceEnumerator>();
+        services.AddSingleton<Audio.AudioService>();
+        services.AddSingleton<Audio.IAudioService>(sp => sp.GetRequiredService<Audio.AudioService>());
+        services.AddSingleton<IIpcHandler, Handlers.MediaPlayHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.MediaPauseHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.MediaResumeHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.MediaSeekHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.MediaSetVolumeHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.MediaStopHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.MediaStopAllHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.MediaReportProgressHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.AudioGetStateHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.AudioSetDeviceHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.AudioSetMasterVolumeHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.AudioSetSettingsHandler>();
+        services.AddSingleton<IIpcHandler, Handlers.AudioTestHandler>();
         configureServices?.Invoke(services);
         _services = services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
         _logger = _services.GetRequiredService<ILogger<ApplicationHost>>();
@@ -234,6 +252,7 @@ internal sealed class ApplicationHost : IAsyncDisposable
                 await settings.LoadAsync(ct).ConfigureAwait(false);   // antes de que la política use AutoRestore
 
                 var output = _services.GetRequiredService<IOutputController>();
+                _ = _services.GetRequiredService<Audio.AudioService>();   // empieza a vigilar los dispositivos de audio y el predeterminado de Windows
                 _services.GetRequiredService<PanelWatchdog>().Start();
 
                 // Atajos globales: NO pasan por el JavaScript del panel, así que funcionan aunque esté atascado. Cada uno se registra por separado;
@@ -247,6 +266,8 @@ internal sealed class ApplicationHost : IAsyncDisposable
                     new HotkeyBinding("reloadPanel", 0x52, "Ctrl+Alt+Shift+R", ReloadPanel),
                     // Solo QUITA la alerta, nunca la muestra (un interruptor podría resucitar un aviso viejo). Actúa en el controlador sin pasar por el panel.
                     new HotkeyBinding("hideAlert", 0x41, "Ctrl+Alt+Shift+A", () => output.HideAlert()),
+                    // «Silencio»: SOLO calla (pausa el video en primer plano y las pistas); nunca reanuda ni es un interruptor. Toma su número de llegada al pulsarse y no pasa por el panel.
+                    new HotkeyBinding("silence", 0x53, "Ctrl+Alt+Shift+S", () => Handlers.Silence.Run(output, _services.GetRequiredService<Audio.IAudioService>(), _services.GetRequiredService<OrderClock>().Next(), _logger)),
                 ]);
                 output.SetEmergencyHotkey(statuses.FirstOrDefault(s => s.Action == "emergency" && s.Registered)?.Keys);   // null = no se pudo registrar; el panel lo avisa
                 output.SetBackupHotkeys([.. statuses.Where(s => s.Action != "emergency")]);
