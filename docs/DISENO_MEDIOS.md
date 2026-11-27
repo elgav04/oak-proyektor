@@ -352,7 +352,7 @@ Desviaciones respecto al diseño:
 - `media.cancelImport` va por el carril en vivo (solo activa un token), no por el lento.
 
 Decisiones tomadas en las preguntas abiertas (recomendaciones del diseño): el fondo sigue sin pausarse bajo un video en primer plano; Texto limpio/Negro/Logo pausan y silencian el video en primer plano; modo de inicio PLAY para video y READY para audio; límite de 4 GiB por archivo y reserva de disco `max(1 GiB, 5 %)`; carpetas planas sin etiquetas; ffmpeg solo como ayuda opcional (no es necesario); audio MP3/M4A/AAC/WAV/FLAC.
-## Estado del prompt 2 (reproducción y audio, protocolo v18; 2026-11-27)
+## Estado del prompt 2 (reproducción y audio, protocolo v18; 2026-11-26)
 
 Hecho: capa de video en primer plano (`OutputState.Foreground`, `schemaVersion` 4) con su reproductor en la salida y su reproductor en el panel; `media.play/pause/resume/seek/setVolume/stop/stopAll/reportProgress`; motor de pistas con **NAudio 3.3.0** (versión exacta fijada) detrás de `IAudioBackend`, volumen maestro, fundidos y dispositivo por id estable; política de dispositivo (avisar y esperar, nunca saltar a otro, reanudar solo el mismo id si el ajuste lo permite, apagado por defecto); aviso visible de que las pistas y el video no salen por el mismo dispositivo y de los cambios del predeterminado de Windows; «Probar sonido» por las dos rutas; atajo global **Ctrl+Alt+Shift+S** (Silencio) con respaldo en la salida; `tools\media-playback-test.ps1` (con el medidor de picos de Windows por sesión) y `tools\i8-frozen-panel-test.ps1 -Full` ampliado. No hubo migración.
 
