@@ -1,9 +1,10 @@
-# Prueba automatizada de I8 («el JS del panel se atasca»): arranca la aplicacion (compilacion Debug) con la depuracion remota de WebView2 SOLO para esta
+﻿# Prueba automatizada de I8 («el JS del panel se atasca»): arranca la aplicacion (compilacion Debug) con la depuracion remota de WebView2 SOLO para esta
 # prueba, abre la salida en una VENTANA NORMAL (en el monitor del panel; no toca el proyector), congela el panel con `while(true){}` y mide si la salida
 # sigue animandose. Repetir tras actualizar Photino.NET, Photino.Native o el runtime de WebView2 (ver CLAUDE.md).
 # -Full: ademas comprueba (con el panel congelado) el latido perdido en el log, el aviso opcional en la salida, los atajos globales de respaldo
 #        (con pulsaciones REALES de teclado: Ctrl+Alt+Shift+B/C/L) y la recarga del panel (Ctrl+Alt+Shift+R), y la ALERTA: se muestra con el panel congelado y se quita con la
-#        pulsacion REAL de Ctrl+Alt+Shift+A (atajo global; la salida sigue animandose).
+#        pulsacion REAL de Ctrl+Alt+Shift+A (atajo global; la salida sigue animandose), y «SILENCIO» (v18): con una pista de audio y un video en primer plano sonando, la pulsacion REAL de
+#        Ctrl+Alt+Shift+S los calla (medido con el medidor de picos de Windows por sesion de la aplicacion) y un segundo pulso no los reanuda; la salida sigue a ~60 fps.
 # Uso: powershell -File tools\i8-frozen-panel-test.ps1 [-AfterFreeze <ruta de un script a ejecutar con el panel congelado>]
 param([string]$AfterFreeze = "", [switch]$Full)
 
@@ -163,6 +164,46 @@ new Promise((resolve) => {
     $result.outputBefore = Eval $ows $measure
     $result.renderersBaseline = Get-Renderers
 
+    if ($Full) {
+        # 3c. Material para «Silencio» (solo -Full): un video WebM generado en la salida y un WAV sintetico, importados por la biblioteca real y puestos a sonar ANTES de congelar el panel.
+        Add-Type -TypeDefinition (Get-Content (Join-Path $PSScriptRoot "AudioMeter.cs") -Raw)
+        $src = Join-Path $data "origen"; New-Item -ItemType Directory $src | Out-Null
+        $webm = Eval $ows @'
+(async () => {
+  const c = document.createElement("canvas"); c.width = 640; c.height = 360; document.body.appendChild(c);
+  const g = c.getContext("2d"); let n = 0; const draw = setInterval(() => { g.fillStyle = "hsl(" + ((n++ * 9) % 360) + " 70% 40%)"; g.fillRect(0, 0, 640, 360); }, 33);
+  const rec = new MediaRecorder(c.captureStream(30), { mimeType: "video/webm" }); const chunks = []; rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+  const done = new Promise((r) => { rec.onstop = r; }); rec.start(500); await new Promise((r) => setTimeout(r, 3000)); rec.stop(); await done; clearInterval(draw); c.remove();
+  return await new Promise((resolve) => { const fr = new FileReader(); fr.onload = () => resolve(String(fr.result).split(",")[1]); fr.readAsDataURL(new Blob(chunks)); });
+})()
+'@ 20000
+        [IO.File]::WriteAllBytes((Join-Path $src "silencio-video.webm"), [Convert]::FromBase64String($webm))
+        $rate = 22050; $samples = $rate * 30; $bytes = New-Object byte[] (44 + $samples * 2)
+        [Text.Encoding]::ASCII.GetBytes("RIFF").CopyTo($bytes, 0); [BitConverter]::GetBytes([int](36 + $samples * 2)).CopyTo($bytes, 4); [Text.Encoding]::ASCII.GetBytes("WAVEfmt ").CopyTo($bytes, 8)
+        [BitConverter]::GetBytes([int]16).CopyTo($bytes, 16); [BitConverter]::GetBytes([int16]1).CopyTo($bytes, 20); [BitConverter]::GetBytes([int16]1).CopyTo($bytes, 22); [BitConverter]::GetBytes([int]$rate).CopyTo($bytes, 24)
+        [BitConverter]::GetBytes([int]($rate * 2)).CopyTo($bytes, 28); [BitConverter]::GetBytes([int16]2).CopyTo($bytes, 32); [BitConverter]::GetBytes([int16]16).CopyTo($bytes, 34)
+        [Text.Encoding]::ASCII.GetBytes("data").CopyTo($bytes, 36); [BitConverter]::GetBytes([int]($samples * 2)).CopyTo($bytes, 40)
+        for ($i = 0; $i -lt $samples; $i++) { [BitConverter]::GetBytes([int16](12000 * [Math]::Sin(2 * [Math]::PI * 440 * $i / $rate))).CopyTo($bytes, 44 + 2 * $i) }
+        [IO.File]::WriteAllBytes((Join-Path $src "silencio-pista.wav"), $bytes)
+        $sendC = { param($type, $json) [void](Eval $cws ("window.external.sendMessage(JSON.stringify({v:@@V@@,id:crypto.randomUUID(),kind:'command',type:'$type',payload:$json}));true")) }
+        foreach ($name in "silencio-video.webm", "silencio-pista.wav") { & $sendC "media.import" (@{ path = (Join-Path $src $name); name = $null; folderId = $null } | ConvertTo-Json -Compress); Start-Sleep -Seconds 3 }
+        $listJs = @'
+(async () => { const id = crypto.randomUUID(); return await new Promise((resolve) => { window.external.receiveMessage((raw) => { const m = JSON.parse(raw); if (m.id === id) resolve(JSON.stringify(m.payload)); }); window.external.sendMessage(JSON.stringify({ v:@@V@@, id, kind: "query", type: "media.list", payload: { folderId: null, onlyUnfiled: false, kind: null, query: null, limit: null } })); }); })()
+'@
+        $items = ((Eval $cws $listJs 10000 | ConvertFrom-Json).result.items)
+        $vid = $items | Where-Object { $_.kind -eq "video" } | Select-Object -First 1
+        $wav = $items | Where-Object { $_.kind -eq "audio" } | Select-Object -First 1
+        $result.silenceMaterialImported = [bool]($vid -and $wav)
+        if ($vid -and $wav) {
+            Start-Sleep -Seconds 2
+            & $sendC "output.setMaster" (@{ master = "live" } | ConvertTo-Json -Compress)
+            & $sendC "audio.setMasterVolume" (@{ volumePct = 20 } | ConvertTo-Json -Compress)
+            & $sendC "media.play" (@{ mediaId = $vid.id; startPlaying = $true; volumePct = 100; muted = $false; loop = $true; fadeInMs = 0; fadeOutMs = 0; backdrop = "black"; onEnd = "back" } | ConvertTo-Json -Compress)
+            & $sendC "media.play" (@{ mediaId = $wav.id; startPlaying = $true; volumePct = 100; muted = $false; loop = $true; fadeInMs = $null; fadeOutMs = $null; backdrop = "black"; onEnd = "back" } | ConvertTo-Json -Compress)
+            Start-Sleep -Seconds 2
+        }
+    }
+
     # 4. Congelar el panel con un bucle infinito (no vuelve: se ignora su respuesta)
     $script:cdpId++
     $freeze = @{ id = $script:cdpId; method = "Runtime.evaluate"; params = @{ expression = "while (true) {}" } } | ConvertTo-Json -Depth 5 -Compress
@@ -228,6 +269,29 @@ new Promise((resolve) => {
         $result.alertHiddenByGlobalHotkeyWithFrozenPanel = $hidden
         $result.hideAlertHotkeyLogged = ((Log-Text) -match "Atajo global registrado: hideAlert")
         $result.alertWithFrozenPanelOutputStillAnimating = (Eval $ows $measure)
+
+        # e) «SILENCIO» con el panel congelado (v18): la tecla GLOBAL Ctrl+Alt+Shift+S calla la pista y pausa el video; nada pasa por el JavaScript del panel. Se mide con el medidor de picos
+        #    de Windows POR SESION de la aplicacion (no cuenta el sonido de otras aplicaciones). Un segundo pulso no reanuda nada.
+        if ($result.silenceMaterialImported) {
+            function Get-OakPids { $ids = New-Object System.Collections.Generic.List[int]; $ids.Add($proc.Id); Get-CimInstance Win32_Process -Filter "Name = 'msedgewebview2.exe'" | Where-Object { $_.CommandLine -match [regex]::Escape($data) } | ForEach-Object { $ids.Add([int]$_.ProcessId) }; return ,$ids.ToArray() }
+            function Get-AppPeak([int]$ms) { $pids = Get-OakPids; $max = 0.0; $end = [DateTime]::UtcNow.AddMilliseconds($ms); while ([DateTime]::UtcNow -lt $end) { $p = [double][PeakMeter]::SessionPeak("", $pids); if ($p -gt $max) { $max = $p }; Start-Sleep -Milliseconds 25 }; return $max }
+            $fgPaused = '(() => { const v = document.querySelector("[data-layer=foreground] video"); return !!v && v.paused; })()'
+            # Los atajos de Negro/Logo/Limpiar de arriba dejaron la salida oculta y el video en pausa: se vuelve a poner todo en marcha DESDE LA PAGINA DE SALIDA (el panel esta congelado).
+            [void](Eval $ows "window.external.sendMessage(JSON.stringify({v:@@V@@,id:crypto.randomUUID(),kind:'command',type:'output.setMaster',payload:{master:'live'}}));window.external.sendMessage(JSON.stringify({v:@@V@@,id:crypto.randomUUID(),kind:'command',type:'media.resume',payload:{target:'foreground'}}));window.external.sendMessage(JSON.stringify({v:@@V@@,id:crypto.randomUUID(),kind:'command',type:'media.resume',payload:{target:'track'}}));true")
+            Start-Sleep -Milliseconds 2500
+            $result.silenceBeforePeak = [math]::Round((Get-AppPeak 800), 4)
+            $result.silenceBeforeVideoPlaying = -not [bool](Eval $ows $fgPaused)
+            Press-Hotkey 0x53   # Ctrl+Alt+Shift+S
+            Start-Sleep -Milliseconds 900
+            $result.silenceVideoPausedWithFrozenPanel = [bool](Eval $ows $fgPaused)
+            $result.silenceAfterPeak = [math]::Round((Get-AppPeak 800), 4)
+            $result.silenceOutputStillAnimating = (Eval $ows $measure)
+            Press-Hotkey 0x53   # un segundo pulso NO reanuda nada
+            Start-Sleep -Milliseconds 900
+            $result.silenceSecondPressStillQuiet = ([bool](Eval $ows $fgPaused)) -and ((Get-AppPeak 600) -lt 0.001)
+            $result.silenceHotkeyLogged = ((Log-Text) -match "Atajo global registrado: silence")
+            $result.silenceOk = ($result.silenceBeforePeak -gt 0.005) -and $result.silenceBeforeVideoPlaying -and $result.silenceVideoPausedWithFrozenPanel -and ($result.silenceAfterPeak -lt 0.001) -and $result.silenceSecondPressStillQuiet
+        }
     }
 
     if ($AfterFreeze) { $result.afterFreeze = (& $AfterFreeze $proc $Port $data | Out-String).Trim() }
